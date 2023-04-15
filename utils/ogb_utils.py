@@ -22,3 +22,4 @@ def graph_batch_from_smiles(smiles_list, device=torch.device('cpu')):
     result['num_nodes'] = lstnode
     result['num_edges'] = result['edge_index'].shape[1]
     return result
+
