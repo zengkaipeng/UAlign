@@ -103,7 +103,6 @@ def align_kekule_pairs(r: str, p: str) -> Tuple[Chem.Mol, Chem.Mol]:
 
 def get_reaction_core(
     r: str, p: str, kekulize: bool = False,
-    use_h_labels: bool = False
 ) -> Tuple[Set, List]:
     """Get the reaction core and edits for given reaction
     Parameters
@@ -114,8 +113,6 @@ def get_reaction_core(
         SMILES string representing the product
     kekulize: bool,
         Whether to kekulize molecules to fetch minimal set of edits
-    use_h_labels: bool,
-        Whether to use change in hydrogen counts in edits
     """
     reac_mol = get_mol(r)
     prod_mol = get_mol(p)
@@ -178,20 +175,16 @@ def get_reaction_core(
                 core_edits.append(edit)
                 rxn_core.update([a_start, a_end])
 
-    if use_h_labels:
-        if len(rxn_core) == 0:
-            for atom in prod_mol.GetAtoms():
-                amap_num = atom.GetAtomMapNum()
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
 
-                numHs_prod = atom.GetTotalNumHs()
-                numHs_reac = reac_mol.GetAtomWithIdx(
-                    reac_amap[amap_num]
-                ).GetTotalNumHs()
+        numHs_prod = atom.GetTotalNumHs()
+        numHs_reac = reac_mol.GetAtomWithIdx(
+            reac_amap[amap_num]
+        ).GetTotalNumHs()
 
-                if numHs_prod != numHs_reac:
-                    edit = f"{amap_num}:{0}:{1.0}:{0.0}"
-                    core_edits.append(edit)
-                    rxn_core.add(amap_num)
+        if numHs_prod != numHs_reac:
+            rxn_core.add(amap_num)
 
     return rxn_core, core_edits
 
@@ -228,3 +221,8 @@ if __name__ == '__main__':
         legends=["REAC", 'PROD']
     )
     img.save('tmp_figs/example2.pdf')
+
+    p_mol = mols[1]
+    print([x.GetSymbol() for x in p_mol.GetAtoms()])
+    p_mol = Chem.AddHs(p_mol)
+    print([x.GetSymbol() for x in p_mol.GetAtoms()])
