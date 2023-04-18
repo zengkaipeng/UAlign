@@ -186,7 +186,7 @@ def get_reaction_core(
         if numHs_prod != numHs_reac:
             rxn_core.add(amap_num)
 
-    return rxn_core, core_edits
+    return rxn_core, core_edits, reac_bonds
 
 
 if __name__ == '__main__':
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     )
     img.save('tmp_figs/example1.pdf')
 
-    rxn_core, core_edits = get_reaction_core(reac, prod, True, True)
+    rxn_core, core_edits, real_bond = get_reaction_core(reac, prod, True, True)
     print('[RXN CORE]')
     print(rxn_core)
     print('[CORE EDIT]')

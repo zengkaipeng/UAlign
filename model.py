@@ -79,3 +79,9 @@ class EdgeUpdateLayer(torch.nn.Module):
 
         x = torch.cat([node_feat_sum, node_feat_diff, edge_feats], dim=-1)
         return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
+
+
+def edit_collect_fn(data_batch):
+    batch_size = len(data_batch)
+    max_node_size = max([x[0]['num_nodes'] for x in data_batch])
+    
