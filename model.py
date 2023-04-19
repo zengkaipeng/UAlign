@@ -161,13 +161,10 @@ class ExtendedAtomEncoder(torch.nn.Module):
 
 class EdgeUpdateLayer(torch.nn.Module):
     def __init__(
-        self,
-        edge_dim: int = 64,
-        node_dim: int = 64,
-        residual: bool = False
+        self,  edge_dim: int = 64,
+        node_dim: int = 64, residual: bool = False
     ):
         super(EdgeUpdateLayer, self).__init__()
-        input_dim = node_dim * 2 + edge_dim
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(input_dim, input_dim),
             torch.nn.BatchNorm1d(input_dim),
@@ -177,20 +174,14 @@ class EdgeUpdateLayer(torch.nn.Module):
         self.residual = residual
 
     def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor,
+        self, node_feat: torch.Tensor, edge_feats: torch.Tensor,
     ) -> torch.Tensor:
-        node_i = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[0]
-        )
-        node_j = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[1]
-        )
-        node_feat_sum = node_i + node_j
-        node_feat_diff = torch.abs(node_i - node_j)
-
-        x = torch.cat([node_feat_sum, node_feat_diff, edge_feats], dim=-1)
+        node_feat1 = torch.unsqueeze(node_feat, dim=1)
+        node_feat2 = torch.unsqueeze(node_feat, dim=2)
+        batch_size, num_nodes, dim = node_feat
+        node_feat1 = node_feat1.repeat(1, num_nodes, 1, 1)
+        node_feat2 = node_feat2.repeat(1, 1, num_nodes, 1)
+        x = torch.cat([node_feat1, node_feat2, edge_feats], dim=-1)
         return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
 
 
