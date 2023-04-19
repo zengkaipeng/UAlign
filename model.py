@@ -120,6 +120,45 @@ class ExtendedBondEncoder(torch.nn.Module):
         return edge_result
 
 
+class ExtendedAtomEncoder(torch.nn.Module):
+    def __init__(self, dim: int, n_class: Optional[int] = None):
+        """The extened bond encoder, extended from ogb atom encoder for mol
+        it padded the atom feature matrix with zero features.
+
+        Args:
+            dim (int): dim of output result and embedding table
+            n_class (int): number of reaction classes (default: `None`)
+        """
+        super(ExtendedAtomEncoder, self).__init__()
+        self.atom_encoder = AtomEncoder(dim)
+        self.n_class = n_class
+        if n_class is not None:
+            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
+            self.lin = torch.nn.Linear(dim + dim, dim)
+
+    def forward(
+        self, num_nodes: List[int], node_feat: List[torch.Tensor],
+        rxn_class: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        max_node, batch_size = max(num_nodes), len(num_nodes)
+        if self.n_class is not None:
+            if rxn_class is None:
+                raise ValueError('missing reaction class information')
+            else:
+                rxn_class_emb = self.rxn_class_emb(rxn_class)
+                rxn_class_emb = rxn_class_emb.reshape(batch_size, 1, -1)
+                rxn_class_emb = rxn_class_emb.repeat(1, max_node, 1)
+        result = torch.zeros(batch_size, max_node, self.dim)
+        result = result.to(node_feat[0].device)
+        for idx in range(batch_size):
+            result[idx][:num_nodes[idx]] = self.atom_encoder(node_feat[idx])
+
+        if self.n_class is not None:
+            result = torch.cat([result, rxn_class_emb], dim=-1)
+            result = self.lin(result)
+        return result
+
+
 class EdgeUpdateLayer(torch.nn.Module):
     def __init__(
         self,
