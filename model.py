@@ -45,9 +45,12 @@ class ExtendedBondEncoder(torch.nn.Module):
         """
         super(ExtendedBondEncoder, self).__init__()
         self.padding_emb = torch.nn.Parameter(torch.zeros(dim))
+        self.self_loop = torch.nn.Parameter(torch.zeros(dim))
         self.bond_encoder = BondEncoder(dim)
         self.dim, self.n_class = dim, n_class
+
         torch.nn.init.xavier_uniform_(self.padding_emb)
+        torch.nn.init.xavier_uniform_(self.self_loop)
 
         if n_class is not None:
             self.class_emb = torch.nn.Embedding(n_class, dim)
@@ -75,6 +78,8 @@ class ExtendedBondEncoder(torch.nn.Module):
         edge_result = self.padding_emb.repeat(num_nodes, num_nodes, 1)
         xindex, yindex = edge_index
         edge_result[xindex, yindex] = self.bond_encoder(edge_feat)
+        diag_index = list(range(num_nodes))
+        edge_result[diag_index, diag_index] = self.self_loop
         return edge_result
 
     def forward(
@@ -140,6 +145,22 @@ class ExtendedAtomEncoder(torch.nn.Module):
         self, num_nodes: List[int], node_feat: List[torch.Tensor],
         rxn_class: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+        """
+        given a batch of graph informations, num_nodes and node_feats
+        and class type (optional) return a matrix of encoded graph feat
+
+        Args:
+            num_nodes (List[int]): a list of batch size, containing 
+                the number of nodes of each graph
+            node_feat (List[torch.Tensor]): a list of tensors, each 
+                is of the shape [num_nodes, feat_dim]
+            rxn_class (torch.Tensor): a list of batch size,
+                containing the reaction type (default: `None`)
+
+        Returns:
+            torch.Tensor: a tensor of shape [batch_size, num_node, dim]
+            representing the padded node features, padded with zeros.
+        """
         max_node, batch_size = max(num_nodes), len(num_nodes)
         if self.n_class is not None:
             if rxn_class is None:
@@ -165,9 +186,10 @@ class EdgeUpdateLayer(torch.nn.Module):
         node_dim: int = 64, residual: bool = False
     ):
         super(EdgeUpdateLayer, self).__init__()
+        input_dim = node_dim * 2 + edge_dim
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(input_dim, input_dim),
-            torch.nn.BatchNorm1d(input_dim),
+            torch.nn.LayerNorm(input_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(input_dim, edge_dim)
         )
@@ -183,6 +205,89 @@ class EdgeUpdateLayer(torch.nn.Module):
         node_feat2 = node_feat2.repeat(1, 1, num_nodes, 1)
         x = torch.cat([node_feat1, node_feat2, edge_feats], dim=-1)
         return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
+
+
+class FCGATLayer(torch.nn.Module):
+    def __init__(
+        self, input_dim: int, edge_dim: int,
+        n_heads: int, dropout: float = 0.1
+    ):
+        super(FCGATLayer, self).__init__()
+        output_dim = input_dim // n_heads
+        assert output_dim * n_heads == input_dim, \
+            "input dim should be evenly divided by n_heads"
+        self.input_dim, self.output_dim = input_dim, output_dim
+        self.mid_dim, self.n_heads = mid_dim, n_heads
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        self.edge_lin = torch.nn.Linear(edge_dim, output_dim * n_heads, False)
+        self.lin_V = torch.nn.Linear(input_dim, output_dim * n_heads, False)
+        attn_node_shape = (1, 1, n_heads, output_dim)
+        attn_edge_shape = (1, 1, 1, n_heads, output_dim)
+        self.att_src = torch.nn.Parameter(torch.zeros(*attn_node_shape))
+        self.att_dst = torch.nn.Parameter(torch.zeros(*attn_node_shape))
+        self.att_edge = torch.nn.Parameter(torch.zeros(*attn_edge_shape))
+        self.bias_node = torch.nn.Parameter(torch.zeros(n_heads, output_dim))
+        self.bias_edge = torch.nn.Parameter(torch.zeros(n_heads, output_dim))
+
+        torch.nn.init.xavier_uniform_(self.att_src)
+        torch.nn.init.xavier_uniform_(self.att_dst)
+        torch.nn.init.xavier_uniform_(self.att_edge)
+        self.ff_block = torch.nn.Sequential(
+            torch.nn.Linear(n_heads * output_dim, n_heads * output_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(n_heads * output_dim, n_heads * output_dim),
+            torch.nn.Dropout(dropout)
+        )
+
+        self.ln_norm1 = torch.nn.LayerNorm(output_dim * n_heads)
+        self.ln_norm2 = torch.nn.LayerNorm(output_dim * n_heads)
+
+    def forward(
+        self, node_feats: torch.Tensor, edge_feats: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """
+        forward function, input the node feats and edge feats, 
+        output the node feat of a new layer
+        Args:
+            node_feats (torch.Tensor): a tensor of shape [batch_size, max_node, dim]
+            edge_feats (torch.Tensor): a tensor of shape [batch_size, max_node, max_node, dim]
+            attn_mask (torch.Tensor): a tensor of shape [batch_size, max_node, max_node]
+            the place set as false will not be calculated as attn_weight (default: `None`)
+        """
+        batch_size, max_node = node_feats.shape[:2]
+        node_o_shape = [batch_size, -1, self.n_heads, self.output_dim]
+        edge_o_shape = [
+            batch_size, max_node, max_node,
+            self.n_heads, self.output_dim
+        ]
+        x_proj = self.lin_V(node_feats).reshape(*node_o_shape)
+        src_att = (self.att_src * x_proj).sum(dim=-1)
+        dst_att = (self.att_dst * x_proj).sum(dim=-1)
+        src_att = dst_att.unsqueeze(dim=2).repeat(1, 1, max_node, 1)
+        dst_att = src_att.unsqueeze(dim=1).repeat(1, max_node, 1, 1)
+
+        e_value = self.edge_lin(node_feats).reshape(*edge_o_shape)
+        e_att = (self.att_edge * e_value).sum(dim=-1)
+
+        att_weight = src_att + dst_att + e_att
+        if attn_mask is not None:
+            attn_mask = torch.logical_not(attn_mask)
+            INF = (1 << 32) - 1
+            att_weight = torch.masked_fill(att_weight, attn_mask, -INF)
+        att_weight = torch.softmax(att_weight, dim=-1).unsqueeze(-1)
+        # [batch_size, max_node, max_node, n_heads, 1]
+
+        x_v = x_proj.unsqueeze(dim=1).repeat(1, max_node, 1, 1, 1)
+
+        x_output = att_weight * ((e_value + self.edge_bias) + x_v)
+        x_output = self.dropout_fun(x_output.sum(dim=2) + self.node_bias)
+        x_output = x_output.reshape(batch_size, max_node, -1)
+
+        x_output = self.ln_norm1(node_feats + x_output)
+        x_output = self.ln_norm2(x_output + self.ff_block(x_output))
+        return x_output
 
 
 def edit_collect_fn(data_batch):
