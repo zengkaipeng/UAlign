@@ -184,7 +184,7 @@ class MixGraphEncoder(torch.nn.Modlue):
 
 
 def sparse_edit_collect_fn(data_batch):
-    batch_size, rxn_class, node_label = len(data_batch), [], []
+    batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     for idx, data in enumerate(data_batch):
         if len(data) == 4:
@@ -196,6 +196,7 @@ def sparse_edit_collect_fn(data_batch):
         edge_edits.append(e_ed)
         edge_types.append(e_type)
         node_label.append(n_lb)
+        num_l.append(graph['num_nodesobject: _T'])
 
         edge_idxes.append(graph['edge_index'] + lstnode)
         edge_feats.append(graph['edge_feat'])
@@ -214,7 +215,7 @@ def sparse_edit_collect_fn(data_batch):
     node_label = torch.cat(node_label, dim=0)
 
     if len(rxn_class) == 0:
-        return Data(**result), node_label, edge_edits, edge_types
+        return Data(**result), node_label, num_l, edge_edits, edge_types
     else:
         return Data(**result), torch.LongTensor(rxn_class),\
-            node_label, edge_edits, edge_types
+            node_label, num_l, edge_edits, edge_types
