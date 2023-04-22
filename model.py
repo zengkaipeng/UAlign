@@ -1,8 +1,8 @@
 import torch
 import torch_scatter
-from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+from torch_geometric.data import Data
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -307,9 +307,14 @@ def edit_collect_fn(data_batch):
         attn_mask[idx][:node_num, :node_num] = True
         edge_edits.append(e_ed)
         edge_types.append(e_type)
-        graphs.append(graph)
+
+        graph['node_feat'] = torch.from_numpy(graph['node_feat']).float()
+        graph['edge_feat'] = torch.from_numpy(graph['edge_feat']).float()
+        graph['edge_index'] = torch.from_numpy(graph['edge_index'])
+        graphs.append(Data(**graph))
+
     if len(rxn_class) == 0:
-        return graphs, node_label, edge_edits, edge_types
+        return attn_mask, graphs, node_label, edge_edits, edge_types
     else:
-        return graphs, torch.LongTensor(rxn_class),\
+        return attn_mask, graphs, torch.LongTensor(rxn_class),\
             node_label, edge_edits, edge_types

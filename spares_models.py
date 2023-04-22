@@ -1,8 +1,8 @@
 import torch
 import torch_scatter
-from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+from torch_geometric.data import Data
 
 
 class GINConv(torch.nn.Module):
@@ -183,5 +183,38 @@ class MixGraphEncoder(torch.nn.Modlue):
         }
 
 
-def sparse_collect_fn(data_batch):
-    pass
+def sparse_edit_collect_fn(data_batch):
+    batch_size, rxn_class, node_label = len(data_batch), [], []
+    edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
+    for idx, data in enumerate(data_batch):
+        if len(data) == 4:
+            graph, n_lb, e_ed, e_type = data
+        else:
+            graph, r_class, n_lb, e_ed, e_type = data
+            rxn_class.append(r_class)
+
+        edge_edits.append(e_ed)
+        edge_types.append(e_type)
+        node_label.append(n_lb)
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+        lstnode += graph['num_nodes']
+        batch.append(np.ones(graph['num_nodes'], dtype=np.int64) * idx)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0)
+    }
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+    node_label = torch.cat(node_label, dim=0)
+
+    if len(rxn_class) == 0:
+        return Data(**result), node_label, edge_edits, edge_types
+    else:
+        return Data(**result), torch.LongTensor(rxn_class),\
+            node_label, edge_edits, edge_types
