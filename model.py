@@ -182,8 +182,8 @@ class ExtendedAtomEncoder(torch.nn.Module):
 
 class EdgeUpdateLayer(torch.nn.Module):
     def __init__(
-        self,  edge_dim: int = 64,
-        node_dim: int = 64, residual: bool = False
+        self,  edge_dim: int = 64, node_dim: int = 64,
+        residual: bool = False, use_ln: bool = True
     ):
         super(EdgeUpdateLayer, self).__init__()
         input_dim = node_dim * 2 + edge_dim
@@ -194,6 +194,9 @@ class EdgeUpdateLayer(torch.nn.Module):
             torch.nn.Linear(input_dim, edge_dim)
         )
         self.residual = residual
+        self.use_ln = use_ln
+        if self.use_ln:
+            self.ln_norm1 = torch.nn.LayerNorm(edge_dim)
 
     def forward(
         self, node_feat: torch.Tensor, edge_feats: torch.Tensor,
@@ -204,13 +207,17 @@ class EdgeUpdateLayer(torch.nn.Module):
         node_feat1 = node_feat1.repeat(1, num_nodes, 1, 1)
         node_feat2 = node_feat2.repeat(1, 1, num_nodes, 1)
         x = torch.cat([node_feat1, node_feat2, edge_feats], dim=-1)
-        return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
+        result = self.mlp(x) + edge_feats if self.residual else self.mlp(x)
+        if self.use_ln:
+            return self.ln_norm1(result)
+        else:
+            return result
 
 
 class FCGATLayer(torch.nn.Module):
     def __init__(
-        self, input_dim: int, edge_dim: int,
-        n_heads: int, dropout: float = 0.1
+        self, input_dim: int, edge_dim: int, n_heads: int,
+        dropout: float = 0.1, negative_slope: float = 0.1
     ):
         super(FCGATLayer, self).__init__()
         output_dim = input_dim // n_heads
@@ -218,6 +225,7 @@ class FCGATLayer(torch.nn.Module):
             "input dim should be evenly divided by n_heads"
         self.input_dim, self.output_dim = input_dim, output_dim
         self.mid_dim, self.n_heads = mid_dim, n_heads
+        self.negative_slope = negative_slope
         self.dropout_fun = torch.nn.Dropout(dropout)
         self.edge_lin = torch.nn.Linear(edge_dim, output_dim * n_heads, False)
         self.lin_V = torch.nn.Linear(input_dim, output_dim * n_heads, False)
@@ -271,7 +279,9 @@ class FCGATLayer(torch.nn.Module):
         e_value = self.edge_lin(node_feats).reshape(*edge_o_shape)
         e_att = (self.att_edge * e_value).sum(dim=-1)
 
-        att_weight = src_att + dst_att + e_att
+        att_weight = torch.nn.functional.leakly_relu(
+            src_att + dst_att + e_att, self.negative_slope
+        )
         if attn_mask is not None:
             attn_mask = torch.logical_not(attn_mask)
             INF = (1 << 32) - 1
@@ -318,3 +328,8 @@ def edit_collect_fn(data_batch):
     else:
         return attn_mask, graphs, torch.LongTensor(rxn_class),\
             node_label, edge_edits, edge_types
+
+
+class FCGATEncoder(torch.nn.Module):
+    def __init__(self, n_layers):
+        super(FCGATEncoder, self).__init__()
