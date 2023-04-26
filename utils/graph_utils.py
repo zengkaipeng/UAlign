@@ -28,6 +28,7 @@ def smiles2graph(smiles_string, with_amap=False):
     # atoms
     atom_features_list = []
     for atom in mol.GetAtoms():
+        print(atom.GetIdx())
         atom_features_list.append(atom_to_feature_vector(atom))
     x = np.array(atom_features_list, dtype=np.int64)
 
