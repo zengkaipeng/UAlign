@@ -3,6 +3,7 @@ import torch_scatter
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
+from GATconv import GATconv
 
 
 class GINConv(torch.nn.Module):
@@ -31,7 +32,6 @@ class GINConv(torch.nn.Module):
         )
 
         return self.mlp((1 + self.eps) * node_feats + message_reduce)
-
 
 
 class SparseEdgeUpdateLayer(torch.nn.Module):
@@ -113,6 +113,32 @@ class GINBase(torch.nn.Module):
                 else torch.relu(node_feats)
             )
         return node_feats, edge_feats
+
+
+class GATBase(torch.nn.Module):
+    def __init__(
+        self, num_layers: int = 4, num_heads: int = 4,
+        embedding_dim: int = 64, dropout: float = 0.7,
+        residual: bool = True, negative_slope=0.2
+    ):
+        super(GATBase, self).__init__()
+        if num_layers < 2:
+            raise ValueError("Number of GNN layers must be greater than 1.")
+        self.convs = torch.nn.ModuleList()
+        self.batch_norms = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers, self.num_heads = num_layers, num_heads
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        for layer in range(self.num_layers):
+            self.convs.append(GATConv(
+                in_channels=embedding_dim, out_channels=embedding_dim,
+                heads=num_heads, negative_slope, dropout=dropout
+            ))
+            self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim, residual=residual
+            ))
+        self.residual = residual
 
 
 def sparse_edit_collect_fn(data_batch):
