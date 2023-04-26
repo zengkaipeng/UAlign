@@ -74,7 +74,8 @@ class GINBase(torch.nn.Module):
         self,  num_layers: int = 4,
         embedding_dim: int = 64,
         dropout: float = 0.7,
-        residual: bool = True
+        residual: bool = True,
+        edge_last: bool = True,
     ):
         super(GINBase, self).__init__()
         if num_layers < 2:
@@ -87,10 +88,12 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             self.convs.append(GINConv(embedding_dim))
             self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
-            self.edge_update.append(SparseEdgeUpdateLayer(
-                embedding_dim, embedding_dim, residual=residual
-            ))
+            if edge_last or layer < self.num_layers - 1:
+                self.edge_update.append(SparseEdgeUpdateLayer(
+                    embedding_dim, embedding_dim, residual=residual
+                ))
         self.residual = residual
+        self.edge_last = edge_last
 
     def forward(
         self,
@@ -102,11 +105,11 @@ class GINBase(torch.nn.Module):
                 node_feats=node_feats, edge_feats=edge_feats,
                 edge_index=edge_index, num_nodes=num_nodes,
             ))
-
-            edge_feats = self.edge_update[layer](
-                edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=edge_index
-            )
+            if self.edge_last or layer < self.num_layers - 1:
+                edge_feats = self.edge_update[layer](
+                    edge_feats=edge_feats, node_feats=node_feats,
+                    edge_index=edge_index
+                )
 
             node_feats = self.dropout_fun(
                 node_feats if layer == self.num_layers - 1
@@ -119,7 +122,8 @@ class GATBase(torch.nn.Module):
     def __init__(
         self, num_layers: int = 4, num_heads: int = 4,
         embedding_dim: int = 64, dropout: float = 0.7,
-        residual: bool = True, negative_slope=0.2
+        residual: bool = True, negative_slope: float = 0.2,
+        edge_last: bool = True
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -135,10 +139,34 @@ class GATBase(torch.nn.Module):
                 heads=num_heads, negative_slope, dropout=dropout
             ))
             self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
-            self.edge_update.append(SparseEdgeUpdateLayer(
-                embedding_dim, embedding_dim, residual=residual
-            ))
+            if edge_last or layer < self.num_layers - 1:
+                self.edge_update.append(SparseEdgeUpdateLayer(
+                    embedding_dim, embedding_dim, residual=residual
+                ))
         self.residual = residual
+        self.edge_last = edge_last
+
+    def forward(
+        self,
+        node_feats: torch.Tensor, edge_feats: torch.Tensor,
+        edge_index: torch.Tensor, num_nodes: int
+    ) -> torch.Tensor:
+        for layer in range(self.num_layers):
+            node_feats = self.bathc_norms[layer](self.convs[layer](
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=edge_index
+            ))
+            if self.edge_last or layer < self.num_layers - 1:
+                edge_feats = self.edge_update[layer](
+                    edge_feats=edge_feats, node_feats=node_feats,
+                    edge_index=edge_index
+                )
+
+            node_feats = self.dropout_fun(
+                node_feats if layer == self.num_layers - 1
+                else torch.relu(node_feats)
+            )
+        return node_feats, edge_feats
 
 
 def sparse_edit_collect_fn(data_batch):

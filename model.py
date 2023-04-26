@@ -331,5 +331,12 @@ def edit_collect_fn(data_batch):
 
 
 class FCGATEncoder(torch.nn.Module):
-    def __init__(self, n_layers):
+    def __init__(
+        self, n_layers: int = 6, n_heads: int = 4,
+        embedding_dim: int = 256, dropout: float = 0.2,
+        negative_slope: float = 0.2, n_class: Optional[int] = None
+    ):
         super(FCGATEncoder, self).__init__()
+        self.convs = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        
