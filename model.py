@@ -339,4 +339,14 @@ class FCGATEncoder(torch.nn.Module):
         super(FCGATEncoder, self).__init__()
         self.convs = torch.nn.ModuleList()
         self.edge_update = torch.nn.ModuleList()
+        self.num_layers, self.num_heads = n_layers, n_heads
+        for layer in self.num_layers:
+            self.convs.append(FCGATLayer(
+                embedding_dim, embedding_dim, n_heads,
+                dropout=dropout, negative_slope=negative_slope
+            ))
+            self.edge_update.append(EdgeUpdateLayer(
+                embedding_dim, embedding_dim, residual=True,
+                use_ln=True
+            ))
         

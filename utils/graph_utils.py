@@ -3,6 +3,9 @@ from ogb.utils.features import (
     bond_to_feature_vector, atom_feature_vector_to_dict
 )
 import torch
+import rdkit
+from rdkit import Chem
+import numpy as np
 
 
 def smiles2graph(smiles_string, with_amap=False):
@@ -65,4 +68,7 @@ def smiles2graph(smiles_string, with_amap=False):
     graph['node_feat'] = x
     graph['num_nodes'] = len(x)
 
-    return graph if not with_amap else graph, amap_idx
+    if with_amap:
+        return graph, amap_idx
+    else:
+        return graph
