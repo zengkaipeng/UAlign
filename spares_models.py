@@ -182,7 +182,7 @@ def sparse_edit_collect_fn(data_batch):
         edge_edits.append(e_ed)
         edge_types.append(e_type)
         node_label.append(n_lb)
-        num_l.append(graph['num_nodesobject: _T'])
+        num_l.append(graph['num_nodes'])
 
         edge_idxes.append(graph['edge_index'] + lstnode)
         edge_feats.append(graph['edge_feat'])

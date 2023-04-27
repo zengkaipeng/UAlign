@@ -10,7 +10,6 @@ class EditDataset(torch.utils.data.Dataset):
         self, graphs: List[Dict],
         activate_nodes: List[List],
         edge_types: List[List[List]],
-        edge_edits: List[List[Tuple]],
         rxn_class: Optional[List[int]] = None
     ):
         super(EditDataset, self).__init__()
@@ -27,10 +26,10 @@ class EditDataset(torch.utils.data.Dataset):
         node_label[self.activate_nodes[index]] = 1
         if self.rxn_class is not None:
             return self.graphs[index], self.rxn_class[index], node_label, \
-                self.edge_types[index], self.activate_nodes[i]
+                self.edge_types[index], self.activate_nodes[index]
         else:
             return self.graphs[index], node_label, \
-                self.edge_types[index], self.activate_nodes[i]
+                self.edge_types[index], self.activate_nodes[index]
 
 
 class ExtendedBondEncoder(torch.nn.Module):
@@ -339,7 +338,7 @@ class FCGATEncoder(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.edge_update = torch.nn.ModuleList()
         self.num_layers, self.num_heads = n_layers, n_heads
-        for layer in self.num_layers:
+        for layer in range(self.num_layers):
             self.convs.append(FCGATLayer(
                 embedding_dim, embedding_dim, n_heads,
                 dropout=dropout, negative_slope=negative_slope
@@ -348,3 +347,29 @@ class FCGATEncoder(torch.nn.Module):
                 embedding_dim, embedding_dim, residual=True,
                 use_ln=True
             ))
+        self.drop_fun = torch.nn.Dropout(dropout)
+
+
+    def forward(
+        self, 
+        node_feats: torch.Tensor, edge_feats: torch.Tensor,
+        attn_mask: torch.Tensor
+    ):
+        for layer in range(self.num_layers):
+            node_feats = self.convs[layer](
+                node_feats=node_feats, edge_feats=edge_feats,
+                attn_mask=attn_mask
+            )
+            edge_feats = self.edge_update[layer](
+                node_feat=node_feats, edge_feats=edge_feats
+            )
+
+        return node_feats, edge_feats
+
+
+
+
+
+
+
+

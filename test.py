@@ -3,6 +3,7 @@ from utils.chemistry_parse import (
 	get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE
 )
 from utils.graph_utils import smiles2graph
+from torch.utils.data import DataLoader
 
 
 with open('utils/test_examples.txt') as Fin:
@@ -26,8 +27,11 @@ for react in content:
     edge.append(edge_types)
 
 
-dataset = EditDataset(graphs, nodes, edge_types)
+dataset = EditDataset(graphs, nodes, edge)
 
+Loader = DataLoader(dataset, collate_fn=edit_collect_fn, batch_size=2)
+for x in Loader:
+	print(x)
 
 
 
