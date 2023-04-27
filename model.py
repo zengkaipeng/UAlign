@@ -17,7 +17,6 @@ class EditDataset(torch.utils.data.Dataset):
         self.graphs = graphs
         self.activate_nodes = activate_nodes
         self.edge_types = edge_types
-        self.edge_edits = edge_edits
         self.rxn_class = rxn_class
 
     def __len__(self):
@@ -28,10 +27,10 @@ class EditDataset(torch.utils.data.Dataset):
         node_label[self.activate_nodes[index]] = 1
         if self.rxn_class is not None:
             return self.graphs[index], self.rxn_class[index], node_label, \
-                self.edge_edits[index], self.edge_types[index]
+                self.edge_types[index], self.activate_nodes[i]
         else:
             return self.graphs[index], node_label, \
-                self.edge_edits[index], self.edge_types[index]
+                self.edge_types[index], self.activate_nodes[i]
 
 
 class ExtendedBondEncoder(torch.nn.Module):
@@ -305,17 +304,17 @@ def edit_collect_fn(data_batch):
     max_node = max([x[0]['num_nodes'] for x in data_batch])
     attn_mask = torch.zeros(batch_size, max_node, max_node, dtype=bool)
     node_label = torch.ones(batch_size, max_node) * -100
-    edge_edits, edge_types, graphs, rxn_class = [], [], [], []
+    edge_cores, edge_types, graphs, rxn_class = [], [], [], []
     for idx, data in enumerate(data_batch):
         if len(data) == 4:
-            graph, n_lb, e_ed, e_type = data
+            graph, n_lb, e_type, e_core = data
         else:
-            graph, r_class, n_lb, e_ed, e_type = data
+            graph, r_class, n_lb, e_type, e_core = data
             rxn_class.append(r_class)
         node_num = graph['num_nodes']
         node_label[idx][:node_num] = n_lb
         attn_mask[idx][:node_num, :node_num] = True
-        edge_edits.append(e_ed)
+        edge_cores.append(e_core)
         edge_types.append(e_type)
 
         graph['node_feat'] = torch.from_numpy(graph['node_feat']).float()
@@ -324,10 +323,10 @@ def edit_collect_fn(data_batch):
         graphs.append(Data(**graph))
 
     if len(rxn_class) == 0:
-        return attn_mask, graphs, node_label, edge_edits, edge_types
+        return attn_mask, graphs, node_label, edge_cores, edge_types
     else:
         return attn_mask, graphs, torch.LongTensor(rxn_class),\
-            node_label, edge_edits, edge_types
+            node_label, edge_cores, edge_types
 
 
 class FCGATEncoder(torch.nn.Module):
@@ -349,4 +348,3 @@ class FCGATEncoder(torch.nn.Module):
                 embedding_dim, embedding_dim, residual=True,
                 use_ln=True
             ))
-        

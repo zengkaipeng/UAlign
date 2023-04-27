@@ -8,7 +8,7 @@ from rdkit import Chem
 import numpy as np
 
 
-def smiles2graph(smiles_string, with_amap=False):
+def smiles2graph(smiles_string, with_amap=False, kekulize=False):
     """
     Converts SMILES string to graph Data object
     :input: SMILES string (str)
@@ -16,6 +16,8 @@ def smiles2graph(smiles_string, with_amap=False):
     """
 
     mol = Chem.MolFromSmiles(smiles_string)
+    if mol is not None and kekulize:
+        Chem.Kekulize(mol)
     if with_amap:
         max_amap = max([atom.GetAtomMapNum() for atom in mol.GetAtoms()])
         for atom in mol.GetAtoms():
@@ -31,7 +33,6 @@ def smiles2graph(smiles_string, with_amap=False):
     # atoms
     atom_features_list = []
     for atom in mol.GetAtoms():
-        print(atom.GetIdx())
         atom_features_list.append(atom_to_feature_vector(atom))
     x = np.array(atom_features_list, dtype=np.int64)
 
