@@ -349,9 +349,8 @@ class FCGATEncoder(torch.nn.Module):
             ))
         self.drop_fun = torch.nn.Dropout(dropout)
 
-
     def forward(
-        self, 
+        self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
         attn_mask: torch.Tensor
     ):
@@ -365,11 +364,3 @@ class FCGATEncoder(torch.nn.Module):
             )
 
         return node_feats, edge_feats
-
-
-
-
-
-
-
-

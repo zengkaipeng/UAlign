@@ -11,7 +11,7 @@ class GINConv(torch.nn.Module):
         super(GINConv, self).__init__()
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(embedding_dim, 2 * embedding_dim),
-            torch.nn.BatchNorm1d(2 * embedding_dim),
+            torch.nn.LayerNorm(2 * embedding_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(2 * embedding_dim, embedding_dim)
         )
@@ -45,7 +45,7 @@ class SparseEdgeUpdateLayer(torch.nn.Module):
         input_dim = node_dim * 2 + edge_dim
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(input_dim, input_dim),
-            torch.nn.BatchNorm1d(input_dim),
+            torch.nn.LayerNorm(input_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(input_dim, edge_dim)
         )
@@ -87,7 +87,7 @@ class GINBase(torch.nn.Module):
         self.dropout_fun = torch.nn.Dropout(dropout)
         for layer in range(self.num_layers):
             self.convs.append(GINConv(embedding_dim))
-            self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
+            self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
                 self.edge_update.append(SparseEdgeUpdateLayer(
                     embedding_dim, embedding_dim, residual=residual
@@ -138,7 +138,7 @@ class GATBase(torch.nn.Module):
                 in_channels=embedding_dim, out_channels=embedding_dim,
                 heads=num_heads, negative_slope, dropout=dropout
             ))
-            self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
+            self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
                 self.edge_update.append(SparseEdgeUpdateLayer(
                     embedding_dim, embedding_dim, residual=residual
