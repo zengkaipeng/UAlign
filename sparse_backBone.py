@@ -98,12 +98,13 @@ class GINBase(torch.nn.Module):
     def forward(
         self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor, num_nodes: int
+        edge_index: torch.Tensor
     ) -> torch.Tensor:
+        num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
             node_feats = self.bathc_norms[layer](self.convs[layer](
                 node_feats=node_feats, edge_feats=edge_feats,
-                edge_index=edge_index, num_nodes=num_nodes,
+                edge_index=edge_index, size=num_nodes,
             ))
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
@@ -219,10 +220,10 @@ class SparseAtomEncoder(torch.nn.Module):
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
 
-    def forward(self, node_feat, num_nodes, rxn_class=None):
+    def forward(self, node_feat, num_nodes=None, rxn_class=None):
         result = self.atom_encoder(node_feat)
         if self.n_class is not None:
-            if rxn_class is None:
+            if rxn_class is None or num_nodes is None:
                 raise ValueError('missing reaction class information')
             else:
                 rxn_cls = torch.LongTensor(node_feat.shape[0])
@@ -245,10 +246,10 @@ class SparseBondEncoder(torch.nn.Module):
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
 
-    def forward(self, edge_feat, num_edges, rxn_class=None):
+    def forward(self, edge_feat, num_edges=None, rxn_class=None):
         result = self.bond_encoder(edge_feat)
         if self.n_class is not None:
-            if rxn_class is None:
+            if rxn_class is None or num_edges is None:
                 raise ValueError('missing reaction class information')
             else:
                 rxn_cls = torch.LongTensor(node_feat.shape[0])

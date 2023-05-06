@@ -1,6 +1,8 @@
 import torch
 from backBone import FCGATEncoder, ExtendedAtomEncoder, ExtendedBondEncoder
-from sparse_backBone import GINBase, GATBase
+from sparse_backBone import (
+    GINBase, GATBase, SparseAtomEncoder, SparseBondEncoder
+)
 from itertools import combinations
 
 
@@ -31,7 +33,8 @@ class GraphEditModel(torch.nn.Module):
             torch.nn.Linear(node_dim, 1)
         )
         if self.sparse:
-            pass
+            self.atom_encoder = SparseAtomEncoder(node_dim)
+            self.bond_encoder = SparseBondEncoder(edge_dim)
         else:
             self.atom_encoder = ExtendedAtomEncoder(node_dim)
             self.edge_encoder = ExtendedBondEncoder(edge_dim)
@@ -82,15 +85,81 @@ class GraphEditModel(torch.nn.Module):
 
         return self.edge_predictor(ed_feat)
 
-    def get_labels(self, activate_nodes, edge_type, empty_type=0):
-        edge_feats = []
-        for idx, p in enumerate(edge_type):
-            for x, y in combinations(p, 2):
-                if (x, y) in edge_type[idx]:
-                    t_type = edge_type[idx][(x, y)]
-                elif (y, x) in edge_type[idx]:
-                    t_type = edge_type[idx][(y, x)]
-                else:
-                    t_type = empty_type
-                edge_feats.append(t_type)
-        return torch.LongTensor(edge_feats)
+    def get_init_feats(
+        self, graphs, num_nodes=None, num_edges=None, rxn_class=None
+    ):
+        if self.sparse:
+            node_feat = self.atom_encoder(
+                graphs['node_feat'], num_nodes, rxn_class
+            )
+            edge_feat = self.bond_encoder(
+                graphs['edge_feat'], num_edges, rxn_class
+            )
+        else:
+            num_nodes = [x['num_nodes'] for x in graphs]
+            node_feat = [x['node_feat'] for x in graphs]
+            edge_feat = [x['edge_feat'] for x in graphs]
+            edge_index = [x['edge_index'] for x in graphs]
+            node_feat = self.atom_encoder(num_nodes, node_feat, rxn_class)
+            edge_feat = self.bond_encoder(
+                num_nodes=num_nodes, edge_index=edge_index,
+                edge_feat=edge_feat, rxn_class=rxn_class
+            )
+        return node_feat, edge_feat
+
+    def update_act_nodes(self, node_res, act_x=None, num_nodes=None):
+        node_res = node_res.detach().cpu()
+        node_res = torch.sigmoid(node_res).squeeze(-1)
+        result = []
+        if self.sparse:
+            base = 0
+            for idx, p in enumerate(num_nodes):
+                node_res_t = node_res[base: base + p]
+                node_all = torch.LongTensor(list(range(p)))
+                mask = node_res_t > 0.5
+                t_result = set(node_all[mask].tolist())
+                if act_x is not None:
+                    t_result |= set(act_x[idx])
+                result.append(list(t_result))
+                base += p
+        return result
+
+    def forward(
+        self, graph, act_nodes, num_nodes=None, num_edges=None,
+        attn_mask=None, rxn_class=None, mode='together'
+    ):
+        node_feat, edge_feat = self.get_init_feats(
+            graphs, num_nodes, num_edges, rxn_class
+        )
+        if self.sparse:
+            node_feat, _ = self.base_model(
+                node_feats=node_feat, edge_feats=edge_feat,
+                edge_index=graph['edge_index']
+            )
+            edge_feat, node_res = None, self.node_predictor(node_feat)
+
+        if mode in ['together', 'inference']:
+            act_nodes = self.update_act_nodes(
+                act_x=act_nodes if mode == 'together' else None,
+                node_res=node_res, num_nodes=num_nodes
+            )
+
+        pred_edge = self.predict_edge(
+            node_feat, activate_nodes,
+            num_nodes, edge_feat
+        )
+        return node_res, pred_edge, act_nodes
+
+
+def get_labels(activate_nodes, edge_type, empty_type=0):
+    edge_feats = []
+    for idx, p in enumerate(edge_type):
+        for x, y in combinations(p, 2):
+            if (x, y) in edge_type[idx]:
+                t_type = edge_type[idx][(x, y)]
+            elif (y, x) in edge_type[idx]:
+                t_type = edge_type[idx][(y, x)]
+            else:
+                t_type = empty_type
+            edge_feats.append(t_type)
+    return torch.LongTensor(edge_feats)
