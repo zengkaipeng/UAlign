@@ -58,6 +58,7 @@ class GraphEditModel(torch.nn.Module):
                 for x, y in combinations(p, 2):
                     src_idx.append((x + base, y + base))
                     dst_idx.append((y + base, x + base))
+                base += num_nodes[idx]
             src_idx = torch.LongTensor(src_idx)
             dst_idx = torch.LongTensor(dst_idx)
 
@@ -76,18 +77,15 @@ class GraphEditModel(torch.nn.Module):
 
         return self.edge_predictor(ed_feat)
 
-
     def get_labels(self, activate_nodes, edge_type, empty_type=0):
-    	edge_feats = []
-    	for idx, p in enumerate(edge_type):
-    		for x, y in combinations(p, 2):
-    			if (x, y) in edge_type[idx]:
-    				t_type = edge_type[idx][(x, y)]
-    			elif (y, x) in edge_type[idx]:
-    				t_type = edge_type[idx][(y, x)]
-    			else:
-    				t_type = empty_type
-    			edge_feats.append(t_type)
-    	return torch.LongTensor(edge_feats)
-    	
-
+        edge_feats = []
+        for idx, p in enumerate(edge_type):
+            for x, y in combinations(p, 2):
+                if (x, y) in edge_type[idx]:
+                    t_type = edge_type[idx][(x, y)]
+                elif (y, x) in edge_type[idx]:
+                    t_type = edge_type[idx][(y, x)]
+                else:
+                    t_type = empty_type
+                edge_feats.append(t_type)
+        return torch.LongTensor(edge_feats)
