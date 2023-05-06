@@ -172,7 +172,7 @@ class GATBase(torch.nn.Module):
 def sparse_edit_collect_fn(data_batch):
     batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
-    activate_nodes = []
+    activate_nodes, num_e = [], []
     for idx, data in enumerate(data_batch):
         if len(data) == 4:
             graph, n_lb,  e_type, A_node = data
@@ -183,6 +183,7 @@ def sparse_edit_collect_fn(data_batch):
         edge_types.append(e_type)
         node_label.append(n_lb)
         num_l.append(graph['num_nodes'])
+        num_e.append(graph['edge_index'].shape[1])
 
         edge_idxes.append(graph['edge_index'] + lstnode)
         edge_feats.append(graph['edge_feat'])
@@ -202,7 +203,60 @@ def sparse_edit_collect_fn(data_batch):
     node_label = torch.cat(node_label, dim=0)
 
     if len(rxn_class) == 0:
-        return Data(**result), node_label, num_l, edge_types, activate_nodes
+        return Data(**result), node_label, num_l, num_e,
+        edge_types, activate_nodes
     else:
         return Data(**result), torch.LongTensor(rxn_class),\
-            node_label, num_l, edge_types, activate_nodes
+            node_label, num_l, num_e, edge_types, activate_nodes
+
+
+class SparseAtomEncoder(torch.nn.Module):
+    def __init__(self, dim, n_class=None):
+        super(SparseAtomEncoder, self).__init__()
+        self.atom_encoder = AtomEncoder(dim)
+        self.n_class = n_class
+        if n_class is not None:
+            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
+            self.lin = torch.nn.Linear(dim + dim, dim)
+
+    def forward(self, node_feat, num_nodes, rxn_class=None):
+        result = self.atom_encoder(node_feat)
+        if self.n_class is not None:
+            if rxn_class is None:
+                raise ValueError('missing reaction class information')
+            else:
+                rxn_cls = torch.LongTensor(node_feat.shape[0])
+                base, rxn_cls = 0, rxn_cls.to(node_feat.device)
+                for idx, p in enumerate(rxn_class):
+                    rxn_cls[base: base + num_nodes[idx]] = p
+                    base += num_nodes[idx]
+                rxn_class_emb = self.rxn_class_emb(rxn_cls)
+                result = torch.cat([rxn_class_emb, result], dim=-1)
+                result = self.lin(result)
+        return result
+
+
+class SparseBondEncoder(torch.nn.Module):
+    def __init__(self, dim, n_class=None):
+        super(SparseBondEncoder, self).__init__()
+        self.bond_encoder = BondEncoder(dim)
+        self.n_class = n_class
+        if n_class is not None:
+            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
+            self.lin = torch.nn.Linear(dim + dim, dim)
+
+    def forward(self, edge_feat, num_edges, rxn_class=None):
+        result = self.bond_encoder(edge_feat)
+        if self.n_class is not None:
+            if rxn_class is None:
+                raise ValueError('missing reaction class information')
+            else:
+                rxn_cls = torch.LongTensor(node_feat.shape[0])
+                base, rxn_cls = 0, rxn_cls.to(node_feat.device)
+                for idx, p in enumerate(rxn_class):
+                    rxn_cls[base: base + num_edges[idx]] = p
+                    base += num_edges
+                rxn_class_emb = self.rxn_class_emb(rxn_cls)
+                result = torch.cat([rxn_class_emb, result], dim=-1)
+                result = self.lin(result)
+        return result

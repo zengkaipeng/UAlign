@@ -1,5 +1,5 @@
 import torch
-from backBone import FCGATEncoder
+from backBone import FCGATEncoder, ExtendedAtomEncoder, ExtendedBondEncoder
 from sparse_backBone import GINBase, GATBase
 from itertools import combinations
 
@@ -30,6 +30,11 @@ class GraphEditModel(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(node_dim, 1)
         )
+        if self.sparse:
+            pass
+        else:
+            self.atom_encoder = ExtendedAtomEncoder(node_dim)
+            self.edge_encoder = ExtendedBondEncoder(edge_dim)
 
     def get_edge_feat(self, node_feat, edge_index):
         assert self.sparse, 'Only sparse mode have edge_feat_agger'
