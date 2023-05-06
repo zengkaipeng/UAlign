@@ -172,14 +172,14 @@ class GATBase(torch.nn.Module):
 def sparse_edit_collect_fn(data_batch):
     batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
+    activate_nodes = []
     for idx, data in enumerate(data_batch):
         if len(data) == 4:
-            graph, n_lb, e_ed, e_type = data
+            graph, n_lb,  e_type, A_node = data
         else:
-            graph, r_class, n_lb, e_ed, e_type = data
+            graph, r_class, n_lb,  e_type, A_node = data
             rxn_class.append(r_class)
 
-        edge_edits.append(e_ed)
         edge_types.append(e_type)
         node_label.append(n_lb)
         num_l.append(graph['num_nodes'])
@@ -189,6 +189,7 @@ def sparse_edit_collect_fn(data_batch):
         node_feats.append(graph['node_feat'])
         lstnode += graph['num_nodes']
         batch.append(np.ones(graph['num_nodes'], dtype=np.int64) * idx)
+        activate_nodes.append(A_node)
 
     result = {
         'edge_index': np.concatenate(edge_idxes, axis=-1),
@@ -201,7 +202,7 @@ def sparse_edit_collect_fn(data_batch):
     node_label = torch.cat(node_label, dim=0)
 
     if len(rxn_class) == 0:
-        return Data(**result), node_label, num_l, edge_edits, edge_types
+        return Data(**result), node_label, num_l, edge_types, activate_nodes
     else:
         return Data(**result), torch.LongTensor(rxn_class),\
-            node_label, num_l, edge_edits, edge_types
+            node_label, num_l, edge_types, activate_nodes
