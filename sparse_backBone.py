@@ -3,7 +3,7 @@ import torch_scatter
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
-from GATconv import GATconv
+import GATconv
 
 
 class GINConv(torch.nn.Module):
@@ -135,9 +135,9 @@ class GATBase(torch.nn.Module):
         self.num_layers, self.num_heads = num_layers, num_heads
         self.dropout_fun = torch.nn.Dropout(dropout)
         for layer in range(self.num_layers):
-            self.convs.append(GATConv(
+            self.convs.append(GATconv.MyGATConv(
                 in_channels=embedding_dim, out_channels=embedding_dim,
-                heads=num_heads, negative_slope, dropout=dropout
+                heads=num_heads, negative_slope=negative_slope, dropout=dropout
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
