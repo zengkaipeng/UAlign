@@ -1,6 +1,7 @@
 from model import edit_collect_fn, EditDataset
 from utils.chemistry_parse import (
-	get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE
+    get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
+    BOND_FLOAT_TO_IDX
 )
 from utils.graph_utils import smiles2graph
 from torch.utils.data import DataLoader
@@ -21,8 +22,8 @@ for react in content:
     graphs.append(graph)
     nodes.append([amap[t] for t in x])
     edge_types = {
-        (amap[i], amap[j]): v for (i, j), v in z.items()
-        if i in amap and j in amap
+        (amap[i], amap[j]): BOND_FLOAT_TO_IDX[v[0]]
+        for (i, j), v in z.items() if i in amap and j in amap
     }
     edge.append(edge_types)
 
@@ -31,8 +32,4 @@ dataset = EditDataset(graphs, nodes, edge)
 
 Loader = DataLoader(dataset, collate_fn=edit_collect_fn, batch_size=2)
 for x in Loader:
-	print(x)
-
-
-
-
+    print(x)

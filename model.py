@@ -30,7 +30,7 @@ class GraphEditModel(torch.nn.Module):
             torch.nn.Linear(node_dim, node_dim),
             torch.nn.Dropout(dropout),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
+            torch.nn.Linear(node_dim, 2)
         )
         if self.sparse:
             self.atom_encoder = SparseAtomEncoder(node_dim)
@@ -109,7 +109,7 @@ class GraphEditModel(torch.nn.Module):
 
     def update_act_nodes(self, node_res, act_x=None, num_nodes=None):
         node_res = node_res.detach().cpu()
-        node_res = torch.sigmoid(node_res).squeeze(-1)
+        node_res = torch.argmax(node_res, dim=-1)
         result = []
         if self.sparse:
             base = 0
@@ -163,3 +163,31 @@ def get_labels(activate_nodes, edge_type, empty_type=0):
                 t_type = empty_type
             edge_feats.append(t_type)
     return torch.LongTensor(edge_feats)
+
+
+def evaluate_sparse(
+    node_res, pred_edge, num_nodes, num_edges,
+    edge_types, act_nodes
+):
+    base, e_base, total = 0, 0, 0
+    node_cover, node_fit, edge_fit = 0, 0, 0
+    node_res = node_res.cpu().argmax(dim=-1)
+    edge_res = edge_res.cpu().argmax(dim=-1)
+    for idx, p in enumerate(num_nodes):
+        t_node_res = node_res[base: base + p] > 0.5
+        real_nodes = torch.zeros_like(t_node_res, dtype=bool)
+        real_nodes[act_nodes[idx]] = True
+        inters = torch.logical_and(real_nodes, t_node_res)
+        node_fit += torch.all(real_nodes == t_node_res).item()
+        node_cover = torch.all(read_nodes == inters).item()
+
+        node_all = torch.arange(p)
+
+        edge_labels = get_labels(node_all[t_node_res], edge_types[idx])
+        e_size = len(edge_labels)
+
+        edge_fit += torch.all(edge_labels == edge_res[e_base: e_base + e_size])
+
+        base, e_base = base + p, e_base + e_size
+        total += 1
+    return node_cover / total, node_fit / total, edge_fit / total

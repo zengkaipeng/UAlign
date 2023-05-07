@@ -16,6 +16,8 @@ BOND_FLOAT_TO_TYPE = {
     1.5: BOND_TYPES[4],
 }
 
+BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
+
 
 def get_bond_info(mol: Chem.Mol) -> Dict:
     """Get information on bonds in the molecule.
