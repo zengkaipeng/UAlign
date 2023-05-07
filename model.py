@@ -170,7 +170,7 @@ def evaluate_sparse(
     edge_types, act_nodes
 ):
     base, e_base, total = 0, 0, 0
-    node_cover, node_fit, edge_fit = 0, 0, 0
+    node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
     node_res = node_res.cpu().argmax(dim=-1)
     edge_res = edge_res.cpu().argmax(dim=-1)
     for idx, p in enumerate(num_nodes):
@@ -178,16 +178,22 @@ def evaluate_sparse(
         real_nodes = torch.zeros_like(t_node_res, dtype=bool)
         real_nodes[act_nodes[idx]] = True
         inters = torch.logical_and(real_nodes, t_node_res)
-        node_fit += torch.all(real_nodes == t_node_res).item()
-        node_cover = torch.all(read_nodes == inters).item()
+        nf = torch.all(real_nodes == t_node_res).item()
+        nc = torch.all(read_nodes == inters).item()
 
         node_all = torch.arange(p)
 
         edge_labels = get_labels(node_all[t_node_res], edge_types[idx])
         e_size = len(edge_labels)
 
-        edge_fit += torch.all(edge_labels == edge_res[e_base: e_base + e_size])
+        ef = torch.all(edge_labels == edge_res[e_base: e_base + e_size]).item()
 
         base, e_base = base + p, e_base + e_size
         total += 1
-    return node_cover / total, node_fit / total, edge_fit / total
+        node_fit += nf
+        node_cover += nc
+        edge_fit += ef
+        all_fit += (nf & ef)
+        all_cover += (nc & ef)
+    return node_cover / total, node_fit / total, edge_fit / total\
+        all_fit / total, all_cover / total
