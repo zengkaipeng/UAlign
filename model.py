@@ -125,7 +125,7 @@ class GraphEditModel(torch.nn.Module):
         return result
 
     def forward(
-        self, graph, act_nodes, num_nodes=None, num_edges=None,
+        self, graphs, act_nodes, num_nodes=None, num_edges=None,
         attn_mask=None, rxn_class=None, mode='together'
     ):
         node_feat, edge_feat = self.get_init_feats(
@@ -195,5 +195,5 @@ def evaluate_sparse(
         edge_fit += ef
         all_fit += (nf & ef)
         all_cover += (nc & ef)
-    return node_cover / total, node_fit / total, edge_fit / total\
+    return node_cover / total, node_fit / total, edge_fit / total,\
         all_fit / total, all_cover / total

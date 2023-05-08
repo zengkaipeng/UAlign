@@ -6,6 +6,7 @@ from torch_geometric.data import Data
 from GATconv import MyGATConv
 import numpy as np
 
+
 class GINConv(torch.nn.Module):
     def __init__(self, embedding_dim: int = 64):
         super(GINConv, self).__init__()
@@ -137,7 +138,8 @@ class GATBase(torch.nn.Module):
         for layer in range(self.num_layers):
             self.convs.append(MyGATConv(
                 in_channels=embedding_dim, out_channels=embedding_dim,
-                heads=num_heads, negative_slope=negative_slope, dropout=dropout
+                heads=num_heads, negative_slope=negative_slope, 
+                dropout=dropout, edge_dim=embedding_dim
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
@@ -150,12 +152,13 @@ class GATBase(torch.nn.Module):
     def forward(
         self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor, num_nodes: int
+        edge_index: torch.Tensor
     ) -> torch.Tensor:
+        num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
-            node_feats = self.bathc_norms[layer](self.convs[layer](
+            node_feats = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
-                edge_index=edge_index
+                edge_index=edge_index, size=num_nodes
             ))
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
@@ -204,8 +207,8 @@ def sparse_edit_collect_fn(data_batch):
     node_label = torch.cat(node_label, dim=0)
 
     if len(rxn_class) == 0:
-        return Data(**result), node_label, num_l, num_e,
-        edge_types, activate_nodes
+        return Data(**result), node_label, num_l, num_e,\
+            edge_types, activate_nodes
     else:
         return Data(**result), torch.LongTensor(rxn_class),\
             node_label, num_l, num_e, edge_types, activate_nodes

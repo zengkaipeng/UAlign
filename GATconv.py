@@ -56,7 +56,6 @@ class MyGATConv(MessagePassing):
         zeros(self.bias)
 
     def forward(self, x, edge_index, edge_attr, size=None):
-
         num_nodes = x.shape[0]
         edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
         edge_index, edge_attr = add_self_loops(
