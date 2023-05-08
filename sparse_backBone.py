@@ -105,7 +105,7 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             node_feats = self.batch_norms[layer](self.convs[layer](
                 node_feats=node_feats, edge_feats=edge_feats,
-                edge_index=edge_index, size=num_nodes,
+                edge_index=edge_index, 
             ))
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
