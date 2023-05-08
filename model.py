@@ -89,11 +89,9 @@ class GraphEditModel(torch.nn.Module):
         self, graphs, num_nodes=None, num_edges=None, rxn_class=None
     ):
         if self.sparse:
-            node_feat = self.atom_encoder(
-                graphs['node_feat'], num_nodes, rxn_class
-            )
+            node_feat = self.atom_encoder(graphs.x, num_nodes, rxn_class)
             edge_feat = self.bond_encoder(
-                graphs['edge_feat'], num_edges, rxn_class
+                graphs.edge_attr, num_edges, rxn_class
             )
         else:
             num_nodes = [x['num_nodes'] for x in graphs]
@@ -134,7 +132,7 @@ class GraphEditModel(torch.nn.Module):
         if self.sparse:
             node_feat, _ = self.base_model(
                 node_feats=node_feat, edge_feats=edge_feat,
-                edge_index=graph['edge_index']
+                edge_index=graphs.edge_index
             )
             edge_feat, node_res = None, self.node_predictor(node_feat)
 

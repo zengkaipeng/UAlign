@@ -103,7 +103,7 @@ class GINBase(torch.nn.Module):
     ) -> torch.Tensor:
         num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
-            node_feats = self.bathc_norms[layer](self.convs[layer](
+            node_feats = self.batch_norms[layer](self.convs[layer](
                 node_feats=node_feats, edge_feats=edge_feats,
                 edge_index=edge_index, size=num_nodes,
             ))
