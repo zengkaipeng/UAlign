@@ -41,12 +41,13 @@ class GraphEditModel(torch.nn.Module):
 
     def get_edge_feat(self, node_feat, edge_index):
         assert self.sparse, 'Only sparse mode have edge_feat_agger'
+        print(edge_index)
         src_x = torch.index_select(node_feat, dim=0, index=edge_index[0])
         dst_x = torch.index_select(node_feat, dim=0, index=edge_index[1])
         return self.edge_feat_agger(torch.cat([src_x, dst_x], dim=-1))
 
     def predict_edge(
-        node_feat, activate_nodes,
+        self, node_feat, activate_nodes,
         num_nodes=None, edge_feat=None
     ):
         if self.sparse and num_nodes is None:
@@ -63,10 +64,15 @@ class GraphEditModel(torch.nn.Module):
         if self.sparse:
             src_idx, dst_idx, base = [], [], 0
             for idx, p in enumerate(activate_nodes):
+                # print('[Anodes]', p)
                 for x, y in combinations(p, 2):
                     src_idx.append((x + base, y + base))
                     dst_idx.append((y + base, x + base))
                 base += num_nodes[idx]
+
+            if len(src_idx) == 0:
+                return None
+
             src_idx = torch.LongTensor(src_idx)
             dst_idx = torch.LongTensor(dst_idx)
 
@@ -113,8 +119,8 @@ class GraphEditModel(torch.nn.Module):
             base = 0
             for idx, p in enumerate(num_nodes):
                 node_res_t = node_res[base: base + p]
-                node_all = torch.LongTensor(list(range(p)))
-                mask = node_res_t > 0.5
+                node_all = torch.arange(p)
+                mask = node_res_t == 1
                 t_result = set(node_all[mask].tolist())
                 if act_x is not None:
                     t_result |= set(act_x[idx])
@@ -143,8 +149,7 @@ class GraphEditModel(torch.nn.Module):
             )
 
         pred_edge = self.predict_edge(
-            node_feat, activate_nodes,
-            num_nodes, edge_feat
+            node_feat, act_nodes, num_nodes, edge_feat
         )
         return node_res, pred_edge, act_nodes
 
