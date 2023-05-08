@@ -41,9 +41,8 @@ class GraphEditModel(torch.nn.Module):
 
     def get_edge_feat(self, node_feat, edge_index):
         assert self.sparse, 'Only sparse mode have edge_feat_agger'
-        print(edge_index)
-        src_x = torch.index_select(node_feat, dim=0, index=edge_index[0])
-        dst_x = torch.index_select(node_feat, dim=0, index=edge_index[1])
+        src_x = torch.index_select(node_feat, dim=0, index=edge_index[:, 0])
+        dst_x = torch.index_select(node_feat, dim=0, index=edge_index[:, 1])
         return self.edge_feat_agger(torch.cat([src_x, dst_x], dim=-1))
 
     def predict_edge(
@@ -78,6 +77,7 @@ class GraphEditModel(torch.nn.Module):
 
             ed_feat = self.get_edge_feat(node_feat, src_idx) + \
                 self.get_edge_feat(node_feat, dst_idx)
+            print(ed_feat.shape)
 
         else:
             ed_feat = []
@@ -147,6 +147,8 @@ class GraphEditModel(torch.nn.Module):
                 act_x=act_nodes if mode == 'together' else None,
                 node_res=node_res, num_nodes=num_nodes
             )
+        elif mode != 'original':
+            raise NotImplementedError(f'Invalid mode: {mode}')
 
         pred_edge = self.predict_edge(
             node_feat, act_nodes, num_nodes, edge_feat
@@ -200,3 +202,6 @@ def evaluate_sparse(
         all_cover += (nc & ef)
     return node_cover / total, node_fit / total, edge_fit / total,\
         all_fit / total, all_cover / total
+
+
+

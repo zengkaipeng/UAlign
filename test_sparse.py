@@ -45,8 +45,8 @@ model2 = GraphEditModel(GAT, True, 256, 256, 4)
 for x in Loader:
     graphs, node_label, num_l, num_e, e_type, act_nodes = x
     print('[DATA]', x)
-    node_res, edge_res, new_act = model1(
+    node_res, edge_res, new_act = model2(
         graphs=graphs, act_nodes=act_nodes, num_nodes=num_l, num_edges=num_e,
-        mode='together'
+        mode='original'
     ) 
     print(node_res.shape, edge_res.shape, new_act)

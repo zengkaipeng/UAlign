@@ -135,10 +135,13 @@ class GATBase(torch.nn.Module):
         self.edge_update = torch.nn.ModuleList()
         self.num_layers, self.num_heads = num_layers, num_heads
         self.dropout_fun = torch.nn.Dropout(dropout)
+        assert embedding_dim % num_heads == 0, \
+            'The embedding dim should be evenly divided by num_heads'
         for layer in range(self.num_layers):
             self.convs.append(MyGATConv(
-                in_channels=embedding_dim, out_channels=embedding_dim,
-                heads=num_heads, negative_slope=negative_slope, 
+                in_channels=embedding_dim, heads=num_heads,
+                out_channels=embedding_dim // num_heads,
+                negative_slope=negative_slope,
                 dropout=dropout, edge_dim=embedding_dim
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
@@ -154,11 +157,9 @@ class GATBase(torch.nn.Module):
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
         edge_index: torch.Tensor
     ) -> torch.Tensor:
-        num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
             node_feats = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats,
-                edge_index=edge_index, size=num_nodes
+                x=node_feats, edge_attr=edge_feats, edge_index=edge_index
             ))
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
