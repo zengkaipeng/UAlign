@@ -3,8 +3,8 @@ import torch_scatter
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
-import GATconv
-
+from GATconv import MyGATConv
+import numpy as np
 
 class GINConv(torch.nn.Module):
     def __init__(self, embedding_dim: int = 64):
@@ -135,7 +135,7 @@ class GATBase(torch.nn.Module):
         self.num_layers, self.num_heads = num_layers, num_heads
         self.dropout_fun = torch.nn.Dropout(dropout)
         for layer in range(self.num_layers):
-            self.convs.append(GATconv.MyGATConv(
+            self.convs.append(MyGATConv(
                 in_channels=embedding_dim, out_channels=embedding_dim,
                 heads=num_heads, negative_slope=negative_slope, dropout=dropout
             ))
@@ -173,7 +173,7 @@ class GATBase(torch.nn.Module):
 def sparse_edit_collect_fn(data_batch):
     batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
-    activate_nodes, num_e = [], []
+    activate_nodes, num_e, edge_types = [], [], []
     for idx, data in enumerate(data_batch):
         if len(data) == 4:
             graph, n_lb,  e_type, A_node = data
