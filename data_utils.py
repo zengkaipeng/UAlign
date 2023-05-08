@@ -6,8 +6,8 @@ from backBond import EditDataset
 
 
 def create_sparse_dataset(
-        reacts, prods, rxn_class=None, kekulize=False,
-        return_amap=False
+    reacts, prods, rxn_class=None, kekulize=False,
+    return_amap=False
 ):
     amaps, graphs, nodes, edge_types = [], [], [], []
     for idx, reac in enumerate(reacts):

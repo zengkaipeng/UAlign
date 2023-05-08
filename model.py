@@ -130,7 +130,7 @@ class GraphEditModel(torch.nn.Module):
 
     def forward(
         self, graphs, act_nodes, num_nodes=None, num_edges=None,
-        attn_mask=None, rxn_class=None, mode='together'
+        attn_mask=None, rxn_class=None, mode='together', return_feat=False
     ):
         node_feat, edge_feat = self.get_init_feats(
             graphs, num_nodes, num_edges, rxn_class
@@ -153,7 +153,10 @@ class GraphEditModel(torch.nn.Module):
         pred_edge = self.predict_edge(
             node_feat, act_nodes, num_nodes, edge_feat
         )
-        return node_res, pred_edge, act_nodes
+        if return_feat:
+            return node_res, pred_edge, act_nodes, node_feat, edge_feat
+        else:
+            return node_res, pred_edge, act_nodes
 
 
 def get_labels(activate_nodes, edge_type, empty_type=0):
@@ -202,6 +205,3 @@ def evaluate_sparse(
         all_cover += (nc & ef)
     return node_cover / total, node_fit / total, edge_fit / total,\
         all_fit / total, all_cover / total
-
-
-
