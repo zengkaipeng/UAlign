@@ -15,8 +15,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def train_sparse_edit(
-    loader, model, optimizer, verbose=True,
-    warmup=True, mode='together'
+    loader, model, optimizer, device,
+    verbose=True, warmup=True, mode='together'
 ):
     node_loss, edge_loss = [], []
     for data in tqdm(loader) if verbose else loader:
@@ -29,13 +29,18 @@ def train_sparse_edit(
         else:
             graphs, r_cls, node_label, num_l, num_e, e_type, act_nodes = data
 
+        graphs = graphs.to(device)
+        node_label = node_label.to(device)
+        if r_cls is not None:
+            r_cls = r_cls.to(device)
+
         node_res, edge_res, new_act_nodes = model(
             graphs=graphs, act_nodes=act_nodes, num_nodes=num_l, mode=mode,
             num_edges=num_e,  return_feat=False, rxn_class=r_cls
         )
 
         loss_node = F.cross_entropy(node_res, node_label)
-        edge_labels = get_labels(new_act_nodes, e_type)
+        edge_labels = get_labels(new_act_nodes, e_type).to(device)
         loss_edge = F.cross_entropy(edge_res, edge_labels)
 
         optimizer.zero_grad()
@@ -50,7 +55,7 @@ def train_sparse_edit(
     return np.mean(node_loss), np.mean(edge_loss)
 
 
-def eval_sparse_edit(loader, model, verbose=True):
+def eval_sparse_edit(loader, model, device, verbose=True):
     node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
     for data in tqdm(loader) if verbose else loader:
         if len(data) == 6:
@@ -58,6 +63,12 @@ def eval_sparse_edit(loader, model, verbose=True):
             r_cls = None
         else:
             graphs, r_cls, node_label, num_l, num_e, e_type, act_nodes = data
+
+        graphs = graphs.to(device)
+        node_label = node_label.to(device)
+        if r_cls is not None:
+            r_cls = r_cls.to(device)
+
         node_res, edge_res, used_nodes = model(
             graphs=graphs, num_nodes=num_l, num_edges=num_e,
             mode='inference', return_feat=False, rxn_class=r_cls

@@ -5,6 +5,7 @@ from utils.chemistry_parse import (
     BOND_FLOAT_TO_IDX
 )
 from backBone import EditDataset
+from utils.graph_utils import smiles2graph
 
 
 def create_sparse_dataset(
@@ -39,5 +40,12 @@ def load_data(data_dir, part):
     return reacts, prods, rxn_class
 
 
+def fix_seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 if __name__ == '__main__':
-    load_data('../data/USPTO-50K', 'train')
+    print(load_data('../data/USPTO-50K', 'train'))
