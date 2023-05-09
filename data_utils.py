@@ -4,7 +4,7 @@ from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX
 )
-from backBond import EditDataset
+from backBone import EditDataset
 
 
 def create_sparse_dataset(
