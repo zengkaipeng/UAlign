@@ -18,6 +18,7 @@ def train_sparse_edit(
     loader, model, optimizer, device,
     verbose=True, warmup=True, mode='together'
 ):
+    model = model.train()
     node_loss, edge_loss = [], []
     for data in tqdm(loader) if verbose else loader:
         if warmup:
@@ -56,6 +57,7 @@ def train_sparse_edit(
 
 
 def eval_sparse_edit(loader, model, device, verbose=True):
+    model = model.eval()
     node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
     for data in tqdm(loader) if verbose else loader:
         if len(data) == 6:

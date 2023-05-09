@@ -47,5 +47,12 @@ def fix_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
+def check_early_stop(*args):
+    answer = True
+    for x in args:
+        answer &= all(t < x[0] for t in x[1:])
+    return answer
+
+
 if __name__ == '__main__':
     print(load_data('../data/USPTO-50K', 'train'))

@@ -2,12 +2,35 @@ import torch
 import argparse
 import json
 import os
+import time
 
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, sparse_edit_collect_fn
 from model import GraphEditModel
 from training import train_sparse_edit, eval_sparse_edit
-from data_utils import create_sparse_dataset, load_data, fix_seed
+from data_utils import (
+    create_sparse_dataset, load_data, fix_seed,
+    check_early_stop
+)
+
+
+def create_log_model(args):
+    timestamp = time.time()
+    log_dir = [
+        f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}'
+        f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
+        f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
+    ]
+    detail_log_folder = os.path.join(
+        'with_class: StrPaths' if args.use_class else 'wo_class',
+        args.backbone, '-'.join(log_dir)
+    )
+    if not os.path.exists(detail_log_folder):
+        os.makedirs(detail_log_folder)
+    detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
+    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
+    return detail_log_dir, detail_model_dir
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
@@ -73,8 +96,17 @@ if __name__ == '__main__':
         '--device', default=-1, type=int,
         help='the device for running exps'
     )
+    parser.add_argument(
+        '--lr', default='1e-3', type=float,
+        help='the learning rate for training'
+    )
+    parser.add_argument(
+        '--base_log', default='log', type=str,
+        help='the base dir of logging'
+    )
 
     args = parser.parse_args()
+    log_dir, model_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -130,8 +162,61 @@ if __name__ == '__main__':
     model = GraphEditModel(
         GNN, True, embedding_dim, embedding_dim,
         4 if args.kekulize else 5
-    )
+    ).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    best_perf, best_ep = None, None
+
+    log_info = {
+        'args': args.__dict__, 'train_loss': [],
+        'valid_metric': [], 'test_metric': []
+    }
+
+    with open(log_dir, 'w') as Fout:
+        json.dump(log_info, Fout, indent=4)
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        train_sparse_edit(loader, model, optimizer)
+        node_loss, edge_loss = train_sparse_edit(
+            train_loader, model, optimizer, device,
+            verbose=True, warmup=(ep == 0), mode=args.mode
+        )
+        log_info['train_loss'].append({
+            'node': node_loss, 'edge': edge_loss
+        })
+        valid_results = eval_sparse_edit(
+            valid_loader, model, device, verbose=True
+        )
+        log_info['valid_metric'].append({
+            'node_cover': valid_results[0], 'node_fit': valid_results[1],
+            'edge_fit': valid_results[2], 'all_cover': valid_results[3],
+            'all_fit': valid_results[4]
+        })
+
+        test_results = eval_sparse_edit(
+            test_loader, model, device, verbose=True
+        )
+
+        log_info['test_metric'].append({
+            'node_cover': test_results[0], 'node_fit': test_results[1],
+            'edge_fit': test_results[2], 'all_cover': test_results[3],
+            'all_fit': test_results[4]
+        })
+
+        with open(log_dir, 'w') as Fout:
+            json.dump(log_info, Fout, indent=4)
+        if best_perf is None or valid_results[3] > best_perf:
+            best_perf, best_ep = valid_results[3], ep
+            torch.save(model.state_dict(), model_dir)
+
+        if args.early_stop > 5 and ep > max(20, args.early_stop):
+            nc = [
+                x['node_cover'] for x in
+                log_info['valid_metric'][-args.early_stop:]
+            ]
+            ef = [
+                x['edge_fit'] for x in
+                log_info['valid_metric'][-args.early_stop:]
+            ]
+            if check_early_stop(nc, ef):
+                break
