@@ -1,3 +1,5 @@
+import pandas
+import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX
@@ -22,3 +24,15 @@ def create_sparse_dataset(
         amaps.append(amap)
     dataset = EditDataset(graphs, nodes, edge_types)
     return dataset, amap if return_amap else amap
+
+
+def load_data(data_dir):
+    df_train = pandas.read_csv(
+        os.path.join(data_dir, 'canonicalized_raw_train.csv')
+    )
+
+    print(df_train)
+
+
+if __name__ == '__main__':
+    load_data('../data/USPTO-50K')
