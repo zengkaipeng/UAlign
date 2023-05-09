@@ -26,13 +26,18 @@ def create_sparse_dataset(
     return dataset, amap if return_amap else amap
 
 
-def load_data(data_dir):
+def load_data(data_dir, part):
     df_train = pandas.read_csv(
-        os.path.join(data_dir, 'canonicalized_raw_train.csv')
+        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
     )
-
-    print(df_train)
+    rxn_class, reacts, prods = [], [], []
+    for idx, resu in enumerate(df_train['reactants>reagents>production']):
+        rxn_class.append(df_train['class'][idx])
+        rea, prd = resu.strip().split('>>')
+        reacts.append(rea)
+        prods.append(prd)
+    return reacts, prods, rxn_class
 
 
 if __name__ == '__main__':
-    load_data('../data/USPTO-50K')
+    load_data('../data/USPTO-50K', 'train')
