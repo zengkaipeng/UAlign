@@ -38,7 +38,7 @@ class MyGATConv(MessagePassing):
             bias=False, weight_initializer='glorot'
         )
         self.lin_message = Linear(
-            out_channels * 2, out_channels,
+            edge_dim, out_channels * heads,
             bias=True, weight_initializer='glorot'
         )
 
@@ -65,25 +65,26 @@ class MyGATConv(MessagePassing):
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)
         x_dst = self.lin_dst(x).view(-1, H, C)
+        e_message = self.lin_message(edge_attr).view(-1, H, C)
 
         x = (x_src, x_dst)
         alpha_src = (x_src * self.att_src).sum(dim=-1)
         alpha_dst = (x_dst * self.att_dst).sum(dim=-1)
         alpha = (alpha_src, alpha_dst)
 
-        edge_attr = self.lin_edge(edge_attr)
-        edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
 
         alpha = self.edge_updater(edge_index, alpha=alpha, edge_attr=edge_attr)
 
         out = self.propagate(
             edge_index, x=x, alpha=alpha,
-            size=size, edge_attr=edge_attr
+            size=size, edge_attr=e_message
         )
         out = out.view(-1, H * C) + self.bias
         return out
 
     def edge_update(self, alpha_j, alpha_i, edge_attr, index, ptr, size_i):
+        edge_attr = self.lin_edge(edge_attr)
+        edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
         alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
         alpha = alpha_i + alpha_j + alpha_edge
 
@@ -92,8 +93,7 @@ class MyGATConv(MessagePassing):
         return alpha
 
     def message(self, x_j, alpha, edge_attr):
-        message = self.lin_message(torch.cat([x_j, edge_attr], dim=-1))
-        return alpha.unsqueeze(-1) * message
+        return alpha.unsqueeze(-1) * (x_j + edge_attr)
 
     def __repr__(self):
         return (
