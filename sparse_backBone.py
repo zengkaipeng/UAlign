@@ -1,5 +1,4 @@
 import torch
-import torch_scatter
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
@@ -27,10 +26,12 @@ class GINConv(torch.nn.Module):
             input=node_feats, dim=0, index=edge_index[1]
         )
         message = torch.relu(message_node + edge_feats)
-        message_reduce = torch_scatter.scatter(
-            message, index=edge_index[0], dim=0,
-            dim_size=num_nodes, reduce='sum'
-        )
+
+        dim = message.shape[-1]
+
+        message_reduce = torch.zeros(num_nodes, dim).to(message)
+        index = edge_index[0].unsqueeze(-1).repeat(1, dim)
+        message_reduce.scatter_add_(dim=0, index=index, src=message)
 
         return self.mlp((1 + self.eps) * node_feats + message_reduce)
 
@@ -63,10 +64,8 @@ class SparseEdgeUpdateLayer(torch.nn.Module):
         node_j = torch.index_select(
             input=node_feats, dim=0, index=edge_index[1]
         )
-        node_feat_sum = node_i + node_j
-        node_feat_diff = torch.abs(node_i - node_j)
 
-        x = torch.cat([node_feat_sum, node_feat_diff, edge_feats], dim=-1)
+        x = torch.cat([node_i, node_j, edge_feats], dim=-1)
         return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
 
 
@@ -103,20 +102,21 @@ class GINBase(torch.nn.Module):
     ) -> torch.Tensor:
         num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
-            node_feats = self.batch_norms[layer](self.convs[layer](
+            conv_res = self.batch_norms[layer](self.convs[layer](
                 node_feats=node_feats, edge_feats=edge_feats,
                 edge_index=edge_index, num_nodes=num_nodes
             ))
+
+            node_feats = self.dropout_fun(
+                conv_res if layer == self.num_layers - 1
+                else torch.relu(conv_res)
+            ) + node_feats
+
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_feats=edge_feats, node_feats=node_feats,
                     edge_index=edge_index
                 )
-
-            node_feats = self.dropout_fun(
-                node_feats if layer == self.num_layers - 1
-                else torch.relu(node_feats)
-            )
         return node_feats, edge_feats
 
 
@@ -158,19 +158,19 @@ class GATBase(torch.nn.Module):
         edge_index: torch.Tensor
     ) -> torch.Tensor:
         for layer in range(self.num_layers):
-            node_feats = self.batch_norms[layer](self.convs[layer](
+            conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=edge_index
             ))
+            node_feats = self.dropout_fun(
+                conv_res if layer == self.num_layers - 1
+                else torch.relu(conv_res)
+            ) + node_feats
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_feats=edge_feats, node_feats=node_feats,
                     edge_index=edge_index
                 )
 
-            node_feats = self.dropout_fun(
-                node_feats if layer == self.num_layers - 1
-                else torch.relu(node_feats)
-            )
         return node_feats, edge_feats
 
 

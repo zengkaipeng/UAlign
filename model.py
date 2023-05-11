@@ -189,8 +189,6 @@ def evaluate_sparse(
         nf = torch.all(real_nodes == t_node_res).item()
         nc = torch.all(read_nodes == inters).item()
 
-        node_all = torch.arange(p)
-
         edge_labels = get_labels(used_nodes[idx], edge_types[idx])
         e_size = len(edge_labels)
 
