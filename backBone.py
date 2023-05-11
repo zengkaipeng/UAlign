@@ -1,5 +1,4 @@
 import torch
-import torch_scatter
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
@@ -115,7 +114,7 @@ class ExtendedBondEncoder(torch.nn.Module):
             edge_matrix = self.get_padded_edge_feat(
                 edge_index[idx], edge_feat[idx], num_nodes[idx]
             )
-            edge_result[idx][:num_nodes[idx], num_nodes[idx]] = edge_matrix
+            edge_result[idx][:num_nodes[idx], :num_nodes[idx]] = edge_matrix
 
         if self.n_class is not None:
             edge_result = torch.cat([edge_result, rxn_class_emb], dim=-1)
