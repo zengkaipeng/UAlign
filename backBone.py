@@ -32,26 +32,18 @@ class EditDataset(torch.utils.data.Dataset):
 
 
 class ExtendedBondEncoder(torch.nn.Module):
-    def __init__(self, dim: int, n_class: Optional[int] = None):
+    def __init__(self, dim: int):
         """The extened bond encoder, extended from ogb bond encoder for mol
         it padded the edge feat matrix with learnable padding embedding
 
         Args:
             dim (int): dim of output result and embedding table
-            n_class (int): number of reaction classes (default: `None`)
         """
         super(ExtendedBondEncoder, self).__init__()
-        self.padding_emb = torch.nn.Parameter(torch.zeros(dim))
-        self.self_loop = torch.nn.Parameter(torch.zeros(dim))
+        self.padding_emb = torch.nn.Parameter(torch.randn(dim))
+        self.self_loop = torch.nn.Parameter(torch.randn(dim))
         self.bond_encoder = BondEncoder(dim)
-        self.dim, self.n_class = dim, n_class
-
-        torch.nn.init.xavier_uniform_(self.padding_emb)
-        torch.nn.init.xavier_uniform_(self.self_loop)
-
-        if n_class is not None:
-            self.class_emb = torch.nn.Embedding(n_class, dim)
-            self.lin = torch.nn.Linear(dim + dim, dim)
+        self.dim = dim
 
     def get_padded_edge_feat(
         self, edge_index: torch.Tensor,
@@ -81,7 +73,7 @@ class ExtendedBondEncoder(torch.nn.Module):
 
     def forward(
         self, num_nodes: List[int], edge_index: List[torch.Tensor],
-        edge_feat: List[torch.Tensor], rxn_class: Optional[torch.Tensor] = None
+        edge_feat: List[torch.Tensor]
     ) -> torch.Tensor:
         """
         given a batch of graph information: num of nodes of each graph,
@@ -99,13 +91,6 @@ class ExtendedBondEncoder(torch.nn.Module):
                 the padded edge_feature for the following training 
         """
         max_node, batch_size = max(num_nodes), len(num_nodes)
-        if self.n_class is not None:
-            if rxn_class is None:
-                raise ValueError('class information should be given')
-            else:
-                rxn_class_emb = self.class_emb(rxn_class)
-                rxn_class_emb = rxn_class_emb.reshape(batch_size, 1, 1, -1)
-                rxn_class_emb = rxn_class_emb.repeat(1, max_node, max_node, 1)
 
         edge_result = torch.zeros(batch_size, max_node, max_node, self.dim)
         edge_result = edge_result.to(edge_feat[0].device)
@@ -116,31 +101,23 @@ class ExtendedBondEncoder(torch.nn.Module):
             )
             edge_result[idx][:num_nodes[idx], :num_nodes[idx]] = edge_matrix
 
-        if self.n_class is not None:
-            edge_result = torch.cat([edge_result, rxn_class_emb], dim=-1)
-            edge_result = self.lin(edge_result)
         return edge_result
 
 
 class ExtendedAtomEncoder(torch.nn.Module):
-    def __init__(self, dim: int, n_class: Optional[int] = None):
+    def __init__(self, dim: int):
         """The extened bond encoder, extended from ogb atom encoder for mol
         it padded the atom feature matrix with zero features.
 
         Args:
             dim (int): dim of output result and embedding table
-            n_class (int): number of reaction classes (default: `None`)
         """
         super(ExtendedAtomEncoder, self).__init__()
         self.atom_encoder = AtomEncoder(dim)
-        self.n_class = n_class
-        if n_class is not None:
-            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
-            self.lin = torch.nn.Linear(dim + dim, dim)
+        self.dim = dim
 
     def forward(
-        self, num_nodes: List[int], node_feat: List[torch.Tensor],
-        rxn_class: Optional[torch.Tensor] = None
+        self, num_nodes: List[int], node_feat: List[torch.Tensor]
     ) -> torch.Tensor:
         """
         given a batch of graph informations, num_nodes and node_feats
@@ -151,29 +128,17 @@ class ExtendedAtomEncoder(torch.nn.Module):
                 the number of nodes of each graph
             node_feat (List[torch.Tensor]): a list of tensors, each 
                 is of the shape [num_nodes, feat_dim]
-            rxn_class (torch.Tensor): a list of batch size,
-                containing the reaction type (default: `None`)
 
         Returns:
             torch.Tensor: a tensor of shape [batch_size, num_node, dim]
             representing the padded node features, padded with zeros.
         """
         max_node, batch_size = max(num_nodes), len(num_nodes)
-        if self.n_class is not None:
-            if rxn_class is None:
-                raise ValueError('missing reaction class information')
-            else:
-                rxn_class_emb = self.rxn_class_emb(rxn_class)
-                rxn_class_emb = rxn_class_emb.reshape(batch_size, 1, -1)
-                rxn_class_emb = rxn_class_emb.repeat(1, max_node, 1)
         result = torch.zeros(batch_size, max_node, self.dim)
         result = result.to(node_feat[0].device)
         for idx in range(batch_size):
             result[idx][:num_nodes[idx]] = self.atom_encoder(node_feat[idx])
 
-        if self.n_class is not None:
-            result = torch.cat([result, rxn_class_emb], dim=-1)
-            result = self.lin(result)
         return result
 
 
@@ -200,7 +165,7 @@ class EdgeUpdateLayer(torch.nn.Module):
     ) -> torch.Tensor:
         node_feat1 = torch.unsqueeze(node_feat, dim=1)
         node_feat2 = torch.unsqueeze(node_feat, dim=2)
-        batch_size, num_nodes, dim = node_feat
+        batch_size, num_nodes, dim = node_feat.shape
         node_feat1 = node_feat1.repeat(1, num_nodes, 1, 1)
         node_feat2 = node_feat2.repeat(1, 1, num_nodes, 1)
         x = torch.cat([node_feat1, node_feat2, edge_feats], dim=-1)
@@ -221,18 +186,17 @@ class FCGATLayer(torch.nn.Module):
         assert output_dim * n_heads == input_dim, \
             "input dim should be evenly divided by n_heads"
         self.input_dim, self.output_dim = input_dim, output_dim
-        self.mid_dim, self.n_heads = mid_dim, n_heads
-        self.negative_slope = negative_slope
+        self.negative_slope, self.n_heads = negative_slope, n_heads
         self.dropout_fun = torch.nn.Dropout(dropout)
         self.edge_lin = torch.nn.Linear(edge_dim, output_dim * n_heads, False)
         self.lin_V = torch.nn.Linear(input_dim, output_dim * n_heads, False)
+        self.lin_message = torch.nn.Linear(edge_dim, output_dim * n_heads)
         attn_node_shape = (1, 1, n_heads, output_dim)
         attn_edge_shape = (1, 1, 1, n_heads, output_dim)
         self.att_src = torch.nn.Parameter(torch.zeros(*attn_node_shape))
         self.att_dst = torch.nn.Parameter(torch.zeros(*attn_node_shape))
         self.att_edge = torch.nn.Parameter(torch.zeros(*attn_edge_shape))
         self.bias_node = torch.nn.Parameter(torch.zeros(n_heads, output_dim))
-        self.bias_edge = torch.nn.Parameter(torch.zeros(n_heads, output_dim))
 
         torch.nn.init.xavier_uniform_(self.att_src)
         torch.nn.init.xavier_uniform_(self.att_dst)
@@ -262,6 +226,7 @@ class FCGATLayer(torch.nn.Module):
             the place set as false will not be calculated as attn_weight (default: `None`)
         """
         batch_size, max_node = node_feats.shape[:2]
+        # print('[INFO] Fshape', node_feats.shape, edge_feats.shape)
         node_o_shape = [batch_size, -1, self.n_heads, self.output_dim]
         edge_o_shape = [
             batch_size, max_node, max_node,
@@ -270,31 +235,75 @@ class FCGATLayer(torch.nn.Module):
         x_proj = self.lin_V(node_feats).reshape(*node_o_shape)
         src_att = (self.att_src * x_proj).sum(dim=-1)
         dst_att = (self.att_dst * x_proj).sum(dim=-1)
-        src_att = dst_att.unsqueeze(dim=2).repeat(1, 1, max_node, 1)
-        dst_att = src_att.unsqueeze(dim=1).repeat(1, max_node, 1, 1)
+        src_att = src_att.unsqueeze(dim=2).repeat(1, 1, max_node, 1)
+        dst_att = dst_att.unsqueeze(dim=1).repeat(1, max_node, 1, 1)
 
-        e_value = self.edge_lin(node_feats).reshape(*edge_o_shape)
+        e_value = self.edge_lin(edge_feats).reshape(*edge_o_shape)
+        e_message = self.lin_message(edge_feats).reshape(*edge_o_shape)
         e_att = (self.att_edge * e_value).sum(dim=-1)
 
-        att_weight = torch.nn.functional.leakly_relu(
+        att_weight = torch.nn.functional.leaky_relu(
             src_att + dst_att + e_att, self.negative_slope
         )
+
+        # print('[INFO] Ashape', attn_mask.shape, att_weight.shape)
         if attn_mask is not None:
-            attn_mask = torch.logical_not(attn_mask)
+            attn_mask = torch.logical_not(attn_mask.unsqueeze(dim=-1))
             INF = (1 << 32) - 1
             att_weight = torch.masked_fill(att_weight, attn_mask, -INF)
-        att_weight = torch.softmax(att_weight, dim=-1).unsqueeze(-1)
+        att_weight = torch.softmax(att_weight, dim=2).unsqueeze(-1)
         # [batch_size, max_node, max_node, n_heads, 1]
 
         x_v = x_proj.unsqueeze(dim=1).repeat(1, max_node, 1, 1, 1)
 
-        x_output = att_weight * ((e_value + self.edge_bias) + x_v)
-        x_output = self.dropout_fun(x_output.sum(dim=2) + self.node_bias)
+        x_output = att_weight * (e_message + x_v)
+        x_output = self.dropout_fun(x_output.sum(dim=2) + self.bias_node)
         x_output = x_output.reshape(batch_size, max_node, -1)
 
         x_output = self.ln_norm1(node_feats + x_output)
         x_output = self.ln_norm2(x_output + self.ff_block(x_output))
         return x_output
+
+
+class FCGATEncoder(torch.nn.Module):
+    def __init__(
+        self, n_layers: int = 6, n_heads: int = 4,
+        embedding_dim: int = 256, dropout: float = 0.2,
+        negative_slope: float = 0.2, edge_last: bool = False
+    ):
+        super(FCGATEncoder, self).__init__()
+        self.convs = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers, self.num_heads = n_layers, n_heads
+        for layer in range(self.num_layers):
+            self.convs.append(FCGATLayer(
+                embedding_dim, embedding_dim, n_heads,
+                dropout=dropout, negative_slope=negative_slope
+            ))
+            if edge_last or layer < self.num_layers - 1:
+                self.edge_update.append(EdgeUpdateLayer(
+                    embedding_dim, embedding_dim, residual=True,
+                    use_ln=True
+                ))
+        self.drop_fun = torch.nn.Dropout(dropout)
+        self.edge_last = edge_last
+
+    def forward(
+        self,
+        node_feats: torch.Tensor, edge_feats: torch.Tensor,
+        attn_mask: torch.Tensor
+    ):
+        for layer in range(self.num_layers):
+            node_feats = self.convs[layer](
+                node_feats=node_feats, edge_feats=edge_feats,
+                attn_mask=attn_mask
+            )
+            if self.edge_last or layer < self.num_layers - 1:
+                edge_feats = self.edge_update[layer](
+                    node_feat=node_feats, edge_feats=edge_feats
+                )
+
+        return node_feats, edge_feats
 
 
 def edit_collect_fn(data_batch):
@@ -325,41 +334,3 @@ def edit_collect_fn(data_batch):
     else:
         return attn_mask, graphs, torch.LongTensor(rxn_class),\
             node_label, edge_cores, edge_types
-
-
-class FCGATEncoder(torch.nn.Module):
-    def __init__(
-        self, n_layers: int = 6, n_heads: int = 4,
-        embedding_dim: int = 256, dropout: float = 0.2,
-        negative_slope: float = 0.2, n_class: Optional[int] = None
-    ):
-        super(FCGATEncoder, self).__init__()
-        self.convs = torch.nn.ModuleList()
-        self.edge_update = torch.nn.ModuleList()
-        self.num_layers, self.num_heads = n_layers, n_heads
-        for layer in range(self.num_layers):
-            self.convs.append(FCGATLayer(
-                embedding_dim, embedding_dim, n_heads,
-                dropout=dropout, negative_slope=negative_slope
-            ))
-            self.edge_update.append(EdgeUpdateLayer(
-                embedding_dim, embedding_dim, residual=True,
-                use_ln=True
-            ))
-        self.drop_fun = torch.nn.Dropout(dropout)
-
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        attn_mask: torch.Tensor
-    ):
-        for layer in range(self.num_layers):
-            node_feats = self.convs[layer](
-                node_feats=node_feats, edge_feats=edge_feats,
-                attn_mask=attn_mask
-            )
-            edge_feats = self.edge_update[layer](
-                node_feat=node_feats, edge_feats=edge_feats
-            )
-
-        return node_feats, edge_feats
