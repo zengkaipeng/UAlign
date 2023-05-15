@@ -46,8 +46,8 @@ class GraphEditModel(torch.nn.Module):
         return self.edge_feat_agger(torch.cat([src_x, dst_x], dim=-1))
 
     def predict_edge(
-        self, node_feat, activate_nodes,
-        num_nodes=None, edge_feat=None
+        self, node_feat, activate_nodes, num_nodes=None,
+        edge_feat=None, e_types=None, edge_map=None, empty_type=0
     ):
         if self.sparse and num_nodes is None:
             raise NotImplementedError(
@@ -59,6 +59,7 @@ class GraphEditModel(torch.nn.Module):
                 'dense backbone calculated every pair of edge_features '
                 'and the edge features should be provided'
             )
+        e_answer = []
 
         if self.sparse:
             src_idx, dst_idx, base = [], [], 0
@@ -67,29 +68,32 @@ class GraphEditModel(torch.nn.Module):
                 for x, y in combinations(p, 2):
                     src_idx.append((x + base, y + base))
                     dst_idx.append((y + base, x + base))
+                    e_answer.append(get_label(e_types[idx], x, y, empty_type))
                 base += num_nodes[idx]
 
             if len(src_idx) == 0:
-                return None
+                return None, []
 
             src_idx = torch.LongTensor(src_idx)
             dst_idx = torch.LongTensor(dst_idx)
 
             ed_feat = self.get_edge_feat(node_feat, src_idx) + \
                 self.get_edge_feat(node_feat, dst_idx)
-            print(ed_feat.shape)
 
         else:
-            ed_feat = []
+            src_idx, dst_idx = [], []
             for idx, p in enumerate(activate_nodes):
-                tx, ty = [], []
                 for x, y in combinations(p, 2):
-                    tx.append(x)
-                    ty.append(y)
-                ed_feat.append(edge_feat[idx][tx, ty] + edge_feat[idx][ty, tx])
-            ed_feat = torch.cat(ed_feat, dim=0)
+                    src_idx.append(edge_map[(x, y)])
+                    dst_idx.append(edge_map[(y, x)])
+                    e_answer.append(get_label(e_types[idx], x, y, empty_type))
 
-        return self.edge_predictor(ed_feat)
+            if len(src_idx) == 0:
+                return None, []
+
+            ed_feat = edge_feat[src_idx] + edge_feat[dst_idx]
+
+        return self.edge_predictor(ed_feat), e_answer
 
     def get_init_feats(
         self, graphs, num_nodes=None, num_edges=None, rxn_class=None
@@ -130,7 +134,7 @@ class GraphEditModel(torch.nn.Module):
 
     def forward(
         self, graphs, act_nodes=None, num_nodes=None, num_edges=None,
-        attn_mask=None, rxn_class=None, mode='together', return_feat=False
+        attn_mask=None, rxn_class=None, mode='together'
     ):
         node_feat, edge_feat = self.get_init_feats(
             graphs, num_nodes, num_edges, rxn_class
@@ -159,18 +163,15 @@ class GraphEditModel(torch.nn.Module):
             return node_res, pred_edge, act_nodes
 
 
-def get_labels(activate_nodes, edge_type, empty_type=0):
-    edge_feats = []
-    for idx, p in enumerate(edge_type):
-        for x, y in combinations(p, 2):
-            if (x, y) in edge_type[idx]:
-                t_type = edge_type[idx][(x, y)]
-            elif (y, x) in edge_type[idx]:
-                t_type = edge_type[idx][(y, x)]
-            else:
-                t_type = empty_type
-            edge_feats.append(t_type)
-    return torch.LongTensor(edge_feats)
+def get_label(e_type, x, y, empty_type=0):
+    if e_type is None:
+        return empty_type
+    if (x, y) in e_type:
+        return e_type[(x, y)]
+    elif (y, x) in e_type:
+        return e_type[(y, x)]
+    else:
+        return empty_type
 
 
 def evaluate_sparse(
@@ -180,7 +181,8 @@ def evaluate_sparse(
     base, e_base, total = 0, 0, 0
     node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
     node_res = node_res.cpu().argmax(dim=-1)
-    edge_res = edge_res.cpu().argmax(dim=-1)
+    if edge_res is not None:
+        edge_res = edge_res.cpu().argmax(dim=-1)
     for idx, p in enumerate(num_nodes):
         t_node_res = node_res[base: base + p] > 0.5
         real_nodes = torch.zeros_like(t_node_res, dtype=bool)

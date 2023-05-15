@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
 from GATconv import MyGATConv
+from GINConv import GINConv
 import numpy as np
 
 
