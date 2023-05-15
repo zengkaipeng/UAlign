@@ -110,7 +110,7 @@ class GINBase(torch.nn.Module):
             node_feats = self.dropout_fun(
                 conv_res if layer == self.num_layers - 1
                 else torch.relu(conv_res)
-            ) + node_feats
+            ) + (node_feats if self.residual else 0)
 
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
@@ -164,7 +164,7 @@ class GATBase(torch.nn.Module):
             node_feats = self.dropout_fun(
                 conv_res if layer == self.num_layers - 1
                 else torch.relu(conv_res)
-            ) + node_feats
+            ) + (node_feats if self.residual else 0)
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_feats=edge_feats, node_feats=node_feats,
