@@ -195,18 +195,13 @@ class SparseAtomEncoder(torch.nn.Module):
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
 
-    def forward(self, node_feat, num_nodes=None, rxn_class=None):
+    def forward(self, node_feat, rxn_class=None):
         result = self.atom_encoder(node_feat)
         if self.n_class is not None:
             if rxn_class is None or num_nodes is None:
                 raise ValueError('missing reaction class information')
             else:
-                rxn_cls = torch.LongTensor(node_feat.shape[0])
-                base, rxn_cls = 0, rxn_cls.to(node_feat.device)
-                for idx, p in enumerate(rxn_class):
-                    rxn_cls[base: base + num_nodes[idx]] = p
-                    base += num_nodes[idx]
-                rxn_class_emb = self.rxn_class_emb(rxn_cls)
+                rxn_class_emb = self.rxn_class_emb(rxn_class)
                 result = torch.cat([rxn_class_emb, result], dim=-1)
                 result = self.lin(result)
         return result
@@ -216,23 +211,26 @@ class SparseBondEncoder(torch.nn.Module):
     def __init__(self, dim, n_class=None):
         super(SparseBondEncoder, self).__init__()
         self.bond_encoder = BondEncoder(dim)
+        self.pad_embedding = torch.nn.Parameter(torch.randn(dim))
+        self.self_embedding = torch.nn.Parameter(torch.randn(dim))
         self.n_class = n_class
         if n_class is not None:
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
 
-    def forward(self, edge_feat, num_edges=None, rxn_class=None):
-        result = self.bond_encoder(edge_feat)
+    def forward(self, edge_feat, org_ptr, pad_ptr, self_ptr, rxn_class=None):
+        result = torch.zeros(self_ptr, self.dim).to(edge_feat.device)
+        result[:org_ptr] = self.bond_encoder(edge_feat)
+        if org_ptr != pad_ptr:
+            result[org_ptr: pad_ptr] = self.pad_embedding
+        if pad_ptr != self_ptr:
+            result[pad_ptr: self_ptr] = self.self_embedding
+        
         if self.n_class is not None:
             if rxn_class is None or num_edges is None:
                 raise ValueError('missing reaction class information')
             else:
-                rxn_cls = torch.LongTensor(node_feat.shape[0])
-                base, rxn_cls = 0, rxn_cls.to(node_feat.device)
-                for idx, p in enumerate(rxn_class):
-                    rxn_cls[base: base + num_edges[idx]] = p
-                    base += num_edges
-                rxn_class_emb = self.rxn_class_emb(rxn_cls)
+                rxn_class_emb = self.rxn_class_emb(rxn_class)
                 result = torch.cat([rxn_class_emb, result], dim=-1)
                 result = self.lin(result)
         return result

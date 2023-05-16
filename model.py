@@ -83,6 +83,7 @@ def get_collate_fn(sparse, self_loop):
 
         result, more_rxn = {}, []
 
+        # sparse padding
         if not sparse:
             result['original_edge_ptr'] = lstedge
             pad_edge, self_edge = [], []
@@ -98,22 +99,29 @@ def get_collate_fn(sparse, self_loop):
 
                 edge_map[idx].update(e_map)
 
-            lstedge += len(pad_edge)
-            result['pad_edge_ptr'] = lstedge
-            edge_idxes.append(np.array(pad_edge, dtype=np.int64).T)
+            if len(pad_edge) > 0:
+                lstedge += len(pad_edge)
+                edge_idxes.append(np.array(pad_edge, dtype=np.int64).T)
+        result['pad_edge_ptr'] = lstedge
 
-            if self_loop:
-                for idx in range(batch_size):
-                    cnt_node = ptr[idx + 1] - ptr[idx]
-                    for tdx in range(cnt_node):
-                        if (x, x) not in edge_map[idx]:
-                            edge_map[idx][(x, x)] = len(self_edge) + lstedge
-                            self_edge.append((x + ptr[idx], x + ptr[idx]))
-                            if len(rxn_class) != 0:
-                                more_rxn.append(rxn_class[idx])
+        # self loops
 
-                result['self_edge_ptr'] = lstedge + len(self_edge)
+        if self_loop:
+            for idx in range(batch_size):
+                cnt_node = ptr[idx + 1] - ptr[idx]
+                for tdx in range(cnt_node):
+                    if (x, x) not in edge_map[idx]:
+                        edge_map[idx][(x, x)] = len(self_edge) + lstedge
+                        self_edge.append((x + ptr[idx], x + ptr[idx]))
+                        if len(rxn_class) != 0:
+                            more_rxn.append(rxn_class[idx])
+            if len(self_edge) > 0:
+                lstedge += len(self_edge)
                 edge_idxes.append(np.array(self_edge, dtype=np.int64).T)
+        result['self_edge_ptr'] = lstedge
+
+
+        # result merging
 
         result['edge_index'] = torch.from_numpy(
             np.concatenate(edge_idxes, axis=-1)
@@ -270,10 +278,7 @@ class GraphEditModel(torch.nn.Module):
                 base += p
         return result
 
-    def forward(
-        self, graphs, act_nodes=None, num_nodes=None, num_edges=None,
-        attn_mask=None, rxn_class=None, mode='together'
-    ):
+    def forward(self, graphs, act_nodes=None, mode='together'):
         node_feat, edge_feat = self.get_init_feats(
             graphs, num_nodes, num_edges, rxn_class
         )
