@@ -21,7 +21,7 @@ class EditDataset(torch.utils.data.Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        node_label = torch.zeros(self.graphs[index]['num_nodes'])
+        node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
         node_label[self.activate_nodes[index]] = 1
         if self.rxn_class is not None:
             return self.graphs[index], self.rxn_class[index], node_label, \

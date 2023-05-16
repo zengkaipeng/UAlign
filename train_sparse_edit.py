@@ -66,7 +66,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--mode', choices=['together', 'original'], type=str,
         help='the training mode, together will extend the '
-        'training data using the node result'
+        'training data using the node result',
+        default='together'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,

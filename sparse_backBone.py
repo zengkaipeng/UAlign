@@ -179,8 +179,6 @@ def sparse_edit_collect_fn(data_batch):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     activate_nodes, num_e, edge_types = [], [], []
     for idx, data in enumerate(data_batch):
-        print(data)
-        print("[INFO] tlen", len(data))
         if len(data) == 4:
             graph, n_lb,  e_type, A_node = data
         else:
