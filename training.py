@@ -2,7 +2,7 @@ from model import get_labels, evaluate_sparse
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
-
+import torch
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     def f(x):
@@ -41,8 +41,11 @@ def train_sparse_edit(
         )
 
         loss_node = F.cross_entropy(node_res, node_label)
-        edge_labels = get_labels(new_act_nodes, e_type).to(device)
-        loss_edge = F.cross_entropy(edge_res, edge_labels)
+        if edge_res is not None:
+            edge_labels = get_labels(new_act_nodes, e_type).to(device)
+            loss_edge = F.cross_entropy(edge_res, edge_labels)
+        else:
+            loss_edge = torch.tensor(0.0)
 
         optimizer.zero_grad()
         (loss_node + loss_edge).back_ward()

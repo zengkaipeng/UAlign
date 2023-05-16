@@ -126,6 +126,7 @@ if __name__ == '__main__':
         train_rec, train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None
     )
+    print(train_set)
 
     valid_set = create_sparse_dataset(
         val_rec, val_prod, kekulize=args.kekulize,
