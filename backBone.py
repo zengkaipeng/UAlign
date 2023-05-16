@@ -4,33 +4,6 @@ from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
 
 
-class EditDataset(torch.utils.data.Dataset):
-    def __init__(
-        self, graphs: List[Dict],
-        activate_nodes: List[List],
-        edge_types: List[List[List]],
-        rxn_class: Optional[List[int]] = None
-    ):
-        super(EditDataset, self).__init__()
-        self.graphs = graphs
-        self.activate_nodes = activate_nodes
-        self.edge_types = edge_types
-        self.rxn_class = rxn_class
-
-    def __len__(self):
-        return len(self.graphs)
-
-    def __getitem__(self, index):
-        node_label = torch.zeros(self.graphs[index]['num_nodes'])
-        node_label[self.activate_nodes[index]] = 1
-        if self.rxn_class is not None:
-            return self.graphs[index], self.rxn_class[index], node_label, \
-                self.edge_types[index], self.activate_nodes[index]
-        else:
-            return self.graphs[index], node_label, \
-                self.edge_types[index], self.activate_nodes[index]
-
-
 class ExtendedBondEncoder(torch.nn.Module):
     def __init__(self, dim: int):
         """The extened bond encoder, extended from ogb bond encoder for mol

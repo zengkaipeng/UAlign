@@ -3,7 +3,145 @@ from backBone import FCGATEncoder, ExtendedAtomEncoder, ExtendedBondEncoder
 from sparse_backBone import (
     GINBase, GATBase, SparseAtomEncoder, SparseBondEncoder
 )
-from itertools import combinations
+from itertools import combinations, permutations
+from torch_geometric.data import Data
+
+
+class EditDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, graphs: List[Dict],
+        activate_nodes: List[List],
+        edge_types: List[List[List]],
+        rxn_class: Optional[List[int]] = None
+    ):
+        super(EditDataset, self).__init__()
+        self.graphs = graphs
+        self.activate_nodes = activate_nodes
+        self.edge_types = edge_types
+        self.rxn_class = rxn_class
+
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, index):
+        node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
+        node_label[self.activate_nodes[index]] = 1
+        if self.rxn_class is not None:
+            return self.graphs[index], self.rxn_class[index], node_label, \
+                self.edge_types[index], self.activate_nodes[index]
+        else:
+            return self.graphs[index], node_label, \
+                self.edge_types[index], self.activate_nodes[index]
+
+
+def get_collate_fn(sparse, self_loop):
+    def graph_collate_fn(data_batch):
+        batch_size, rxn_class, node_label = len(data_batch), [], []
+        edge_idxes, edge_feats, node_feats = [], [], []
+        batch, lstnode, ptr, edge_map = [], 0, [0], []
+        activate_nodes, edge_types = [], []
+        node_rxn, edge_rxn, lstedge = [], [], 0
+        for idx, data in enumerate(data_batch):
+            if len(data) == 4:
+                graph, n_lb,  e_type, A_node = data
+                r_class = None
+            else:
+                graph, r_class, n_lb,  e_type, A_node = data
+                rxn_class.append(r_class)
+
+            # labels
+            edge_types.append(e_type)
+            node_label.append(n_lb)
+            activate_nodes.append(A_node)
+
+            # graph info
+
+            cnt_node = graphs['num_nodes']
+            cnt_edge = graph['edge_index'].shape[1]
+
+            edge_idxes.append(graph['edge_index'] + lstnode)
+            edge_feats.append(graph['edge_feat'])
+            node_feats.append(graph['node_feat'])
+            lstnode += cnt_node
+            ptr.append(lstnode)
+            batch.append(np.ones(cnt_node, dtype=np.int64) * idx)
+
+            # r_class
+
+            if r_class is not None:
+                node_rxn.append(np.ones(cnt_edge, dtype=np.int64) * r_class)
+                edge_rnx.append(np.ones(cnt_edge, dtype=np.int64) * r_class)
+
+            # edge_mapping
+            e_map = {}
+            for tdx in range(cnt_edge):
+                x = int(graph['edge_index'][0][tdx])
+                y = int(graph['edge_index'][1][tdx])
+                e_map[(x, y)] = tdx + lstedge
+            lstedge += cnt_edge
+            edge_map.append(e_map)
+
+        result, more_rxn = {}, []
+
+        if not sparse:
+            result['original_edge_ptr'] = lstedge
+            pad_edge, self_edge = [], []
+            for idx in range(batch_size):
+                e_map, cnt_node = {}, ptr[idx + 1] - ptr[idx]
+                all_idx = list(range(cnt_node))
+                for tdx, (x, y) in enumerate(permutations(all_idx, 2)):
+                    if (x, y) not in edge_map[idx]:
+                        e_map[(x, y)] = len(pad_edge) + lstedge
+                        pad_edge.append((x + ptr[idx], y + ptr[idx]))
+                        if len(rxn_class) != 0:
+                            more_rxn.append(rxn_class[idx])
+
+                edge_map[idx].update(e_map)
+
+            lstedge += len(pad_edge)
+            result['pad_edge_ptr'] = lstedge
+            edge_idxes.append(np.array(pad_edge, dtype=np.int64).T)
+
+            if self_loop:
+                for idx in range(batch_size):
+                    cnt_node = ptr[idx + 1] - ptr[idx]
+                    for tdx in range(cnt_node):
+                        if (x, x) not in edge_map[idx]:
+                            edge_map[idx][(x, x)] = len(self_edge) + lstedge
+                            self_edge.append((x + ptr[idx], x + ptr[idx]))
+                            if len(rxn_class) != 0:
+                                more_rxn.append(rxn_class[idx])
+
+                result['self_edge_ptr'] = lstedge + len(self_edge)
+                edge_idxes.append(np.array(self_edge, dtype=np.int64).T)
+
+        result['edge_index'] = torch.from_numpy(
+            np.concatenate(edge_idxes, axis=-1)
+        )
+        result['x'] = torch.from_numpy(np.concatenate(node_feats, axis=0))
+        result['edge_attr'] = torch.from_numpy(
+            np.concatenate(edge_feats, axis=0)
+        )
+        result['ptr'] = torch.LongTensor(ptr)
+        result['batch'] = torch.from_numpy(np.concatenate(batch, axis=0))
+        if len(rxn_class) == 0:
+            return Data(**result), node_label, edge_types, \
+                activate_nodes, edge_map
+        else:
+            result['rxn_node'] = torch.from_numpy(
+                np.concatenate(node_rxn, axis=0)
+            )
+            result['rxn_edge'] = torch.from_numpy(
+                np.concatenate(edge_rxn, axis=0)
+            )
+            if len(more_rxn) > 0:
+                result['rxn_edge'] = torch.cat([
+                    result['rxn_edge'], torch.LongTensor(more_rxn)
+                ], dim=0)
+            return Data(**result), rxn_class, node_label, edge_types,\
+                activate_nodes, edge_map
+
+    return graph_collate_fn
 
 
 class GraphEditModel(torch.nn.Module):
