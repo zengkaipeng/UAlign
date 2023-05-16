@@ -174,13 +174,14 @@ def get_labels(activate_nodes, edge_type, empty_type=0):
 
 
 def evaluate_sparse(
-    node_res, pred_edge, num_nodes, num_edges,
+    node_res, pred_edge, num_nodes, 
     edge_types, act_nodes, used_nodes
 ):
     base, e_base, total = 0, 0, 0
     node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
     node_res = node_res.cpu().argmax(dim=-1)
-    edge_res = edge_res.cpu().argmax(dim=-1)
+    if edge_res is not None:
+        edge_res = edge_res.cpu().argmax(dim=-1)
     for idx, p in enumerate(num_nodes):
         t_node_res = node_res[base: base + p] > 0.5
         real_nodes = torch.zeros_like(t_node_res, dtype=bool)
@@ -191,8 +192,11 @@ def evaluate_sparse(
 
         edge_labels = get_labels(used_nodes[idx], edge_types[idx])
         e_size = len(edge_labels)
-
-        ef = torch.all(edge_labels == edge_res[e_base: e_base + e_size]).item()
+        if e_size != 0:
+            t_edge_res = edge_res[e_base: e_base + e_size]
+            ef = torch.all(edge_labels == t_edge_res).item()
+        else:
+            ef = True
 
         base, e_base = base + p, e_base + e_size
         total += 1

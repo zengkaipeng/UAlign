@@ -22,7 +22,8 @@ def create_log_model(args):
         f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
     ]
     detail_log_folder = os.path.join(
-        'with_class: StrPaths' if args.use_class else 'wo_class',
+        args.base_log,
+        'with_class' if args.use_class else 'wo_class',
         args.backbone, '-'.join(log_dir)
     )
     if not os.path.exists(detail_log_folder):
@@ -119,6 +120,8 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
+    print('[INFO] Data Loaded')
+
     train_set = create_sparse_dataset(
         train_rec, train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None
@@ -160,7 +163,7 @@ if __name__ == '__main__':
         )
 
     model = GraphEditModel(
-        GNN, True, embedding_dim, embedding_dim,
+        GNN, True, args.dim, args.dim,
         4 if args.kekulize else 5
     ).to(device)
 

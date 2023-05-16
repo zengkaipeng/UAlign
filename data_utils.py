@@ -6,15 +6,18 @@ from utils.chemistry_parse import (
 )
 from backBone import EditDataset
 from utils.graph_utils import smiles2graph
-
+import random
+import numpy as np
+import torch
+from tqdm import tqdm
 
 def create_sparse_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    return_amap=False
+    return_amap=False, verbose=True
 ):
     amaps, graphs, nodes, edge_types = [], [], [], []
-    for idx, reac in enumerate(reacts):
-        x, y, z = get_reaction_core(reac, prods[idx], kekulize=kekulize)
+    for idx, prod in enumerate(tqdm(prods) if verbose else prods):
+        x, y, z = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
         nodes.append([amap[t] for t in x])
@@ -24,7 +27,7 @@ def create_sparse_dataset(
         })
         amaps.append(amap)
     dataset = EditDataset(graphs, nodes, edge_types)
-    return dataset, amap if return_amap else amap
+    return dataset, amap if return_amap else dataset
 
 
 def load_data(data_dir, part):
