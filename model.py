@@ -320,9 +320,12 @@ def evaluate_sparse(node_res, pred_edge, e_labels, node_ptr, e_ptr, act_nodes):
         nf = torch.all(real_nodes == t_node_res).item()
         nc = torch.all(read_nodes == inters).item()
 
-        t_edge_res = edge_res[e_ptr[idx]: e_ptr[idx + 1]]
-        t_edge_labels = e_labels[e_ptr[idx]: e_ptr[idx + 1]]
-        ef = torch.all(t_edge_res == t_edge_labels).item()
+        if edge_res is not None:
+            t_edge_res = edge_res[e_ptr[idx]: e_ptr[idx + 1]]
+            t_edge_labels = e_labels[e_ptr[idx]: e_ptr[idx + 1]]
+            ef = torch.all(t_edge_res == t_edge_labels).item()
+        else:
+            ef = True
 
         node_fit += nf
         node_cover += nc
