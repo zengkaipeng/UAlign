@@ -120,7 +120,6 @@ def get_collate_fn(sparse, self_loop):
                 edge_idxes.append(np.array(self_edge, dtype=np.int64).T)
         result['self_edge_ptr'] = lstedge
 
-
         # result merging
 
         result['edge_index'] = torch.from_numpy(
@@ -170,7 +169,7 @@ class GraphEditModel(torch.nn.Module):
             torch.nn.Dropout(dropout),
             torch.nn.ReLU(),
             torch.nn.Linear(edge_dim, edge_class)
-        )
+        )o: Any, name: str
 
         self.node_predictor = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
@@ -192,33 +191,33 @@ class GraphEditModel(torch.nn.Module):
         return self.edge_feat_agger(torch.cat([src_x, dst_x], dim=-1))
 
     def predict_edge(
-        self, node_feat, activate_nodes, num_nodes=None,
-        edge_feat=None, e_types=None, edge_map=None, empty_type=0
+        self, node_feat, activate_nodes, edge_feat=None,
+        e_types=None, edge_map=None, empty_type=0, ptr=None
     ):
-        if self.sparse and num_nodes is None:
+        if self.sparse and ptr is None:
             raise NotImplementedError(
                 'sparse backbone requires number of each graph '
                 'to obtain correct edge features'
             )
-        if not self.sparse and edge_feat is None:
+        if not self.sparse and (edge_feat is None or edge_map is None):
             raise NotImplementedError(
                 'dense backbone calculated every pair of edge_features '
                 'and the edge features should be provided'
             )
-        e_answer = []
+        e_answer, e_ptr = [], [0]
 
         if self.sparse:
-            src_idx, dst_idx, base = [], [], 0
+            src_idx, dst_idx = [], []
             for idx, p in enumerate(activate_nodes):
                 # print('[Anodes]', p)
                 for x, y in combinations(p, 2):
-                    src_idx.append((x + base, y + base))
-                    dst_idx.append((y + base, x + base))
+                    src_idx.append((x + ptr[idx], y + ptr[idx]))
+                    dst_idx.append((y + ptr[idx], x + ptr[idx]))
                     e_answer.append(get_label(e_types[idx], x, y, empty_type))
-                base += num_nodes[idx]
+                e_ptr.append(len(e_answer))
 
             if len(src_idx) == 0:
-                return None, []
+                return None, [], [0]
 
             src_idx = torch.LongTensor(src_idx)
             dst_idx = torch.LongTensor(dst_idx)
@@ -233,52 +232,44 @@ class GraphEditModel(torch.nn.Module):
                     src_idx.append(edge_map[(x, y)])
                     dst_idx.append(edge_map[(y, x)])
                     e_answer.append(get_label(e_types[idx], x, y, empty_type))
+                e_ptr.append(len(e_answer))
 
             if len(src_idx) == 0:
-                return None, []
+                return None, [], [0]
 
             ed_feat = edge_feat[src_idx] + edge_feat[dst_idx]
 
-        return self.edge_predictor(ed_feat), e_answer
+        return self.edge_predictor(ed_feat), e_answer, e_ptr
 
-    def get_init_feats(
-        self, graphs, num_nodes=None, num_edges=None, rxn_class=None
-    ):
-        if self.sparse:
-            node_feat = self.atom_encoder(graphs.x, num_nodes, rxn_class)
-            edge_feat = self.bond_encoder(
-                graphs.edge_attr, num_edges, rxn_class
-            )
-        else:
-            num_nodes = [x['num_nodes'] for x in graphs]
-            node_feat = [x['node_feat'] for x in graphs]
-            edge_feat = [x['edge_feat'] for x in graphs]
-            edge_index = [x['edge_index'] for x in graphs]
-            node_feat = self.atom_encoder(num_nodes, node_feat, rxn_class)
-            edge_feat = self.bond_encoder(
-                num_nodes=num_nodes, edge_index=edge_index,
-                edge_feat=edge_feat, rxn_class=rxn_class
-            )
+    def get_init_feats(self, graphs):
+        rxn_node = getattr(graphs, 'rxn_node', None)
+        rxn_edge = getattr(graphs, 'rxn_edge', None)
+        node_feat = self.atom_encoder(node_feat=graphs.x, rxn_class=rxn_node)
+        edge_feat = self.bond_encoder(
+            edge_feat=graphs.edge_attr, org_ptr=graphs.original_edge_ptr,
+            pad_ptr=graphs.pad_edge_ptr, self_ptr=graphs.self_edge_ptr,
+            rxn_class=rxn_edge
+        )
         return node_feat, edge_feat
 
-    def update_act_nodes(self, node_res, act_x=None, num_nodes=None):
+    def update_act_nodes(self, node_res, ptr, act_x=None):
         node_res = node_res.detach().cpu()
         node_res = torch.argmax(node_res, dim=-1)
         result = []
-        if self.sparse:
-            base = 0
-            for idx, p in enumerate(num_nodes):
-                node_res_t = node_res[base: base + p]
-                node_all = torch.arange(p)
-                mask = node_res_t == 1
-                t_result = set(node_all[mask].tolist())
-                if act_x is not None:
-                    t_result |= set(act_x[idx])
-                result.append(list(t_result))
-                base += p
+        for idx in range(len(ptr) - 1):
+            node_res_t = node_res[ptr[idx]: ptr[idx + 1]]
+            node_all = torch.arange(ptr[idx + 1] - ptr[idx])
+            mask = node_res_t == 1
+            t_result = set(node_all[mask].tolist())
+            if act_x is not None:
+                t_result = set(act_x[idx])
+            result.append(t_result)
         return result
 
-    def forward(self, graphs, act_nodes=None, mode='together'):
+    def forward(
+        self, graphs, act_nodes=None, mode='together', e_types=None,
+        empty_type=0, edge_map=None
+    ):
         node_feat, edge_feat = self.get_init_feats(
             graphs, num_nodes, num_edges, rxn_class
         )
@@ -297,13 +288,12 @@ class GraphEditModel(torch.nn.Module):
         elif mode != 'original':
             raise NotImplementedError(f'Invalid mode: {mode}')
 
-        pred_edge = self.predict_edge(
-            node_feat, act_nodes, num_nodes, edge_feat
+        pred_edge, e_answer, e_ptr = self.predict_edge(
+            node_feat=node_feat, activate_nodes=act_nodes, edge_faet=edge_feat,
+            e_types=e_types, empty_type=empty_type, edge_map=edge_map,
+            ptr=graphs.ptr
         )
-        if return_feat:
-            return node_res, pred_edge, act_nodes, node_feat, edge_feat
-        else:
-            return node_res, pred_edge, act_nodes
+        return node_res, pred_edge, e_answer, e_ptr, act_nodes
 
 
 def get_label(e_type, x, y, empty_type=0):
@@ -317,33 +307,26 @@ def get_label(e_type, x, y, empty_type=0):
         return empty_type
 
 
-def evaluate_sparse(
-    node_res, pred_edge, num_nodes, num_edges,
-    edge_types, act_nodes, used_nodes
-):
-    base, e_base, total = 0, 0, 0
+def evaluate_sparse(node_res, pred_edge, e_labels, node_ptr, e_ptr, act_nodes):
     node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
     node_res = node_res.cpu().argmax(dim=-1)
     if edge_res is not None:
         edge_res = edge_res.cpu().argmax(dim=-1)
-    for idx, p in enumerate(num_nodes):
-        t_node_res = node_res[base: base + p] > 0.5
+    for idx, a_node in enumerate(act_nodes):
+        t_node_res = node_res[node_ptr[idx]: node_ptr[idx] + 1] == 1
         real_nodes = torch.zeros_like(t_node_res, dtype=bool)
-        real_nodes[act_nodes[idx]] = True
+        real_nodes[a_node] = True
         inters = torch.logical_and(real_nodes, t_node_res)
         nf = torch.all(real_nodes == t_node_res).item()
         nc = torch.all(read_nodes == inters).item()
 
-        edge_labels = get_labels(used_nodes[idx], edge_types[idx])
-        e_size = len(edge_labels)
+        t_edge_res = edge_res[e_ptr[idx]: e_ptr[idx + 1]]
+        t_edge_labels = e_labels[e_ptr[idx]: e_ptr[idx + 1]]
+        ef = torch.all(t_edge_res == t_edge_labels).item()
 
-        ef = torch.all(edge_labels == edge_res[e_base: e_base + e_size]).item()
-
-        base, e_base = base + p, e_base + e_size
-        total += 1
         node_fit += nf
         node_cover += nc
         edge_fit += ef
         all_fit += (nf & ef)
         all_cover += (nc & ef)
-    return node_cover, node_fit, edge_fit, all_fit, all_cover, total
+    return node_cover, node_fit, edge_fit, all_fit, all_cover, len(act_nodes)
