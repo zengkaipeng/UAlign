@@ -5,6 +5,8 @@ from sparse_backBone import (
 )
 from itertools import combinations, permutations
 from torch_geometric.data import Data
+from typing import Any, Dict, List, Tuple, Optional, Union
+import numpy as np
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -56,7 +58,7 @@ def get_collate_fn(sparse, self_loop):
 
             # graph info
 
-            cnt_node = graphs['num_nodes']
+            cnt_node = graph['num_nodes']
             cnt_edge = graph['edge_index'].shape[1]
 
             edge_idxes.append(graph['edge_index'] + lstnode)
@@ -83,10 +85,11 @@ def get_collate_fn(sparse, self_loop):
 
         result, more_rxn = {}, []
 
+        result['original_edge_ptr'] = lstedge
+
         # sparse padding
         if not sparse:
-            result['original_edge_ptr'] = lstedge
-            pad_edge, self_edge = [], []
+            pad_edge = []
             for idx in range(batch_size):
                 e_map, cnt_node = {}, ptr[idx + 1] - ptr[idx]
                 all_idx = list(range(cnt_node))
@@ -107,9 +110,10 @@ def get_collate_fn(sparse, self_loop):
         # self loops
 
         if self_loop:
+            self_edge = []
             for idx in range(batch_size):
                 cnt_node = ptr[idx + 1] - ptr[idx]
-                for tdx in range(cnt_node):
+                for x in range(cnt_node):
                     if (x, x) not in edge_map[idx]:
                         edge_map[idx][(x, x)] = len(self_edge) + lstedge
                         self_edge.append((x + ptr[idx], x + ptr[idx]))
@@ -132,8 +136,8 @@ def get_collate_fn(sparse, self_loop):
         result['ptr'] = torch.LongTensor(ptr)
         result['batch'] = torch.from_numpy(np.concatenate(batch, axis=0))
         if len(rxn_class) == 0:
-            return Data(**result), node_label, edge_types, \
-                activate_nodes, edge_map
+            return Data(**result), torch.cat(node_label, dim=0), \
+                edge_types, activate_nodes, edge_map
         else:
             result['rxn_node'] = torch.from_numpy(
                 np.concatenate(node_rxn, axis=0)
@@ -145,8 +149,8 @@ def get_collate_fn(sparse, self_loop):
                 result['rxn_edge'] = torch.cat([
                     result['rxn_edge'], torch.LongTensor(more_rxn)
                 ], dim=0)
-            return Data(**result), rxn_class, node_label, edge_types,\
-                activate_nodes, edge_map
+            return Data(**result), rxn_class, torch.cat(node_label, dim=0),\
+                edge_types, activate_nodes, edge_map
 
     return graph_collate_fn
 
@@ -169,7 +173,7 @@ class GraphEditModel(torch.nn.Module):
             torch.nn.Dropout(dropout),
             torch.nn.ReLU(),
             torch.nn.Linear(edge_dim, edge_class)
-        )o: Any, name: str
+        )
 
         self.node_predictor = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),

@@ -5,8 +5,8 @@ import os
 import time
 
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase, sparse_edit_collect_fn
-from model import GraphEditModel
+from sparse_backBone import GINBase, GATBase
+from model import GraphEditModel, get_collate_fn
 from training import train_sparse_edit, eval_sparse_edit
 from data_utils import (
     create_sparse_dataset, load_data, fix_seed,
@@ -21,8 +21,12 @@ def create_log_model(args):
         f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
         f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
     ]
+    if args.backbone == 'GAT' and args.add_self_loop:
+        log_dir.append('self_loop')object: _T
+
     detail_log_folder = os.path.join(
-        'with_class: StrPaths' if args.use_class else 'wo_class',
+        args.base_log,
+        'with_class' if args.use_class else 'wo_class',
         args.backbone, '-'.join(log_dir)
     )
     if not os.path.exists(detail_log_folder):
@@ -104,6 +108,11 @@ if __name__ == '__main__':
         '--base_log', default='log', type=str,
         help='the base dir of logging'
     )
+    parser.add_argument(
+        '--add_self_loop', action='store_true',
+        help='explictly add self loop in the graph data'
+        ' only useful for gat'
+    )
 
     args = parser.parse_args()
     log_dir, model_dir = create_log_model(args)
@@ -133,6 +142,8 @@ if __name__ == '__main__':
         rxn_class=test_rxn if args.use_class else None
     )
 
+    col_fn = get_collate_fn(sparse=True, self_loop=args.add_self_loop)
+
     train_loader = DataLoader(
         train_set, collate_fn=sparse_edit_collect_fn,
         batch_size=args.bs, shuffle=True
@@ -156,7 +167,7 @@ if __name__ == '__main__':
             num_layers=args.n_layer, dropout=args.dropout,
             embedding_dim=args.dim, edge_last=False,
             residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads
+            num_heads=args.heads, self_loop=not args.add_self_loop
         )
 
     model = GraphEditModel(

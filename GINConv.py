@@ -1,10 +1,8 @@
 import torch
-from typing import Any, Dict, List, Tuple, Optional, Union
 
-
-class GINConv(torch.nn.Module):
+class MyGINConv(torch.nn.Module):
     def __init__(self, embedding_dim: int = 64):
-        super(GINConv, self).__init__()
+        super(MyGINConv, self).__init__()
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(embedding_dim, 2 * embedding_dim),
             torch.nn.LayerNorm(2 * embedding_dim),

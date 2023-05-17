@@ -1,4 +1,4 @@
-from backBone import  EditDataset
+from model import EditDataset, get_collate_fn
 from sparse_backBone import sparse_edit_collect_fn
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
@@ -33,20 +33,15 @@ for react in content:
 
 dataset = EditDataset(graphs, nodes, edge)
 
-Loader = DataLoader(dataset, collate_fn=sparse_edit_collect_fn, batch_size=4)
+cfn = get_collate_fn(sparse=True, self_loop=True)
+
+Loader = DataLoader(dataset, collate_fn=cfn, batch_size=4)
 
 GIN = GINBase(num_layers=4, embedding_dim=256, dropout=0.1, edge_last=False)
-GAT = GATBase(num_heads=4, num_layers=4, embedding_dim=256, edge_last=False)
 
 model1 = GraphEditModel(GIN, True, 256, 256, 4)
 
-model2 = GraphEditModel(GAT, True, 256, 256, 4)
-
 for x in Loader:
-    graphs, node_label, num_l, num_e, e_type, act_nodes = x
+    graphs, node_label, e_type, act_nodes, e_map = x
     print('[DATA]', x)
-    node_res, edge_res, new_act = model2(
-        graphs=graphs, act_nodes=act_nodes, num_nodes=num_l, num_edges=num_e,
-        mode='original'
-    ) 
-    print(node_res.shape, edge_res.shape, new_act)
+    print('[node_label_shape]', node_label.shape)

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
 from GATconv import MyGATConv
-from GINConv import GINConv
+from GINConv import MyGINConv
 import numpy as np
 
 
@@ -57,7 +57,7 @@ class GINBase(torch.nn.Module):
         self.num_layers = num_layers
         self.dropout_fun = torch.nn.Dropout(dropout)
         for layer in range(self.num_layers):
-            self.convs.append(GINConv(embedding_dim))
+            self.convs.append(MyGINConv(embedding_dim))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
                 self.edge_update.append(SparseEdgeUpdateLayer(
@@ -96,7 +96,7 @@ class GATBase(torch.nn.Module):
         self, num_layers: int = 4, num_heads: int = 4,
         embedding_dim: int = 64, dropout: float = 0.7,
         residual: bool = True, negative_slope: float = 0.2,
-        edge_last: bool = True
+        edge_last: bool = True, self_loop: bool = True
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -112,7 +112,7 @@ class GATBase(torch.nn.Module):
             self.convs.append(MyGATConv(
                 in_channels=embedding_dim, heads=num_heads,
                 out_channels=embedding_dim // num_heads,
-                negative_slope=negative_slope,
+                negative_slope=negative_slope, add_self_loop=self_loop,
                 dropout=dropout, edge_dim=embedding_dim
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
@@ -122,6 +122,7 @@ class GATBase(torch.nn.Module):
                 ))
         self.residual = residual
         self.edge_last = edge_last
+        self.add_self_loop = self_loop
 
     def forward(
         self,
@@ -225,7 +226,7 @@ class SparseBondEncoder(torch.nn.Module):
             result[org_ptr: pad_ptr] = self.pad_embedding
         if pad_ptr != self_ptr:
             result[pad_ptr: self_ptr] = self.self_embedding
-        
+
         if self.n_class is not None:
             if rxn_class is None or num_edges is None:
                 raise ValueError('missing reaction class information')
