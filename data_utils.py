@@ -28,7 +28,7 @@ def create_sparse_dataset(
         })
         amaps.append(amap)
     dataset = EditDataset(graphs, nodes, edge_types)
-    return (dataset, amap) if return_amap else amap
+    return (dataset, amap) if return_amap else dataset
 
 
 def load_data(data_dir, part):

@@ -62,7 +62,7 @@ def train_sparse_edit(
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
     node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
-    for data in tqdm(loader) if verbose else loader:
+    for data in (tqdm(loader) if verbose else loader):
         if len(data) == 6:
             graphs, r_cls, node_label, e_type, act_nodes, e_map = data
         else:
