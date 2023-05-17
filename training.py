@@ -2,6 +2,7 @@ from model import evaluate_sparse
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
+import torch
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):

@@ -274,9 +274,7 @@ class GraphEditModel(torch.nn.Module):
         self, graphs, act_nodes=None, mode='together', e_types=None,
         empty_type=0, edge_map=None
     ):
-        node_feat, edge_feat = self.get_init_feats(
-            graphs, num_nodes, num_edges, rxn_class
-        )
+        node_feat, edge_feat = self.get_init_feats(graphs)
         if self.sparse:
             node_feat, _ = self.base_model(
                 node_feats=node_feat, edge_feats=edge_feat,
