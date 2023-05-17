@@ -22,7 +22,7 @@ def create_log_model(args):
         f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
     ]
     if args.backbone == 'GAT' and args.add_self_loop:
-        log_dir.append('self_loop')object: _T
+        log_dir.append('self_loop')
 
     detail_log_folder = os.path.join(
         args.base_log,
@@ -145,15 +145,15 @@ if __name__ == '__main__':
     col_fn = get_collate_fn(sparse=True, self_loop=args.add_self_loop)
 
     train_loader = DataLoader(
-        train_set, collate_fn=sparse_edit_collect_fn,
+        train_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=sparse_edit_collect_fn,
+        valid_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=sparse_edit_collect_fn,
+        test_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=False
     )
 
