@@ -285,13 +285,13 @@ class GraphEditModel(torch.nn.Module):
         if mode in ['together', 'inference']:
             act_nodes = self.update_act_nodes(
                 act_x=act_nodes if mode == 'together' else None,
-                node_res=node_res, num_nodes=num_nodes
+                node_res=node_res, ptr=graphs.ptr
             )
         elif mode != 'original':
             raise NotImplementedError(f'Invalid mode: {mode}')
 
         pred_edge, e_answer, e_ptr = self.predict_edge(
-            node_feat=node_feat, activate_nodes=act_nodes, edge_faet=edge_feat,
+            node_feat=node_feat, activate_nodes=act_nodes, edge_feat=edge_feat,
             e_types=e_types, empty_type=empty_type, edge_map=edge_map,
             ptr=graphs.ptr
         )

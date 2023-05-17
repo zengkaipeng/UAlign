@@ -46,7 +46,7 @@ def train_sparse_edit(
             edge_labels = torch.LongTensor(e_answer).to(device)
             loss_edge = F.cross_entropy(edge_res, edge_labels)
         else:
-            loss_edge = torch.tensor(0.0).to(device)
+            loss_edge = torch.tensor(0.0)
 
         optimizer.zero_grad()
         (loss_node + loss_edge).back_ward()
