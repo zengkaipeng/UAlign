@@ -175,7 +175,7 @@ if __name__ == '__main__':
         )
 
     model = GraphEditModel(
-        GNN, True, embedding_dim, embedding_dim,
+        GNN, True, args.dim, args.dim,
         4 if args.kekulize else 5
     ).to(device)
 
