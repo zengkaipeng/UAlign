@@ -6,6 +6,9 @@ from utils.chemistry_parse import (
 )
 from model import EditDataset
 from utils.graph_utils import smiles2graph
+import random
+import torch
+import numpy as np
 
 
 def create_sparse_dataset(
@@ -13,8 +16,8 @@ def create_sparse_dataset(
     return_amap=False
 ):
     amaps, graphs, nodes, edge_types = [], [], [], []
-    for idx, reac in enumerate(reacts):
-        x, y, z = get_reaction_core(reac, prods[idx], kekulize=kekulize)
+    for idx, prod in enumerate(prods):
+        x, y, z = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
         nodes.append([amap[t] for t in x])

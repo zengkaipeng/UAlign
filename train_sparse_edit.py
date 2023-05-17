@@ -115,6 +115,10 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
+    if args.backbone == 'GIN':
+        args.add_self_loop = False
+    print(args)
+
     log_dir, model_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
