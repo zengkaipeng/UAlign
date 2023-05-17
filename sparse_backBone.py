@@ -195,6 +195,7 @@ class SparseAtomEncoder(torch.nn.Module):
         if n_class is not None:
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
+        self.dim = dim
 
     def forward(self, node_feat, rxn_class=None):
         result = self.atom_encoder(node_feat)
@@ -218,6 +219,7 @@ class SparseBondEncoder(torch.nn.Module):
         if n_class is not None:
             self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
             self.lin = torch.nn.Linear(dim + dim, dim)
+        self.dim = dim
 
     def forward(self, edge_feat, org_ptr, pad_ptr, self_ptr, rxn_class=None):
         result = torch.zeros(self_ptr, self.dim).to(edge_feat.device)
