@@ -240,7 +240,7 @@ if __name__ == '__main__':
                 log_info['valid_metric'][-args.early_stop:]
             ]
             ef = [
-                x['edge_fit'] for x in
+                x['all_cover'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
             if check_early_stop(nc, ef):
