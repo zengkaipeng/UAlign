@@ -41,6 +41,8 @@ def train_sparse_edit(
             edge_map=e_map, empty_type=empty_type
         )
 
+        # print(node_res.shape, edge_res.shape)
+
         loss_node = F.cross_entropy(node_res, node_label)
         if edge_res is not None:
             edge_labels = torch.LongTensor(e_answer).to(device)
@@ -49,7 +51,7 @@ def train_sparse_edit(
             loss_edge = torch.tensor(0.0)
 
         optimizer.zero_grad()
-        (loss_node + loss_edge).back_ward()
+        (loss_node + loss_edge).backward()
         optimizer.step()
 
         node_loss.append(loss_node.item())
