@@ -88,7 +88,7 @@ def eval_sparse_edit(loader, model, device, empty_type=0, verbose=True):
         )
 
         node_cover += metrics[0]
-        node_fit += metricss[1]
+        node_fit += metrics[1]
         edge_fit += metrics[2]
         all_cov += metrics[3]
         all_fit += metrics[4]
