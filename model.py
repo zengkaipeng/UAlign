@@ -320,7 +320,7 @@ def evaluate_sparse(node_res, edge_res, e_labels, node_ptr, e_ptr, act_nodes):
         real_nodes[a_node] = True
         inters = torch.logical_and(real_nodes, t_node_res)
         nf = torch.all(real_nodes == t_node_res).item()
-        nc = torch.all(read_nodes == inters).item()
+        nc = torch.all(real_nodes == inters).item()
 
         if edge_res is not None:
             t_edge_res = edge_res[e_ptr[idx]: e_ptr[idx + 1]]
