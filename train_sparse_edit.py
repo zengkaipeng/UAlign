@@ -19,8 +19,11 @@ def create_log_model(args):
     log_dir = [
         f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}'
         f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
-        f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
+        f'mode_{args.mode}'
     ]
+    if args.kekulize:
+        log_dir.append('kekulize')
+
     if args.backbone == 'GAT' and args.add_self_loop:
         log_dir.append('self_loop')
 
@@ -209,6 +212,8 @@ if __name__ == '__main__':
             'all_fit': valid_results[4]
         })
 
+        print('[VALID]', log_info['valid_metric'][-1])
+
         test_results = eval_sparse_edit(
             test_loader, model, device, verbose=True
         )
@@ -218,6 +223,8 @@ if __name__ == '__main__':
             'edge_fit': test_results[2], 'all_cover': test_results[3],
             'all_fit': test_results[4]
         })
+
+        print('[TEST]', log_info['test_metric'][-1])
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
