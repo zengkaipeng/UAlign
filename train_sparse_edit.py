@@ -17,7 +17,7 @@ from data_utils import (
 def create_log_model(args):
     timestamp = time.time()
     log_dir = [
-        f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}'
+        f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}',
         f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
         f'mode_{args.mode}'
     ]
@@ -203,6 +203,8 @@ if __name__ == '__main__':
         log_info['train_loss'].append({
             'node': node_loss, 'edge': edge_loss
         })
+
+        print('[TRAIN]', log_info['train_loss'][-1])
         valid_results = eval_sparse_edit(
             valid_loader, model, device, verbose=True
         )

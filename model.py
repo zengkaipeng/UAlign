@@ -170,14 +170,12 @@ class GraphEditModel(torch.nn.Module):
             )
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
-            torch.nn.Dropout(dropout),
             torch.nn.ReLU(),
             torch.nn.Linear(edge_dim, edge_class)
         )
 
         self.node_predictor = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
-            torch.nn.Dropout(dropout),
             torch.nn.ReLU(),
             torch.nn.Linear(node_dim, 2)
         )
