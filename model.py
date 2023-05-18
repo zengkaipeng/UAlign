@@ -315,7 +315,7 @@ def evaluate_sparse(node_res, pred_edge, e_labels, node_ptr, e_ptr, act_nodes):
     if edge_res is not None:
         edge_res = edge_res.cpu().argmax(dim=-1)
     for idx, a_node in enumerate(act_nodes):
-        t_node_res = node_res[node_ptr[idx]: node_ptr[idx] + 1] == 1
+        t_node_res = node_res[node_ptr[idx]: node_ptr[idx + 1]] == 1
         real_nodes = torch.zeros_like(t_node_res, dtype=bool)
         real_nodes[a_node] = True
         inters = torch.logical_and(real_nodes, t_node_res)
