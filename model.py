@@ -309,7 +309,7 @@ def get_label(e_type, x, y, empty_type=0):
         return empty_type
 
 
-def evaluate_sparse(node_res, pred_edge, e_labels, node_ptr, e_ptr, act_nodes):
+def evaluate_sparse(node_res, edge_res, e_labels, node_ptr, e_ptr, act_nodes):
     node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
     node_res = node_res.cpu().argmax(dim=-1)
     if edge_res is not None:
