@@ -82,7 +82,7 @@ def eval_sparse_edit(loader, model, device, empty_type=0, verbose=True):
                 e_types=e_type, edge_map=e_map, empty_type=empty_type
             )
         metrics = evaluate_sparse(
-            node_res=node_res, pred_edge=edge_res, e_ptr=e_ptr,
+            node_res=node_res, edge_res=edge_res, e_ptr=e_ptr,
             e_labels=torch.LongTensor(e_answer),
             node_ptr=graphs.ptr.tolist(), act_nodes=act_nodes
         )
