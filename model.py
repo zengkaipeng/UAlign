@@ -223,8 +223,8 @@ class GraphEditModel(torch.nn.Module):
             if len(src_idx) == 0:
                 return None, [], [0]
 
-            src_idx = torch.LongTensor(src_idx)
-            dst_idx = torch.LongTensor(dst_idx)
+            src_idx = torch.LongTensor(src_idx).to(node_feat.device)
+            dst_idx = torch.LongTensor(dst_idx).to(node_feat.device)
 
             ed_feat = self.get_edge_feat(node_feat, src_idx) + \
                 self.get_edge_feat(node_feat, dst_idx)

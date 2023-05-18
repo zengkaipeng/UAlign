@@ -62,7 +62,7 @@ def train_sparse_edit(
     return np.mean(node_loss), np.mean(edge_loss)
 
 
-def eval_sparse_edit(loader, model, device, verbose=True):
+def eval_sparse_edit(loader, model, device, empty_type=0, verbose=True):
     model = model.eval()
     node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
     for data in (tqdm(loader) if verbose else loader):
