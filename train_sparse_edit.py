@@ -24,8 +24,10 @@ def create_log_model(args):
     if args.kekulize:
         log_dir.append('kekulize')
 
-    if args.backbone == 'GAT' and args.add_self_loop:
-        log_dir.append('self_loop')
+    if args.backbone == 'GAT':
+        if args.add_self_loop:
+            log_dir.append('self_loop')
+        log_dir.append(f'heads_{args.heads}')
 
     detail_log_folder = os.path.join(
         args.base_log,
@@ -109,7 +111,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--base_log', default='log', type=str,
+        '--base_log', default='log_edit', type=str,
         help='the base dir of logging'
     )
     parser.add_argument(

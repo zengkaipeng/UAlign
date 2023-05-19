@@ -264,7 +264,7 @@ class GraphEditModel(torch.nn.Module):
             mask = node_res_t == 1
             t_result = set(node_all[mask].tolist())
             if act_x is not None:
-                t_result = set(act_x[idx])
+                t_result |= set(act_x[idx])
             result.append(t_result)
         return result
 
