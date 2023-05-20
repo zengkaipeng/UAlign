@@ -15,6 +15,27 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
 
+def scatter_loss(losses, batch_size, device, batch=None, ptr=None):
+    if batch is None and ptr is None:
+        raise NotImplementedError(
+            'There should be at least one variable '
+            'indicating the batch mapping'
+        )
+    if ptr is not None:
+        assert len(ptr) == batch_size + 1, 'Invalid ptr is given'
+    if batch is not None:
+        assert len(batch) == batch_size, 'Invalid batch is given'
+
+    r_loss = torch.zeros(batch_size).to(device)
+    if batch is None:
+        batch = torch.zeros_like(losses).to(device)
+        for idx in range(batch_size):
+            batch[ptr[idx]: ptr[idx + 1]] = idx
+
+    r_loss.scatter_add_(dim=0, index=batch, src=losses)
+    return r_loss.mean()
+
+
 def train_sparse_edit(
     loader, model, optimizer, device, empty_type=0,
     verbose=True, warmup=True, mode='together'
@@ -43,12 +64,23 @@ def train_sparse_edit(
 
         # print(node_res.shape, edge_res.shape)
 
-        loss_node = F.cross_entropy(node_res, node_label)
+        # loss_node = F.cross_entropy(node_res, node_label)
+        # if edge_res is not None:
+        #     edge_labels = torch.LongTensor(e_answer).to(device)
+        #     loss_edge = F.cross_entropy(edge_res, edge_labels)
+        # else:
+        #     loss_edge = torch.tensor(0.0)
+        batch_size = len(graphs.ptr) - 1
+
+        loss_node = scatter_loss(
+            F.cross_entropy(node_res, node_label),
+            batch_size=batch_size, batch=graphs.batch
+        )
         if edge_res is not None:
-            edge_labels = torch.LongTensor(e_answer).to(device)
-            loss_edge = F.cross_entropy(edge_res, edge_labels)
-        else:
-            loss_edge = torch.tensor(0.0)
+            loss_edge = scatter_loss(
+                F.cross_entropy(edge_res, edge_labels),
+                batch_size=batch_size, ptr=e_ptr
+            )
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()

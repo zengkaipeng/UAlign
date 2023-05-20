@@ -111,7 +111,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--base_log', default='log_edit', type=str,
+        '--base_log', default='log_edit/new_loss', type=str,
         help='the base dir of logging'
     )
     parser.add_argument(
