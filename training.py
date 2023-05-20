@@ -21,10 +21,6 @@ def scatter_loss(losses, batch_size, device, batch=None, ptr=None):
             'There should be at least one variable '
             'indicating the batch mapping'
         )
-    if ptr is not None:
-        assert len(ptr) == batch_size + 1, 'Invalid ptr is given'
-    if batch is not None:
-        assert len(batch) == batch_size, 'Invalid batch is given'
 
     r_loss = torch.zeros(batch_size).to(device)
     if batch is None:
