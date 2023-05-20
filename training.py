@@ -23,8 +23,9 @@ def scatter_loss(losses, batch_size, device, batch=None, ptr=None):
         )
 
     r_loss = torch.zeros(batch_size).to(device)
+
     if batch is None:
-        batch = torch.zeros_like(losses).to(device)
+        batch = torch.zeros_like(losses).long().to(device)
         for idx in range(batch_size):
             batch[ptr[idx]: ptr[idx + 1]] = idx
 
@@ -69,13 +70,14 @@ def train_sparse_edit(
         batch_size = len(graphs.ptr) - 1
 
         loss_node = scatter_loss(
-            F.cross_entropy(node_res, node_label),
-            batch_size, device, batch=graphs.batch
+            F.cross_entropy(node_res, node_label, reduction='none'),
+            batch_size=batch_size, device=device, batch=graphs.batch
         )
         if edge_res is not None:
+            edge_labels = torch.LongTensor(e_answer).to(device)
             loss_edge = scatter_loss(
-                F.cross_entropy(edge_res, edge_labels),
-                batch_size, device, ptr=e_ptr
+                F.cross_entropy(edge_res, edge_labels, reduction='none'),
+                batch_size=batch_size, device=device, ptr=e_ptr
             )
 
         optimizer.zero_grad()
