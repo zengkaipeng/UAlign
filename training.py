@@ -74,12 +74,12 @@ def train_sparse_edit(
 
         loss_node = scatter_loss(
             F.cross_entropy(node_res, node_label),
-            batch_size=batch_size, batch=graphs.batch
+            batch_size, device, batch=graphs.batch
         )
         if edge_res is not None:
             loss_edge = scatter_loss(
                 F.cross_entropy(edge_res, edge_labels),
-                batch_size=batch_size, ptr=e_ptr
+                batch_size, device, ptr=e_ptr
             )
 
         optimizer.zero_grad()
