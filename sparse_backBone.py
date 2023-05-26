@@ -146,47 +146,6 @@ class GATBase(torch.nn.Module):
         return node_feats, edge_feats
 
 
-def sparse_edit_collect_fn(data_batch):
-    batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
-    edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
-    activate_nodes, num_e, edge_types = [], [], []
-    for idx, data in enumerate(data_batch):
-        if len(data) == 4:
-            graph, n_lb,  e_type, A_node = data
-        else:
-            graph, r_class, n_lb,  e_type, A_node = data
-            rxn_class.append(r_class)
-
-        edge_types.append(e_type)
-        node_label.append(n_lb)
-        num_l.append(graph['num_nodes'])
-        num_e.append(graph['edge_index'].shape[1])
-
-        edge_idxes.append(graph['edge_index'] + lstnode)
-        edge_feats.append(graph['edge_feat'])
-        node_feats.append(graph['node_feat'])
-        lstnode += graph['num_nodes']
-        batch.append(np.ones(graph['num_nodes'], dtype=np.int64) * idx)
-        activate_nodes.append(A_node)
-
-    result = {
-        'edge_index': np.concatenate(edge_idxes, axis=-1),
-        'edge_attr': np.concatenate(edge_feats, axis=0),
-        'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0)
-    }
-    result = {k: torch.from_numpy(v) for k, v in result.items()}
-    result['num_nodes'] = lstnode
-    node_label = torch.cat(node_label, dim=0)
-
-    if len(rxn_class) == 0:
-        return Data(**result), node_label, num_l, num_e,\
-            edge_types, activate_nodes
-    else:
-        return Data(**result), torch.LongTensor(rxn_class),\
-            node_label, num_l, num_e, edge_types, activate_nodes
-
-
 class SparseAtomEncoder(torch.nn.Module):
     def __init__(self, dim, n_class=None):
         super(SparseAtomEncoder, self).__init__()

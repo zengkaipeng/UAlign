@@ -51,7 +51,7 @@ class EditDataset(torch.utils.data.Dataset):
             return self.graphs[index], node_label, edge_label, ret
 
 
-def collect_fn(data_batch):
+def fc_collect_fn(data_batch):
     batch_size, rxn_class, node_label = len(data_batch), [], []
     edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
     edge_label, batch, ptr = [], [], [0]

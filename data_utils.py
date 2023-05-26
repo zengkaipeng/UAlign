@@ -4,30 +4,38 @@ from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX
 )
-from backBone import EditDataset
+from model import EditDataset
 from utils.graph_utils import smiles2graph
+from utils.chemistry_parse import clear_map_number
 import random
 import numpy as np
 import torch
 from tqdm import tqdm
+import rdkit
+from rdkit import Chem
+
 
 def create_sparse_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     return_amap=False, verbose=True
 ):
-    amaps, graphs, nodes, edge_types = [], [], [], []
+    amaps, graphs, nodes, edge_types, ret = [], [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        x, y, z = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
+        ret.append(clear_map_number(reacts[idx]))
+        x, y = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
         nodes.append([amap[t] for t in x])
-        edge_types.append({
-            (amap[i], amap[j]): BOND_FLOAT_TO_IDX[v[0]]
-            for (i, j), v in z.items() if i in amap and j in amap
-        })
+        es = []
+        for edgs in y:
+            src, dst, _, _ = edgs.split(':')
+            src, dst = int(src), int(dst)
+            es.append((amap[src], amap[dst]))
+        edge_types.append(es)
+
         amaps.append(amap)
-    dataset = EditDataset(graphs, nodes, edge_types)
-    return (dataset, amap) if return_amap else dataset
+    dataset = EditDataset(graphs, nodes, edge_types, ret, rxn_class)
+    return (dataset, amaps) if return_amap else dataset
 
 
 def load_data(data_dir, part):
@@ -48,13 +56,6 @@ def fix_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-def check_early_stop(*args):
-    answer = True
-    for x in args:
-        answer &= all(t < x[0] for t in x[1:])
-    return answer
 
 
 if __name__ == '__main__':
