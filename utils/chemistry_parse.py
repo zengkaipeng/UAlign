@@ -104,9 +104,10 @@ def align_kekule_pairs(r: str, p: str) -> Tuple[Chem.Mol, Chem.Mol]:
 
 
 def get_reaction_core(
-    r: str, p: str, kekulize: bool = False,
+    r: str, p: str, kekulize: bool = False
 ) -> Tuple[Set, List]:
     """Get the reaction core and edits for given reaction
+
     Parameters
     ----------
     r: str,
@@ -186,9 +187,11 @@ def get_reaction_core(
         ).GetTotalNumHs()
 
         if numHs_prod != numHs_reac:
+            edit = f"{amap_num}:{0}:{1.0}:{0.0}"
+            core_edits.append(edit)
             rxn_core.add(amap_num)
 
-    return rxn_core, core_edits, reac_bonds
+    return rxn_core, core_edits
 
 
 if __name__ == '__main__':
