@@ -11,7 +11,8 @@ from torch.nn import Parameter
 class MyGATConv(MessagePassing):
     def __init__(
         self, in_channels, out_channels, edge_dim, heads=1,
-        negative_slope=0.2, dropout=0.1, **kwargs,
+        negative_slope=0.2, dropout=0.1, add_self_loop=True,
+        **kwargs,
     ):
         kwargs.setdefault('aggr', 'add')
         super(MyGATConv, self).__init__(node_dim=0, **kwargs)
@@ -27,6 +28,7 @@ class MyGATConv(MessagePassing):
             in_channels, out_channels * heads,
             bias=False, weight_initializer='glorot'
         )
+        self.add_self_loop = add_self_loop
 
         self.att_src = Parameter(torch.zeros(1, heads, out_channels))
         self.att_dst = Parameter(torch.zeros(1, heads, out_channels))
@@ -57,10 +59,11 @@ class MyGATConv(MessagePassing):
 
     def forward(self, x, edge_index, edge_attr, size=None):
         num_nodes = x.shape[0]
-        edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
-        edge_index, edge_attr = add_self_loops(
-            edge_index, edge_attr, fill_value='mean', num_nodes=num_nodes
-        )
+        if self.add_self_loop:
+            edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
+            edge_index, edge_attr = add_self_loops(
+                edge_index, edge_attr, fill_value='mean', num_nodes=num_nodes
+            )
 
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)
@@ -71,7 +74,6 @@ class MyGATConv(MessagePassing):
         alpha_src = (x_src * self.att_src).sum(dim=-1)
         alpha_dst = (x_dst * self.att_dst).sum(dim=-1)
         alpha = (alpha_src, alpha_dst)
-
 
         alpha = self.edge_updater(edge_index, alpha=alpha, edge_attr=edge_attr)
 

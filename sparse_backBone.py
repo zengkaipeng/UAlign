@@ -3,37 +3,8 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from torch_geometric.data import Data
 from GATconv import MyGATConv
+from GINConv import MyGINConv
 import numpy as np
-
-
-class GINConv(torch.nn.Module):
-    def __init__(self, embedding_dim: int = 64):
-        super(GINConv, self).__init__()
-        self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(embedding_dim, 2 * embedding_dim),
-            torch.nn.LayerNorm(2 * embedding_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(2 * embedding_dim, embedding_dim)
-        )
-        self.eps = torch.nn.Parameter(torch.Tensor([0]))
-
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor, num_nodes: int
-    ) -> torch.Tensor:
-        message_node = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[1]
-        )
-        message = torch.relu(message_node + edge_feats)
-
-        dim = message.shape[-1]
-
-        message_reduce = torch.zeros(num_nodes, dim).to(message)
-        index = edge_index[0].unsqueeze(-1).repeat(1, dim)
-        message_reduce.scatter_add_(dim=0, index=index, src=message)
-
-        return self.mlp((1 + self.eps) * node_feats + message_reduce)
 
 
 class SparseEdgeUpdateLayer(torch.nn.Module):
@@ -86,7 +57,7 @@ class GINBase(torch.nn.Module):
         self.num_layers = num_layers
         self.dropout_fun = torch.nn.Dropout(dropout)
         for layer in range(self.num_layers):
-            self.convs.append(GINConv(embedding_dim))
+            self.convs.append(MyGINConv(embedding_dim))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
                 self.edge_update.append(SparseEdgeUpdateLayer(
@@ -99,7 +70,7 @@ class GINBase(torch.nn.Module):
         self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
         edge_index: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         num_nodes = node_feats.shape[0]
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
@@ -110,7 +81,7 @@ class GINBase(torch.nn.Module):
             node_feats = self.dropout_fun(
                 conv_res if layer == self.num_layers - 1
                 else torch.relu(conv_res)
-            ) + node_feats
+            ) + (node_feats if self.residual else 0)
 
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
@@ -125,7 +96,7 @@ class GATBase(torch.nn.Module):
         self, num_layers: int = 4, num_heads: int = 4,
         embedding_dim: int = 64, dropout: float = 0.7,
         residual: bool = True, negative_slope: float = 0.2,
-        edge_last: bool = True
+        edge_last: bool = True, add_self_loop: bool = True
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -141,8 +112,8 @@ class GATBase(torch.nn.Module):
             self.convs.append(MyGATConv(
                 in_channels=embedding_dim, heads=num_heads,
                 out_channels=embedding_dim // num_heads,
-                negative_slope=negative_slope,
-                dropout=dropout, edge_dim=embedding_dim
+                negative_slope=negative_slope, dropout=dropout,
+                edge_dim=embedding_dim, add_self_loop=add_self_loop
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             if edge_last or layer < self.num_layers - 1:
@@ -151,12 +122,13 @@ class GATBase(torch.nn.Module):
                 ))
         self.residual = residual
         self.edge_last = edge_last
+        self.add_self_loop = add_self_loop
 
     def forward(
         self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
         edge_index: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=edge_index
@@ -164,7 +136,7 @@ class GATBase(torch.nn.Module):
             node_feats = self.dropout_fun(
                 conv_res if layer == self.num_layers - 1
                 else torch.relu(conv_res)
-            ) + node_feats
+            ) + (node_feats if self.residual else 0)
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_feats=edge_feats, node_feats=node_feats,
