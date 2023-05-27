@@ -62,8 +62,9 @@ def fix_seed(seed):
 
 def generate_square_subsequent_mask(sz, device='cpu'):
     mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
-    mask = mask.float().masked_fill(mask == 0, float('-inf'))
-    mask = mask.masked_fill(mask == 1, float(0.0)).to(device)
+    # mask = mask.float().masked_fill(mask == 0, float('-inf'))
+    # mask = mask.masked_fill(mask == 1, float(0.0)).to(device)
+    mask = (mask == 0).to(device)
     return mask
 
 
