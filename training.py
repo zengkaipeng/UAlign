@@ -34,7 +34,7 @@ def train_trans(
             tgt_input, tokenizer, pad, device
         )
 
-        node_res, edge_res, result = model(
+        result, node_res, edge_res = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
             tgt_pad_mask=pad_mask, pred_core=True
         )

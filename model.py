@@ -8,6 +8,7 @@ from torch_geometric.data import Data as GData
 import math
 import numpy as np
 
+
 class EditDataset(torch.utils.data.Dataset):
     def __init__(
         self, graphs: List[Dict],
@@ -125,13 +126,26 @@ class PositionalEncoding(torch.nn.Module):
 class Graph2Seq(torch.nn.Module):
     def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
         super(Graph2Seq, self).__init__()
-        self.work_emb = torch.nn.Embedding(token_size, d_model)
+        self.word_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
         self.atom_encoder = SparseAtomEncoder(d_model)
         self.bond_encoder = SparseBondEncoder(d_model)
-        self.node_cls = torch.nn.Linear(d_model, 2)
-        self.edge_cls = torch.nn.Linear(d_model, 2)
+        self.node_cls = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
+        self.edge_cls = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
         self.pos_enc = pos_enc
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, token_size)
+        )
 
     def batch_mask(
         self, ptr: torch.Tensor, max_node: int, batch_size: int
@@ -172,11 +186,11 @@ class Graph2Seq(torch.nn.Module):
             batch_size=batch_size, max_node=max_mem_len
         )
 
-        result = self.decoder(
+        result = self.output_layer(self.decoder(
             tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
             memory_key_padding_mask=torch.logical_not(batch_mask),
             tgt_key_padding_mask=tgt_pad_mask
-        )
+        ))
 
         if pred_core:
             node_res = self.node_cls(node_feat)

@@ -172,12 +172,12 @@ if __name__ == '__main__':
     if args.backbone == 'GIN':
         GNN = GINBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=False, residual=True
+            embedding_dim=args.dim, edge_last=True, residual=True
         )
     else:
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=False,
+            embedding_dim=args.dim, edge_last=True,
             residual=True, negative_slope=args.negative_slope,
             num_heads=args.heads, add_self_loop=True
         )
