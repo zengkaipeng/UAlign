@@ -186,12 +186,12 @@ if __name__ == '__main__':
         d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
-    Decoder = TransformerDecoder(decoder_layer, args.layer_decoder)
+    Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
     model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
-        decoder=Decoder, d_mode=args.dim, pos_enc=Pos_env
+        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None

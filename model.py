@@ -5,6 +5,7 @@ from sparse_backBone import (
 
 from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
+import math
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -113,7 +114,7 @@ class PositionalEncoding(torch.nn.Module):
         pos_embedding[:, 0::2] = torch.sin(pos * den)
         pos_embedding[:, 1::2] = torch.cos(pos * den)
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = torch.nn.Dropout(dropout)
         self.register_buffer('pos_embedding', pos_embedding)
 
     def forward(self, token_embedding: torch.Tensor):
@@ -164,15 +165,15 @@ class Graph2Seq(torch.nn.Module):
 
         batch_size = len(graphs.ptr) - 1
         max_mem_len = self.max_node_ptr(graphs.ptr)
-        memory_pad_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
+        batch_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
         memory = self.graph2batch(
-            node_feat=node_feat, batch_mask=memory_pad_mask,
+            node_feat=node_feat, batch_mask=batch_mask,
             batch_size=batch_size, max_node=max_mem_len
         )
 
         result = self.decoder(
             tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
-            memory_key_padding_mask=memory_pad_mask,
+            memory_key_padding_mask=torch.logical_not(batch_mask),
             tgt_key_padding_mask=tgt_pad_mask
         )
 
