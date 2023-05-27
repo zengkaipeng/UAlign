@@ -4,23 +4,26 @@ import json
 import os
 import time
 
+
+from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase, sparse_edit_collect_fn
-from model import GraphEditModel
-from training import train_sparse_edit, eval_sparse_edit
-from data_utils import (
-    create_sparse_dataset, load_data, fix_seed,
-    check_early_stop
-)
+from sparse_backBone import GINBase, GATBase
+from model import Graph2Seq, fc_collect_fn, PositionalEncoding
+from training import train_trans, eval_trans
+from data_utils import create_sparse_dataset, load_data, fix_seed
+from torch.nn import TransformerDecoderLayer, TransformerDecoder
 
 
 def create_log_model(args):
     timestamp = time.time()
     log_dir = [
-        f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}'
-        f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
-        f'mode_{args.mode}', 'kekulize' if args.kekulize else ''
+        f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
+        f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
+        f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}'
     ]
+    if args.kekulize:
+        log_dir.append('kekulize')
+
     detail_log_folder = os.path.join(
         args.base_log,
         'with_class' if args.use_class else 'wo_class',
@@ -44,8 +47,16 @@ if __name__ == '__main__':
         help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
-        '--n_layer', default=4, type=int,
-        help='the layer of backbones'
+        '--layer_encoder', default=8, type=int,
+        help='the layer of encoder gnn'
+    )
+    parser.add_argument(
+        '--layer_decoder', default=8, type=int,
+        help='the layer of transformer decoder'
+    )
+    parser.add_argument(
+        '--token_path', required=True, type=str,
+        help='the path of a json containing all tokens'
     )
     parser.add_argument(
         '--heads', default=4, type=int,
@@ -56,18 +67,12 @@ if __name__ == '__main__':
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
-        '--dropout', type=float, default=0.1,
+        '--dropout', type=float, default=0.3,
         help='the dropout rate, useful for all backbone'
     )
     parser.add_argument(
         '--negative_slope', type=float, default=0.2,
         help='negative slope for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--mode', choices=['together', 'original'], type=str,
-        help='the training mode, together will extend the '
-        'training data using the node result',
-        default='together'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,
@@ -117,6 +122,16 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
+    with open(args.token_path) as Fin:
+        ALL_TOKEN = json.load(Fin)
+
+    if args.use_class:
+        SP_TOKEN = DEFAULT_SP | {f'<RXN_{i}>' for i in range(10)}
+    else:
+        SP_TOKEN = DEFAULT_SP
+
+    tokenizer = Tokenizer(ALL_TOKEN, SP_TOKEN)
+
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
@@ -127,8 +142,6 @@ if __name__ == '__main__':
         train_rec, train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None
     )
-    print(train_set)
-
     valid_set = create_sparse_dataset(
         val_rec, val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None
@@ -139,36 +152,42 @@ if __name__ == '__main__':
     )
 
     train_loader = DataLoader(
-        train_set, collate_fn=sparse_edit_collect_fn,
+        train_set, collate_fn=fc_collect_fn,
         batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=sparse_edit_collect_fn,
+        valid_set, collate_fn=fc_collect_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=sparse_edit_collect_fn,
+        test_set, collate_fn=fc_collect_fn,
         batch_size=args.bs, shuffle=False
     )
 
     if args.backbone == 'GIN':
         GNN = GINBase(
-            num_layers=args.n_layer, dropout=args.dropout,
+            num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, edge_last=False, residual=True
         )
     else:
         GNN = GATBase(
-            num_layers=args.n_layer, dropout=args.dropout,
+            num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, edge_last=False,
             residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads
+            num_heads=args.heads, add_self_loop=True
         )
 
-    model = GraphEditModel(
-        GNN, True, args.dim, args.dim,
-        4 if args.kekulize else 5
-    ).to(device)
+    decode_layer = TransformerDecoderLayer(
+        d_model=args.dim, nhead=args.heads, batch_first=True,
+        dim_feedforward=args.dim * 2, dropout=args.dropout
+    )
+    Decoder = TransformerDecoder(decoder_layer, args.layer_decoder)
+    Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
+    model = Graph2Seq(
+        token_size=tokenizer.get_token_size(), encoder=GNN,
+        decoder=Decoder, d_mode=args.dim, pos_enc=Pos_env
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None
 

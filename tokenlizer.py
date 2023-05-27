@@ -3,7 +3,7 @@ import json
 DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
 
-class tokenizer:
+class Tokenizer:
     def __init__(self, tokens, sp_token=None):
         super(tokenizer, self).__init__()
         tokens = set(tokens)
@@ -34,6 +34,9 @@ class tokenizer:
 
     def decode1d(self, seq):
         return ''.join(self.idx2token[x] for x in seq)
+
+    def get_token_size(self):
+        return len(self.token2idx)
 
     def decode2d(self, seq):
         return [self.encode1d(x) for x in seq]

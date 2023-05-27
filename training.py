@@ -1,5 +1,4 @@
 from tqdm import tqdm
-import torch.nn.functional as F
 import numpy as np
 import torch
 from data_utils import generate_tgt_mask
@@ -15,7 +14,7 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
 
-def train_sparse_edit(
+def train_trans(
     loader, model, optimizer, device, tokenizer, node_fn,
     edge_fn, trans_fn, verbose=True, warmup=True, pad='<PAD>'
 ):
@@ -57,7 +56,7 @@ def train_sparse_edit(
     return np.mean(node_loss), np.mean(edge_loss), np.mean(tran_loss)
 
 
-def eval_sparse_edit(
+def eval_trans(
     loader, model, device, tran_fn, tokenizer,
     pad='<PAD>', verbose=True
 ):
@@ -85,8 +84,8 @@ def eval_sparse_edit(
 
 
 def evaluate_result(gt, results, tokenizer, tops):
-    ax,  gt = np.array(tops),  ''.join(gt[1: -1])
     res, tpos = tokenizer.decode2d(results), max(top) + 1
+    ax, gt = np.array(tops), ''.join(gt[1: -1])
     for idx, t in enumerate(res):
         if t == gt:
             tpos = idx + 1

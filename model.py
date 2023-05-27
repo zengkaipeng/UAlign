@@ -103,7 +103,7 @@ def fc_collect_fn(data_batch):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, emb_size: int, dropout: float, maxlen: int = 5000):
+    def __init__(self, emb_size: int, dropout: float, maxlen: int = 2000):
         super(PositionalEncoding, self).__init__()
         den = torch.exp(
             - torch.arange(0, emb_size, 2) * math.log(10000) / emb_size
@@ -122,7 +122,7 @@ class PositionalEncoding(nn.Module):
 
 
 class Graph2Seq(torch.nn.Module):
-    def __init__(self, token_size, encoder, decoder, d_mode, pos_enc):
+    def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
         self.work_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
         self.atom_encoder = SparseAtomEncoder(d_model)
@@ -182,6 +182,3 @@ class Graph2Seq(torch.nn.Module):
             return result, node_res, edge_res
         else:
             return result
-
-
-
