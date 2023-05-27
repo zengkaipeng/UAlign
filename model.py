@@ -6,7 +6,7 @@ from sparse_backBone import (
 from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
-
+import numpy as np
 
 class EditDataset(torch.utils.data.Dataset):
     def __init__(
@@ -29,7 +29,7 @@ class EditDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
         node_label[self.activate_nodes[index]] = 1
-        num_edges = self.graphs[index]['edge_attr'].shape[0]
+        num_edges = self.graphs[index]['edge_feat'].shape[0]
         edge_label = torch.zeros(num_edges).long()
         edges = self.graphs[index]['edge_index']
         for idx, t in enumerate(edges[0]):
@@ -64,12 +64,12 @@ def fc_collect_fn(data_batch):
         else:
             graph, r_class, n_lb, e_lb, ret = data
             rxn_class.append(r_class)
-            node_rxn.append(
-                np.ones(graph['num_nodes'], dtype=np.int64) * r_class
-            )
-            edge_rxn.append(
-                np.ones(graph['edge_index'].shape[1], dtype=np.int64) * r_class
-            )
+            node_rxn.append(np.ones(
+                graph['num_nodes'], dtype=np.int64
+            ) * r_class)
+            edge_rxn.append(np.ones(
+                graph['edge_feat'].shape[0], dtype=np.int64
+            ) * r_class)
 
         node_label.append(n_lb)
         edge_label.append(e_lb)
@@ -100,7 +100,7 @@ def fc_collect_fn(data_batch):
     result['node_label'] = torch.cat(node_label, dim=0)
     result['edge_label'] = torch.cat(edge_label, dim=0)
 
-    return Data(**result), reats
+    return GData(**result), reats
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -124,6 +124,7 @@ class PositionalEncoding(torch.nn.Module):
 
 class Graph2Seq(torch.nn.Module):
     def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
+        super(Graph2Seq, self).__init__()
         self.work_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
         self.atom_encoder = SparseAtomEncoder(d_model)
