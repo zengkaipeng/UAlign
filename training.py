@@ -41,10 +41,14 @@ def train_trans(
 
         loss_node = node_fn(node_res, graphs.node_label)
         loss_edge = edge_fn(edge_res, graphs.edge_label)
-        loss_tran = trans_fn(result, tgt_output)
+        loss_tran = trans_fn(
+            result.reshape(-1, result.shape[-1]),
+            tgt_output.reshape(-1)
+        )
+        print(result.shape, tgt_output.shape)
 
         optimizer.zero_grad()
-        (loss_node + loss_edge + loss_tran).back_ward()
+        (loss_node + loss_edge + loss_tran).backward()
         optimizer.step()
 
         node_loss.append(loss_node.item())
@@ -78,7 +82,10 @@ def eval_trans(
                 graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
                 tgt_pad_mask=pad_mask, pred_core=False
             )
-            loss_tran = trans_fn(result, tgt_output)
+            loss_tran = trans_fn(
+                result.reshape(-1, result.shape[-1]),
+                tgt_output.reshape(-1)
+            )
         tran_loss.append(loss_tran.item())
     return np.mean(tran_loss)
 
