@@ -45,7 +45,6 @@ def train_trans(
             result.reshape(-1, result.shape[-1]),
             tgt_output.reshape(-1)
         )
-        print(result.shape, tgt_output.shape)
 
         optimizer.zero_grad()
         (loss_node + loss_edge + loss_tran).backward()
@@ -82,7 +81,7 @@ def eval_trans(
                 graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
                 tgt_pad_mask=pad_mask, pred_core=False
             )
-            loss_tran = trans_fn(
+            loss_tran = tran_fn(
                 result.reshape(-1, result.shape[-1]),
                 tgt_output.reshape(-1)
             )

@@ -223,6 +223,7 @@ if __name__ == '__main__':
         log_info['train_loss'].append({
             'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
         })
+
         valid_results = eval_trans(
             valid_loader, model, device, valid_fn,
             tokenizer, verbose=True
@@ -235,6 +236,10 @@ if __name__ == '__main__':
         )
 
         log_info['test_metric'].append({'trans': test_results})
+
+        print('[TRAIN]', log_info['train_loss'][-1])
+        print('[VALID]', log_info['valid_metric'][-1])
+        print('[TEST]', log_info['test_metric'][-1])
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
