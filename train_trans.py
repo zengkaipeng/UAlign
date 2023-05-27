@@ -19,7 +19,8 @@ def create_log_model(args):
     log_dir = [
         f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
         f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
-        f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}'
+        f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
+        f'label_smooth_{args.label_smooth}'
     ]
     if args.kekulize:
         log_dir.append('kekulize')
@@ -95,7 +96,7 @@ if __name__ == '__main__':
         help='the max epoch for training'
     )
     parser.add_argument(
-        '--early_stop', default=10, type=int,
+        '--early_stop', default=0, type=int,
         help='number of epochs to judger early stop '
         ', will be ignored when it\'s less than 5'
     )
@@ -110,6 +111,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--base_log', default='log', type=str,
         help='the base dir of logging'
+    )
+    parser.add_argument(
+        '--label_smooth', default=0.1, type=float,
+        help='the label smoothing for transformer'
     )
 
     args = parser.parse_args()
@@ -191,6 +196,16 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None
 
+    node_fn = torch.nn.CrossEntropyLoss(reduction='sum')
+    edge_fn = torch.nn.CrossEntropyLoss(reduction='sum')
+    tran_fn = torch.nn.CrossEntropyLoss(
+        reduction='sum', ignore_index=tokenizer.token2idx['<PAD>'],
+        label_smoothing=args.label_smooth
+    )
+    valid_fn = torch.nn.CrossEntropyLoss(
+        reduction='sum', ignore_index=tokenizer.token2idx['<PAD>']
+    )
+
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
@@ -201,46 +216,40 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device,
-            verbose=True, warmup=(ep == 0), mode=args.mode
+        node_loss, edge_loss, tran_loss = train_trans(
+            train_loader, model, optimizer, device, tokenizer,
+            node_fn, edge_fn, tran_fn, verbose=True, warmup=(ep == 0)
         )
         log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss
+            'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
         })
-        valid_results = eval_sparse_edit(
-            valid_loader, model, device, verbose=True
+        valid_results = eval_trans(
+            valid_loader, model, device, valid_fn,
+            tokenizer, verbose=True
         )
-        log_info['valid_metric'].append({
-            'node_cover': valid_results[0], 'node_fit': valid_results[1],
-            'edge_fit': valid_results[2], 'all_cover': valid_results[3],
-            'all_fit': valid_results[4]
-        })
+        log_info['valid_metric'].append({'trans': valid_results})
 
-        test_results = eval_sparse_edit(
-            test_loader, model, device, verbose=True
+        test_results = eval_trans(
+            test_loader, model, device, valid_fn,
+            tokenizer, verbose=True
         )
 
-        log_info['test_metric'].append({
-            'node_cover': test_results[0], 'node_fit': test_results[1],
-            'edge_fit': test_results[2], 'all_cover': test_results[3],
-            'all_fit': test_results[4]
-        })
+        log_info['test_metric'].append({'trans': test_results})
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
-        if best_perf is None or valid_results[3] > best_perf:
-            best_perf, best_ep = valid_results[3], ep
+        if best_perf is None or valid_results < best_perf:
+            best_perf, best_ep = valid_results, ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 5 and ep > max(20, args.early_stop):
-            nc = [
-                x['node_cover'] for x in
+            tx = [
+                x['trans'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
-            ef = [
-                x['edge_fit'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
-            if check_early_stop(nc, ef):
+            if all(x >= tx[0] for x in tx):
                 break
+
+    print(f'[INFO] best epoch: {best_ep}')
+    print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
+    print(f'[INFO] best test loss: {log_info["test_metric"][best_ep]}')

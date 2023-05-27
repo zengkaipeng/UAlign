@@ -74,9 +74,9 @@ def eval_trans(
         )
 
         with torch.no_grad():
-            node_res, edge_res, result = model(
+            result = model(
                 graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
-                tgt_pad_mask=pad_mask, pred_core=True
+                tgt_pad_mask=pad_mask, pred_core=False
             )
             loss_tran = trans_fn(result, tgt_output)
         tran_loss.append(loss_tran.item())
