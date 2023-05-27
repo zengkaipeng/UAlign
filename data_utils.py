@@ -59,4 +59,4 @@ def fix_seed(seed):
 
 
 if __name__ == '__main__':
-    print(load_data('../data/USPTO-50K', 'train'))
+    pass

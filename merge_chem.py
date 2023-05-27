@@ -30,7 +30,7 @@ for x in os.listdir(args.path):
 
 
 set_all |= base_char
-set_all.update(['@', '/', '\\', '#', '$'])
+set_all.update(['@', '/', '\\', '#', '$', '%'])
 set_all |= {'=', ':', '(', ']', '+', '-', ')', '.', '['}
 
 with open('All_token.json', 'w') as Fout:

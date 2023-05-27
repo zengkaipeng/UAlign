@@ -1,6 +1,6 @@
 import json
 
-DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>'}
+DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
 
 class tokenizer:
@@ -19,12 +19,16 @@ class tokenizer:
         deft = self.token2idx[unk_token]
         return [self.token2idx.get(x, deft) for x in seq]
 
-    def encode2d(self, batch, unk_token='<UNK>', pad_token='<PAD>'):
-        answer, max_len = [], max(len(x) for x in batch)
-        pd = self.token2idx[pad_token]
+    def encode2d(
+        self, batch, unk_token='<UNK>', pad_token='<PAD>',
+        max_len=None
+    ):
+        if max_len is None:
+            max_len = max(len(x) for x in batch)
+        pd, answer = self.token2idx[pad_token], []
         for x in batch:
-            res = [pd] * max_len
-            res[:len(x)] = self.encode1d(x, unk_token=unk_token)
+            res, t_len = [pd] * max_len, min(len(x), max_len)
+            res[:t_len] = self.encode1d(x[:t_len], unk_token=unk_token)
             answer.append(res)
         return answer
 
@@ -33,4 +37,3 @@ class tokenizer:
 
     def decode2d(self, seq):
         return [self.encode1d(x) for x in seq]
-

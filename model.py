@@ -43,6 +43,7 @@ class EditDataset(torch.utils.data.Dataset):
         else:
             ret = [f'<RXN_{self.rxn_class[index]}>']
         ret += list(self.reat[index])
+        ret.append('<END>')
 
         if self.rxn_class is not None:
             return self.graphs[index], self.rxn_class[index], \
@@ -95,7 +96,91 @@ def fc_collect_fn(data_batch):
 
     result = {k: torch.from_numpy(v) for k, v in result.items()}
     result['num_nodes'] = lstnode
-    node_label = torch.cat(node_label, dim=0)
-    edge_label = torch.cat(edge_label, dim=0)
+    result['node_label'] = torch.cat(node_label, dim=0)
+    result['edge_label'] = torch.cat(edge_label, dim=0)
 
-    return Data(**result), node_label, edge_label, reats
+    return Data(**result), reats
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, emb_size: int, dropout: float, maxlen: int = 5000):
+        super(PositionalEncoding, self).__init__()
+        den = torch.exp(
+            - torch.arange(0, emb_size, 2) * math.log(10000) / emb_size
+        )
+        pos = torch.arange(0, maxlen).reshape(maxlen, 1)
+        pos_embedding = torch.zeros((maxlen, emb_size))
+        pos_embedding[:, 0::2] = torch.sin(pos * den)
+        pos_embedding[:, 1::2] = torch.cos(pos * den)
+
+        self.dropout = nn.Dropout(dropout)
+        self.register_buffer('pos_embedding', pos_embedding)
+
+    def forward(self, token_embedding: torch.Tensor):
+        token_len = token_embedding.shape[1]
+        return self.dropout(token_embedding + self.pos_embedding[:token_len])
+
+
+class Graph2Seq(torch.nn.Module):
+    def __init__(self, token_size, encoder, decoder, d_mode, pos_enc):
+        self.work_emb = torch.nn.Embedding(token_size, d_model)
+        self.encoder, self.decoder = encoder, decoder
+        self.atom_encoder = SparseAtomEncoder(d_model)
+        self.bond_encoder = SparseBondEncoder(d_model)
+        self.node_cls = torch.nn.Linear(d_model, 2)
+        self.edge_cls = torch.nn.Linear(d_model, 2)
+        self.pos_enc = pos_enc
+
+    def batch_mask(
+        self, ptr: torch.Tensor, max_node: int, batch_size: int
+    ) -> torch.Tensor:
+        num_nodes = ptr[1:] - ptr[:-1]
+        mask = torch.arange(max_node).repeat(batch_size, 1)
+        mask = mask.to(num_nodes.device)
+        return mask < num_nodes.reshape(-1, 1)
+
+    def graph2batch(
+        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
+        batch_size: int, max_node: int
+    ) -> torch.Tensor:
+        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        answer = answer.to(node_feat.device)
+        answer[batch_mask] = node_feat
+        return answer
+
+    def max_node_ptr(self, ptr):
+        num_nodes = ptr[1:] - ptr[:-1]
+        return num_nodes.max()
+
+    def forward(
+        self, graphs, tgt, tgt_mask, tgt_pad_mask,
+        pred_edge=False, pred_node=False
+    ):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        n_rxn = getattr(graphs, 'node_rxn', None)
+        e_rxn = getattr(graphs, 'edge_rxn', None)
+        node_feat, edge_feat = self.encoder(
+            node_feats=self.atom_encoder(graphs.x, rxn_class=n_rxn),
+            edge_feats=self.bond_encoder(graphs.edge_attr, rxn_class=e_rxn),
+            edge_index=graphs.edge_index
+        )
+
+        batch_size = len(graphs.ptr) - 1
+        max_mem_len = self.max_node_ptr(graphs.ptr)
+        memory_pad_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
+        memory = self.graph2batch(
+            node_feat=node_feat, batch_mask=memory_pad_mask,
+            batch_size=batch_size, max_node=max_mem_len
+        )
+
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_pad_mask,
+            tgt_key_padding_mask=tgt_pad_mask
+        )
+
+        edge_res = self.edge_cls(edge_feat) if pred_edge else None
+        node_res = self.node_cls(node_feat) if pred_node else None
+        return result, node_res, edge_res
+
+    
