@@ -152,10 +152,7 @@ class Graph2Seq(torch.nn.Module):
         num_nodes = ptr[1:] - ptr[:-1]
         return num_nodes.max()
 
-    def forward(
-        self, graphs, tgt, tgt_mask, tgt_pad_mask,
-        pred_edge=False, pred_node=False
-    ):
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask, pred_core=False):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
         n_rxn = getattr(graphs, 'node_rxn', None)
         e_rxn = getattr(graphs, 'edge_rxn', None)
@@ -179,8 +176,12 @@ class Graph2Seq(torch.nn.Module):
             tgt_key_padding_mask=tgt_pad_mask
         )
 
-        edge_res = self.edge_cls(edge_feat) if pred_edge else None
-        node_res = self.node_cls(node_feat) if pred_node else None
-        return result, node_res, edge_res
+        if pred_core:
+            node_res = self.node_cls(node_feat)
+            edge_res = self.edge_cls(edge_feat)
+            return result, node_res, edge_res
+        else:
+            return result
 
-    
+
+

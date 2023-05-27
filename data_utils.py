@@ -58,5 +58,19 @@ def fix_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
+def generate_square_subsequent_mask(sz, device='cpu'):
+    mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
+    mask = mask.float().masked_fill(mask == 0, float('-inf'))
+    mask = mask.masked_fill(mask == 1, float(0.0)).to(device)
+    return mask
+
+
+def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
+    PAD_IDX, siz = tokenizer.token2idx[pad], tgt.shape[1]
+    tgt_pad_mask = (tgt == PAD_IDX).to(device)
+    tgt_sub_mask = generate_square_subsequent_mask(siz, device)
+    return tgt_pad_mask, tgt_sub_mask
+
+
 if __name__ == '__main__':
     pass

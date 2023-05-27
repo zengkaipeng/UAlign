@@ -1,8 +1,9 @@
-from model import get_labels, evaluate_sparse
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
 import torch
+from data_utils import generate_tgt_mask
+
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     def f(x):
@@ -15,80 +16,80 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def train_sparse_edit(
-    loader, model, optimizer, device,
-    verbose=True, warmup=True, mode='together'
+    loader, model, optimizer, device, tokenizer, node_fn,
+    edge_fn, trans_fn, verbose=True, warmup=True, pad='<PAD>'
 ):
     model = model.train()
-    node_loss, edge_loss = [], []
+    node_loss, edge_loss, tran_loss = [], [], []
     for data in tqdm(loader) if verbose else loader:
         if warmup:
             warmup_iters = len(loader) - 1
             warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
-        if len(data) == 6:
-            graphs, node_label, num_l, num_e, e_type, act_nodes = data
-            r_cls = None
-        else:
-            graphs, r_cls, node_label, num_l, num_e, e_type, act_nodes = data
-
+        graphs, tgt = data
         graphs = graphs.to(device)
-        node_label = node_label.to(device)
-        if r_cls is not None:
-            r_cls = r_cls.to(device)
+        tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        tgt_input = tgt_idx[:, :-1]
+        tgt_output = tgt_idx[:, 1:]
 
-        node_res, edge_res, new_act_nodes = model(
-            graphs=graphs, act_nodes=act_nodes, num_nodes=num_l, mode=mode,
-            num_edges=num_e,  return_feat=False, rxn_class=r_cls
+        pad_mask, sub_mask = generate_tgt_mask(
+            tgt_input, tokenizer, pad, device
         )
 
-        loss_node = F.cross_entropy(node_res, node_label)
-        if edge_res is not None:
-            edge_labels = get_labels(new_act_nodes, e_type).to(device)
-            loss_edge = F.cross_entropy(edge_res, edge_labels)
-        else:
-            loss_edge = torch.tensor(0.0)
+        node_res, edge_res, result = model(
+            graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
+            tgt_pad_mask=pad_mask, pred_core=True
+        )
+
+        loss_node = node_fn(node_res, graphs.node_label)
+        loss_edge = edge_fn(edge_res, graphs.edge_label)
+        loss_tran = trans_fn(result, tgt_output)
 
         optimizer.zero_grad()
-        (loss_node + loss_edge).back_ward()
+        (loss_node + loss_edge + loss_tran).back_ward()
         optimizer.step()
 
         node_loss.append(loss_node.item())
         edge_loss.append(loss_edge.item())
+        tran_loss.append(loss_tran.item())
 
         if warmup:
             warmup_sher.step()
-    return np.mean(node_loss), np.mean(edge_loss)
+    return np.mean(node_loss), np.mean(edge_loss), np.mean(tran_loss)
 
 
-def eval_sparse_edit(loader, model, device, verbose=True):
+def eval_sparse_edit(
+    loader, model, device, tran_fn, tokenizer,
+    pad='<PAD>', verbose=True
+):
     model = model.eval()
-    node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
+    tran_loss = []
     for data in tqdm(loader) if verbose else loader:
-        if len(data) == 6:
-            graphs, node_label, num_l, num_e, e_type, act_nodes = data
-            r_cls = None
-        else:
-            graphs, r_cls, node_label, num_l, num_e, e_type, act_nodes = data
-
+        graphs, tgt = data
         graphs = graphs.to(device)
-        node_label = node_label.to(device)
-        if r_cls is not None:
-            r_cls = r_cls.to(device)
+        tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        tgt_input = tgt_idx[:, :-1]
+        tgt_output = tgt_idx[:, 1:]
 
-        node_res, edge_res, used_nodes = model(
-            graphs=graphs, num_nodes=num_l, num_edges=num_e,
-            mode='inference', return_feat=False, rxn_class=r_cls
-        )
-        metrics = evaluate_sparse(
-            node_res=node_res, pred_edge=edge_res, num_nodes=num_l,
-            num_edges=num_e, edge_types=edge_type, act_nodes=act_nodes,
-            used_nodes=used_nodes
+        pad_mask, sub_mask = generate_tgt_mask(
+            tgt_input, tokenizer, pad, device
         )
 
-        node_cover += metrics[0]
-        node_fit += metrics[1]
-        edge_fit += metric[2]
-        all_cov += metric[3]
-        all_fit += metric[4]
-        tot += metric[5]
-    return node_cover / tot, node_fit / tot, edge_fit / tot, \
-        all_cov / tot, all_fit / tot
+        with torch.no_grad():
+            node_res, edge_res, result = model(
+                graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
+                tgt_pad_mask=pad_mask, pred_core=True
+            )
+            loss_tran = trans_fn(result, tgt_output)
+        tran_loss.append(loss_tran.item())
+    return np.mean(tran_loss)
+
+
+def evaluate_result(gt, results, tokenizer, tops):
+    ax,  gt = np.array(tops),  ''.join(gt[1: -1])
+    res, tpos = tokenizer.decode2d(results), max(top) + 1
+    for idx, t in enumerate(res):
+        if t == gt:
+            tpos = idx + 1
+            break
+
+    return (ax >= tpos)
