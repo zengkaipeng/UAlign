@@ -30,6 +30,8 @@ def create_sparse_dataset(
         for edgs in y:
             src, dst, _, _ = edgs.split(':')
             src, dst = int(src), int(dst)
+            if dst == 0:
+                continue
             es.append((amap[src], amap[dst]))
         edge_types.append(es)
 

@@ -85,7 +85,7 @@ def fc_collect_fn(data_batch):
         'edge_index': np.concatenate(edge_idxes, axis=-1),
         'edge_attr': np.concatenate(edge_feats, axis=0),
         'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0)
+        'x': np.concatenate(node_feats, axis=0),
         'ptr': np.array(ptr, dtype=np.int64)
     }
 
@@ -102,7 +102,7 @@ def fc_collect_fn(data_batch):
     return Data(**result), reats
 
 
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(torch.nn.Module):
     def __init__(self, emb_size: int, dropout: float, maxlen: int = 2000):
         super(PositionalEncoding, self).__init__()
         den = torch.exp(

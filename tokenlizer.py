@@ -5,7 +5,7 @@ DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
 class Tokenizer:
     def __init__(self, tokens, sp_token=None):
-        super(tokenizer, self).__init__()
+        super(Tokenizer, self).__init__()
         tokens = set(tokens)
         self.token2idx = {v: idx for idx, v in enumerate(tokens)}
         self.sp_token = sp_token
