@@ -39,10 +39,10 @@ def train_sparse_edit(
 ):
     model = model.train()
     node_loss, edge_loss = [], []
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for data in tqdm(loader) if verbose else loader:
-        if warmup:
-            warmup_iters = len(loader) - 1
-            warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
         if len(data) == 6:
             graphs, r_cls, node_label, e_type, act_nodes, e_map = data
         else:
