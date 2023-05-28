@@ -16,14 +16,14 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_trans(
     loader, model, optimizer, device, tokenizer, node_fn,
-    edge_fn, trans_fn, verbose=True, warmup=True, pad='<PAD>'
+    edge_fn, trans_fn, verbose=True, warmup=False, pad='<PAD>'
 ):
     model = model.train()
     node_loss, edge_loss, tran_loss = [], [], []
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for data in tqdm(loader) if verbose else loader:
-        if warmup:
-            warmup_iters = len(loader) - 1
-            warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
         graphs, tgt = data
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
