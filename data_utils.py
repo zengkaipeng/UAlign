@@ -40,10 +40,13 @@ def create_sparse_dataset(
     return (dataset, amaps) if return_amap else dataset
 
 
-def load_data(data_dir, part):
-    df_train = pandas.read_csv(
-        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
-    )
+def load_data(data_dir, part=None):
+    if part is not None:
+        df_train = pandas.read_csv(
+            os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
+        )
+    else:
+        df_train = pandas.read_csv(data_dir)
     rxn_class, reacts, prods = [], [], []
     for idx, resu in enumerate(df_train['reactants>reagents>production']):
         rxn_class.append(df_train['class'][idx])

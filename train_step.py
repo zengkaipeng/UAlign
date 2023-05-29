@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import time
+import pickle
 
 
 from tokenlizer import DEFAULT_SP, Tokenizer
@@ -34,8 +35,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir
+    token_dir = os.path.join(detail_log_folder, 'token.pkl')
+    return detail_log_dir, detail_model_dir, token_dir
 
 
 if __name__ == '__main__':
@@ -216,6 +217,9 @@ if __name__ == '__main__':
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
     }
+
+    with open(token_dir, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)

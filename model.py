@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
 import numpy as np
+from data_utils import generate_square_subsequent_mask
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -168,6 +169,34 @@ class Graph2Seq(torch.nn.Module):
         num_nodes = ptr[1:] - ptr[:-1]
         return num_nodes.max()
 
+    def encode(self, graphs):
+        node_feat, edge_feat = self.encoder(
+            node_feats=self.atom_encoder(graphs.x, rxn_class=n_rxn),
+            edge_feats=self.bond_encoder(graphs.edge_attr, rxn_class=e_rxn),
+            edge_index=graphs.edge_index
+        )
+
+        batch_size = len(graphs.ptr) - 1
+        max_mem_len = self.max_node_ptr(graphs.ptr)
+        batch_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
+        memory = self.graph2batch(
+            node_feat=node_feat, batch_mask=batch_mask,
+            batch_size=batch_size, max_node=max_mem_len
+        )
+        return memory, torch.logical_not(batch_mask)
+
+    def decode(
+        self, memory, memory_padding_mask=None, tgt_mask=None,
+        tgt_padding_mask=None, to_cls=True,
+    ):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_padding_mask,
+            tgt_key_padding_mask=tgt_padding_mask
+        )
+        return self.output_layer(result) if to_cls else result
+
     def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask, pred_core=False):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
         n_rxn = getattr(graphs, 'node_rxn', None)
@@ -198,3 +227,29 @@ class Graph2Seq(torch.nn.Module):
             return result, node_res, edge_res
         else:
             return result
+
+
+def greedy_infernece_one(
+    model, tokenizer, begin_token='<CLS>', end_token='<END>',
+    graph, device, max_len, use_class=False, rxn_class=None
+):
+    model = model.eval()
+    if use_class and rxn_class is None:
+        raise NotImplementedError('require rxn_class information')
+    tgt = torch.LongTensor([tokenizer.encode1d([begin_token])])
+    tgt = tgt.to(device)
+
+    end_id = tokenizer.token2idx[end_token]
+    with torch.no_grad():
+        memory, memory_pad_mask = model.encode(graph)
+        for idx in range(max_len):
+            tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
+            result = model.decode(
+                memory=memory, tgt_mask=tgt_mask, 
+                memory_padding_mask=mem_pad_mask
+            )
+            result = result[:, -1].argmax(dim=-1)
+            # [1, 1]
+            if result.item() == end_token:
+                break
+            tgt = torch.cat([tgt, result], dim=-1)
