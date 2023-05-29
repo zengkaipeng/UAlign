@@ -3,9 +3,11 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding
+from model import greedy_inference_one
 import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
+from tqdm import tqdm
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
@@ -18,7 +20,7 @@ if __name__ == '__main__':
         help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
-        '--layer_encoder', default=8, type=int,
+        '--layer_encoder', default=10, type=int,
         help='the layer of encoder gnn'
     )
     parser.add_argument(
@@ -54,6 +56,10 @@ if __name__ == '__main__':
         help='use rxn_class for training or not'
     )
     parser.add_argument(
+    	'--model_path', required=True, type=str,
+    	help='the path containing the pretrained model'
+    )
+    parser.add_argument(
         '--seed', type=int, default=2023,
         help='the seed for training'
     )
@@ -73,4 +79,52 @@ if __name__ == '__main__':
         device = torch.device(f'cuda:{args.device}')
     fix_seed(args.seed)
     test_rec, test_prod, test_rxn = load_data(args.data_path)
+    test_set = create_sparse_dataset(
+        test_rec, test_prod, kekulize=args.kekulize,
+        rxn_class=test_rxn if args.use_class else None
+    )
+    test_loader = DataLoader(
+        test_set, collate_fn=fc_collect_fn,
+        batch_size=1, shuffle=False
+    )
+
+
+    if args.backbone == 'GIN':
+        GNN = GINBase(
+            num_layers=args.layer_encoder, dropout=args.dropout,
+            embedding_dim=args.dim, edge_last=True, residual=True
+        )
+    else:
+        GNN = GATBase(
+            num_layers=args.layer_encoder, dropout=args.dropout,
+            embedding_dim=args.dim, edge_last=True,
+            residual=True, negative_slope=args.negative_slope,
+            num_heads=args.heads, add_self_loop=True
+        )
+
+
+
+    decode_layer = TransformerDecoderLayer(
+        d_model=args.dim, nhead=args.heads, batch_first=True,
+        dim_feedforward=args.dim * 2, dropout=args.dropout
+    )
+    Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
+    Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
+
+    model = Graph2Seq(
+        token_size=tokenizer.get_token_size(), encoder=GNN,
+        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
+    ).to(device)
+
+    model = model.eval()
+
+    state_dict = torch.load(args.model_path, map_location=device)
+    model.load_state_dict(state_dict)
+
+    for data in tqdm(test_loader):
+    	graphs, gt = data
+    	graphs = graphs.to(device)
+
+
+
 

@@ -245,7 +245,7 @@ def greedy_infernece_one(
         for idx in range(max_len):
             tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
             result = model.decode(
-                memory=memory, tgt_mask=tgt_mask, 
+                memory=memory, tgt_mask=tgt_mask,
                 memory_padding_mask=mem_pad_mask
             )
             result = result[:, -1].argmax(dim=-1)
@@ -253,3 +253,8 @@ def greedy_infernece_one(
             if result.item() == end_token:
                 break
             tgt = torch.cat([tgt, result], dim=-1)
+
+    tgt_list = tgt.tolist()[0]
+    answer = tokenizer.decode1d(tgt_list)
+    answer = answer.replace(end_token, "").replace(begin_token, "")
+    return answer
