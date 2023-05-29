@@ -3,14 +3,14 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding
-from model import greedy_inference_one
+from inference_tools import greedy_inference_one
 import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
 
 if __name__ == '__main__':
-	parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
@@ -56,8 +56,8 @@ if __name__ == '__main__':
         help='use rxn_class for training or not'
     )
     parser.add_argument(
-    	'--model_path', required=True, type=str,
-    	help='the path containing the pretrained model'
+        '--model_path', required=True, type=str,
+        help='the path containing the pretrained model'
     )
     parser.add_argument(
         '--seed', type=int, default=2023,
@@ -68,15 +68,15 @@ if __name__ == '__main__':
         help='the device for running exps'
     )
     parser.add_argument(
-    	'--max_len', default=200, type=int,
-    	help='the max length for decoding'
+        '--max_len', default=200, type=int,
+        help='the max length for decoding'
     )
 
     args = parser.parse_args()
     print(args)
 
     with open(args.token_path, 'rb') as Fin:
-    	tokenizer = pickle.load(Fin)
+        tokenizer = pickle.load(Fin)
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
     else:
@@ -92,7 +92,6 @@ if __name__ == '__main__':
         batch_size=1, shuffle=False
     )
 
-
     if args.backbone == 'GIN':
         GNN = GINBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
@@ -105,8 +104,6 @@ if __name__ == '__main__':
             residual=True, negative_slope=args.negative_slope,
             num_heads=args.heads, add_self_loop=True
         )
-
-
 
     decode_layer = TransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
@@ -126,20 +123,16 @@ if __name__ == '__main__':
     model.load_state_dict(state_dict)
 
     for data in tqdm(test_loader):
-    	graphs, gt = data
-    	graphs = graphs.to(device)
-    	if hasattr(graphs, 'rxn_class'):
-    		rxn_class = graphs.rxn_class.item()
-    	else:
-    		rxn_class = None
+        graphs, gt = data
+        graphs = graphs.to(device)
+        if hasattr(graphs, 'rxn_class'):
+            rxn_class = graphs.rxn_class.item()
+        else:
+            rxn_class = None
 
-    	result = greedy_inference_one(
-    		model, tokenizer, graphs, device, args.max_len,
-    		begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
-    	)
-    	print(result, gt)
-    	exit()
-
-
-
-
+        result = greedy_inference_one(
+            model, tokenizer, graphs, device, args.max_len,
+            begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
+        )
+        print(result, gt)
+        exit()

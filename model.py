@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
 import numpy as np
-from data_utils import generate_square_subsequent_mask
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -227,32 +226,3 @@ class Graph2Seq(torch.nn.Module):
             return result, node_res, edge_res
         else:
             return result
-
-
-def greedy_infernece_one(
-    model, tokenizer, graph, device, max_len, 
-    begin_token='<CLS>', end_token='<END>'
-):
-    model = model.eval()
-    tgt = torch.LongTensor([tokenizer.encode1d([begin_token])])
-    tgt = tgt.to(device)
-
-    end_id = tokenizer.token2idx[end_token]
-    with torch.no_grad():
-        memory, memory_pad_mask = model.encode(graph)
-        for idx in range(max_len):
-            tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
-            result = model.decode(
-                memory=memory, tgt_mask=tgt_mask,
-                memory_padding_mask=mem_pad_mask
-            )
-            result = result[:, -1].argmax(dim=-1)
-            # [1, 1]
-            if result.item() == end_token:
-                break
-            tgt = torch.cat([tgt, result], dim=-1)
-
-    tgt_list = tgt.tolist()[0]
-    answer = tokenizer.decode1d(tgt_list)
-    answer = answer.replace(end_token, "").replace(begin_token, "")
-    return answer
