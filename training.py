@@ -27,6 +27,8 @@ def train_trans(
         graphs, tgt = data
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        
+
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
 
@@ -61,10 +63,10 @@ def train_trans(
 
 def eval_trans(
     loader, model, device, tran_fn, tokenizer,
-    pad='<PAD>', verbose=True
+    acc_fn, pad='<PAD>', verbose=True
 ):
     model = model.eval()
-    tran_loss = []
+    tran_loss, ele_total, ele_acc = [], 0, 0
     for data in tqdm(loader) if verbose else loader:
         graphs, tgt = data
         graphs = graphs.to(device)
@@ -85,8 +87,10 @@ def eval_trans(
                 result.reshape(-1, result.shape[-1]),
                 tgt_output.reshape(-1)
             )
+            A, B = acc_fn(result, tgt_output)
+            ele_acc, ele_total = ele_acc + A, ele_total + B
         tran_loss.append(loss_tran.item())
-    return np.mean(tran_loss)
+    return np.mean(tran_loss), ele_acc / ele_total
 
 
 def evaluate_result(gt, results, tokenizer, tops):

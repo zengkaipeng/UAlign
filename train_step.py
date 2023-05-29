@@ -35,7 +35,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    token_dir = os.path.join(detail_log_folder, 'token.pkl')
+    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
+    token_dir = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
     return detail_log_dir, detail_model_dir, token_dir
 
 
@@ -115,13 +116,13 @@ if __name__ == '__main__':
         help='the base dir of logging'
     )
     parser.add_argument(
-        '--label_smooth', default=0.1, type=float,
+        '--label_smooth', default=0.0, type=float,
         help='the label smoothing for transformer'
     )
 
     args = parser.parse_args()
     print(args)
-    log_dir, model_dir = create_log_model(args)
+    log_dir, model_dir, token_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -198,7 +199,7 @@ if __name__ == '__main__':
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     lr_sh = MultiStepLR(
-        optimizer, milestones=[150, 250, 600, 1500],
+        optimizer, milestones=[5, 150, 250, 600, 1500],
         gamma=0.5, verbose=True
     )
     best_perf, best_ep = None, None
@@ -212,6 +213,9 @@ if __name__ == '__main__':
     valid_fn = torch.nn.CrossEntropyLoss(
         reduction='sum', ignore_index=tokenizer.token2idx['<PAD>']
     )
+
+    acc_fn = Acc_fn(ignore_index=tokenizer.token2idx['<PAD>'])
+    print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -234,18 +238,22 @@ if __name__ == '__main__':
             'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
         })
 
-        valid_results = eval_trans(
+        valid_results, valid_acc = eval_trans(
             valid_loader, model, device, valid_fn,
-            tokenizer, verbose=True
+            tokenizer, acc_fn, verbose=True
         )
-        log_info['valid_metric'].append({'trans': valid_results})
+        log_info['valid_metric'].append({
+            'trans': valid_results, 'acc': valid_acc
+        })
 
-        test_results = eval_trans(
+        test_results, test_acc = eval_trans(
             test_loader, model, device, valid_fn,
-            tokenizer, verbose=True
+            tokenizer, acc_fn, verbose=True
         )
 
-        log_info['test_metric'].append({'trans': test_results})
+        log_info['test_metric'].append({
+            'trans': test_results, 'acc': test_acc
+        })
 
         print('[TRAIN]', log_info['train_loss'][-1])
         print('[VALID]', log_info['valid_metric'][-1])

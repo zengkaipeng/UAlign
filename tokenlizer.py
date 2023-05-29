@@ -39,4 +39,4 @@ class Tokenizer:
         return len(self.token2idx)
 
     def decode2d(self, seq):
-        return [self.encode1d(x) for x in seq]
+        return [self.decode1d(x) for x in seq]

@@ -187,7 +187,7 @@ class Graph2Seq(torch.nn.Module):
         return memory, torch.logical_not(batch_mask)
 
     def decode(
-        self, tgt, memory, memory_padding_mask=None, 
+        self, tgt, memory, memory_padding_mask=None,
         tgt_mask=None, tgt_padding_mask=None, to_cls=True,
     ):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
@@ -228,3 +228,16 @@ class Graph2Seq(torch.nn.Module):
             return result, node_res, edge_res
         else:
             return result
+
+
+class Acc_fn(torch.nn.Module):
+    def __init__(self, ignore_index=-1):
+        super(Acc_fn, self).__init__()
+        self.ignore_index = ignore_index
+
+    def forward(self, tgt, gt):
+        tgt = tgt.argmax(dim=-1)
+        mask = (gt != self.ignore_index)
+        accs = (tgt[mask] == gt[mask]).sum()
+        tots = mask.sum()
+        return accs.item(), tots.item()
