@@ -123,11 +123,10 @@ if __name__ == '__main__':
     state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict)
 
+    acc, total = 0, 0
     for data in tqdm(test_loader):
         graphs, gt = data
-        print(gt)
-        print(''.join(gt[1: -1]))
-        graphs = graphs.to(device)
+        graphs, gt = graphs.to(device), ''.join(gt[0][1: -1])
         if hasattr(graphs, 'rxn_class'):
             rxn_class = graphs.rxn_class.item()
         else:
@@ -137,5 +136,7 @@ if __name__ == '__main__':
             model, tokenizer, graphs, device, args.max_len,
             begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
         )
-        print(result)
-        exit()
+
+        acc += (result == gt)
+        total += 1
+    print('[TOP1-ACC]', acc / total)

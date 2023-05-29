@@ -199,7 +199,7 @@ if __name__ == '__main__':
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     lr_sh = MultiStepLR(
-        optimizer, milestones=[5, 150, 250, 600, 1500],
+        optimizer, milestones=[150, 300, 600],
         gamma=0.5, verbose=True
     )
     best_perf, best_ep = None, None
