@@ -230,12 +230,10 @@ class Graph2Seq(torch.nn.Module):
 
 
 def greedy_infernece_one(
-    model, tokenizer, begin_token='<CLS>', end_token='<END>',
-    graph, device, max_len, use_class=False, rxn_class=None
+    model, tokenizer, graph, device, max_len, 
+    begin_token='<CLS>', end_token='<END>'
 ):
     model = model.eval()
-    if use_class and rxn_class is None:
-        raise NotImplementedError('require rxn_class information')
     tgt = torch.LongTensor([tokenizer.encode1d([begin_token])])
     tgt = tgt.to(device)
 

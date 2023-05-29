@@ -67,6 +67,10 @@ if __name__ == '__main__':
         '--device', default=-1, type=int,
         help='the device for running exps'
     )
+    parser.add_argument(
+    	'--max_len', default=200, type=int,
+    	help='the max length for decoding'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -124,6 +128,17 @@ if __name__ == '__main__':
     for data in tqdm(test_loader):
     	graphs, gt = data
     	graphs = graphs.to(device)
+    	if hasattr(graphs, 'rxn_class'):
+    		rxn_class = graphs.rxn_class.item()
+    	else:
+    		rxn_class = None
+
+    	result = greedy_inference_one(
+    		model, tokenizer, graphs, device, args.max_len,
+    		begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
+    	)
+    	print(result, gt)
+    	exit()
 
 
 
