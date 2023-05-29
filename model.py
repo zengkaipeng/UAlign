@@ -169,6 +169,8 @@ class Graph2Seq(torch.nn.Module):
         return num_nodes.max()
 
     def encode(self, graphs):
+        n_rxn = getattr(graphs, 'node_rxn', None)
+        e_rxn = getattr(graphs, 'edge_rxn', None)
         node_feat, edge_feat = self.encoder(
             node_feats=self.atom_encoder(graphs.x, rxn_class=n_rxn),
             edge_feats=self.bond_encoder(graphs.edge_attr, rxn_class=e_rxn),
@@ -185,8 +187,8 @@ class Graph2Seq(torch.nn.Module):
         return memory, torch.logical_not(batch_mask)
 
     def decode(
-        self, memory, memory_padding_mask=None, tgt_mask=None,
-        tgt_padding_mask=None, to_cls=True,
+        self, tgt, memory, memory_padding_mask=None, 
+        tgt_mask=None, tgt_padding_mask=None, to_cls=True,
     ):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
         result = self.decoder(

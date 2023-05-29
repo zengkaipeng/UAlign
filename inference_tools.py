@@ -2,7 +2,7 @@ import torch
 from data_utils import generate_square_subsequent_mask
 
 
-def greedy_infernece_one(
+def greedy_inference_one(
     model, tokenizer, graph, device, max_len,
     begin_token='<CLS>', end_token='<END>'
 ):
@@ -12,18 +12,18 @@ def greedy_infernece_one(
 
     end_id = tokenizer.token2idx[end_token]
     with torch.no_grad():
-        memory, memory_pad_mask = model.encode(graph)
+        memory, mem_pad_mask = model.encode(graph)
         for idx in range(max_len):
             tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
             result = model.decode(
-                memory=memory, tgt_mask=tgt_mask,
+                tgt=tgt, memory=memory, tgt_mask=tgt_mask,
                 memory_padding_mask=mem_pad_mask
             )
             result = result[:, -1].argmax(dim=-1)
             # [1, 1]
-            if result.item() == end_token:
+            if result.item() == end_id:
                 break
-            tgt = torch.cat([tgt, result], dim=-1)
+            tgt = torch.cat([tgt, result.unsqueeze(-1)], dim=-1)
 
     tgt_list = tgt.tolist()[0]
     answer = tokenizer.decode1d(tgt_list)

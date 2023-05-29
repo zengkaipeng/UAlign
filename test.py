@@ -8,11 +8,12 @@ import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
+import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     parser.add_argument(
-        '--dim', default=256, type=int,
+        '--dim', default=288, type=int,
         help='the hidden dim of model'
     )
     parser.add_argument(
@@ -124,6 +125,8 @@ if __name__ == '__main__':
 
     for data in tqdm(test_loader):
         graphs, gt = data
+        print(gt)
+        print(''.join(gt[1: -1]))
         graphs = graphs.to(device)
         if hasattr(graphs, 'rxn_class'):
             rxn_class = graphs.rxn_class.item()
@@ -134,5 +137,5 @@ if __name__ == '__main__':
             model, tokenizer, graphs, device, args.max_len,
             begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
         )
-        print(result, gt)
+        print(result)
         exit()
