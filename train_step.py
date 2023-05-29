@@ -9,7 +9,7 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, fc_collect_fn, PositionalEncoding
+from model import Graph2Seq, fc_collect_fn, PositionalEncoding, Acc_fn
 from training import train_trans, eval_trans
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder

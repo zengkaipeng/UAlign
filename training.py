@@ -27,7 +27,6 @@ def train_trans(
         graphs, tgt = data
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
-        
 
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
@@ -35,6 +34,11 @@ def train_trans(
         pad_mask, sub_mask = generate_tgt_mask(
             tgt_input, tokenizer, pad, device
         )
+
+        # print(tgt)
+        # print(tgt_idx.tolist())
+        # print(tokenizer.decode2d(tgt_idx.tolist()))
+        # exit()
 
         result, node_res, edge_res = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
