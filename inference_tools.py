@@ -1,5 +1,6 @@
 import torch
 from data_utils import generate_square_subsequent_mask
+from utils.chemistry_parse import canonical_smiles
 
 
 def greedy_inference_one(
@@ -29,7 +30,7 @@ def greedy_inference_one(
     tgt_list = tgt.tolist()[0]
     answer = tokenizer.decode1d(tgt_list)
     answer = answer.replace(end_token, "").replace(begin_token, "")
-    return answer
+    return canonical_smiles(answer)
 
 
 def greedy_inference_batch(
