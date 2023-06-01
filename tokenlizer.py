@@ -1,6 +1,10 @@
+import re
 import json
 
 DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
+
+
+SMI_REGEX_PATTERN = r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""
 
 
 class Tokenizer:
@@ -40,3 +44,20 @@ class Tokenizer:
 
     def decode2d(self, seq):
         return [self.decode1d(x) for x in seq]
+
+
+def smi_tokenizer(smi):
+    """
+    Tokenize a SMILES molecule or reaction
+    """
+    regex = re.compile(SMI_REGEX_PATTERN)
+    tokens = [token for token in regex.findall(smi)]
+    assert smi == ''.join(tokens)
+    return tokens
+
+
+if __name__ == '__main__':
+    print(smi_tokenizer('CC(=O)OC%11=CC=CC=C%11C(=O)O'))
+    print(smi_tokenizer('O=C1CCC(=O)N1Br.C/C=C/C(=O)O[Si](C)(C)C'))
+    print(smi_tokenizer('[OH-]'))
+    print(smi_tokenizer('[Ti++++]'))
