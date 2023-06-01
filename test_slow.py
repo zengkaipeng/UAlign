@@ -118,11 +118,11 @@ if __name__ == '__main__':
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
 
-    model = model.eval()
 
     state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict)
 
+    model = model.eval()
     acc, total = 0, 0
     for data in tqdm(test_loader):
         graphs, gt = data
