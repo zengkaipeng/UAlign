@@ -1,5 +1,8 @@
 import re
 import json
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem import Draw
 
 DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
@@ -52,7 +55,11 @@ def smi_tokenizer(smi):
     """
     regex = re.compile(SMI_REGEX_PATTERN)
     tokens = [token for token in regex.findall(smi)]
-    assert smi == ''.join(tokens)
+    # assert smi == ''.join(tokens), f"smi is {smi}"
+    if smi != ''.join(tokens):
+        print('[WARNING] Unseen Tokens Found')
+        print('[ORG SMILES]', smi)
+        print('[NEW SMILES]', ''.join(tokens))
     return tokens
 
 

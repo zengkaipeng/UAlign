@@ -4,6 +4,14 @@ import pandas
 from tqdm import tqdm
 from tokenlizer import smi_tokenizer
 from utils.chemistry_parse import canonical_smiles, clear_map_number
+import rdkit
+from rdkit import Chem
+
+
+def check_valid(smi):
+    mol = Chem.MolFromSmiles(smi)
+    return False if mol is None else True
+
 
 UTPSO_50_PATH = '../data/UTPSO-50K/'
 UTPSO_50_FILES = [f'raw_{x}.csv' for x in ['train', 'val', 'test']] +\
@@ -27,9 +35,9 @@ with open(EXTEND_PATH) as Fin:
 
 print(f'[INFO] processing {EXTEND_PATH}')
 for k, v in tqdm(extend_INFO.items()):
-    reac = '.'.join(v['reactant'])
-    prd = '.'.join(v['product'])
-    reg = '.'.join(v['reagent'])
+    reac = '.'.join(x.strip() for x in v['reactant'] if check_valid(x))
+    prd = '.'.join(x.strip() for x in v['product'] if check_valid(x))
+    reg = '.'.join(x.strip() for x in v['reagent'] if check_valid(x))
     vocab.update(smi_tokenizer(reac))
     vocab.update(smi_tokenizer(prd))
     vocab.update(smi_tokenizer(reg))
