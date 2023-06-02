@@ -3,11 +3,12 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding
-from inference_tools import greedy_inference_one, greedy_inference_batch
+from inference_tools import greedy_inference_one, check_valid
 import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
+from utils.chemistry_parse import canonical_smiles
 import argparse
 
 if __name__ == '__main__':
@@ -118,12 +119,12 @@ if __name__ == '__main__':
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
 
-    model = model.eval()
 
     state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict)
+    model = model.eval()
 
-    acc, total = 0, 0
+    acc, valid, total = 0, 0, 0
     for data in tqdm(test_loader):
         graphs, gt = data
         graphs = graphs.to(device)
@@ -137,7 +138,12 @@ if __name__ == '__main__':
             begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
         )
 
-        gts = ''.join(gt[0][1: -1])
-        acc += (gts == result)
+        if check_valid(result):
+            result = canonical_smiles(result)
+            gts = ''.join(gt[0][1: -1])
+            acc += (gts == result)
+            valid += 1
         total += 1
     print('[TOP1-ACC]', acc / total)
+    print('[VALID]', valid / total)
+    print('[VALACC]', acc / valid)
