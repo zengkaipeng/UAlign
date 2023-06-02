@@ -22,7 +22,7 @@ def create_log_model(args):
         f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
         f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
         f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
-        f'label_smooth_{args.label_smooth}'
+        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}'
     ]
     if args.kekulize:
         log_dir.append('kekulize')
@@ -37,7 +37,8 @@ def create_log_model(args):
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
     detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
     token_dir = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
-    return detail_log_dir, detail_model_dir, token_dir
+    bacc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
+    return detail_log_dir, detail_model_dir, token_dir, bacc_dir
 
 
 if __name__ == '__main__':
@@ -65,6 +66,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--heads', default=4, type=int,
         help='the number of heads for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--warmup', default=1, type=int,
+        help='the epoch of warmup'
     )
     parser.add_argument(
         '--backbone', type=str, choices=['GAT', 'GIN'],
@@ -122,7 +127,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(args)
-    log_dir, model_dir, token_dir = create_log_model(args)
+    log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -203,6 +208,7 @@ if __name__ == '__main__':
         gamma=0.5, verbose=True
     )
     best_perf, best_ep = None, None
+    best_acc, best_ep2 = None, None
 
     node_fn = torch.nn.CrossEntropyLoss(reduction='sum')
     edge_fn = torch.nn.CrossEntropyLoss(reduction='sum')
@@ -232,7 +238,8 @@ if __name__ == '__main__':
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss, tran_loss = train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            node_fn, edge_fn, tran_fn, verbose=True, warmup=(ep == 0)
+            node_fn, edge_fn, tran_fn, verbose=True,
+            warmup=(ep < args.warmup)
         )
         log_info['train_loss'].append({
             'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
@@ -267,6 +274,10 @@ if __name__ == '__main__':
             best_perf, best_ep = valid_results, ep
             torch.save(model.state_dict(), model_dir)
 
+        if best_acc is None or valid_acc > best_acc:
+            best_acc, best_ep2 = valid_acc, ep
+            torch.save(model.state_dict(), acc_dir)
+
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             tx = [
                 x['trans'] for x in
@@ -275,6 +286,10 @@ if __name__ == '__main__':
             if all(x >= tx[0] for x in tx):
                 break
 
-    print(f'[INFO] best epoch: {best_ep}')
+    print(f'[INFO] best loss epoch: {best_ep}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
     print(f'[INFO] best test loss: {log_info["test_metric"][best_ep]}')
+
+    print(f'[INFO] best acc epoch: {best_ep2}')
+    print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep2]}')
+    print(f'[INFO] best test loss: {log_info["test_metric"][best_ep2]}')

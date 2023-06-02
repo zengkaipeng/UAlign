@@ -29,7 +29,7 @@ def train_trans(
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
         UNK_IDX = tokenizer.token2idx[unk]
-        assert torch.add(tgt_idx != UNK_IDX), \
+        assert torch.all(tgt_idx != UNK_IDX).item(), \
             'Unseen tokens found, update tokenizer'
 
         tgt_input = tgt_idx[:, :-1]
