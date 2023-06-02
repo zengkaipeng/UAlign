@@ -16,7 +16,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_trans(
     loader, model, optimizer, device, tokenizer, node_fn,
-    edge_fn, trans_fn, verbose=True, warmup=False, pad='<PAD>'
+    edge_fn, trans_fn, verbose=True, warmup=False,
+    pad='<PAD>', unk='<UNK>'
 ):
     model = model.train()
     node_loss, edge_loss, tran_loss = [], [], []
@@ -27,6 +28,9 @@ def train_trans(
         graphs, tgt = data
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        UNK_IDX = tokenizer.token2idx[unk]
+        assert torch.add(tgt_idx != UNK_IDX), \
+            'Unseen tokens found, update tokenizer'
 
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
@@ -34,11 +38,6 @@ def train_trans(
         pad_mask, sub_mask = generate_tgt_mask(
             tgt_input, tokenizer, pad, device
         )
-
-        # print(tgt)
-        # print(tgt_idx.tolist())
-        # print(tokenizer.decode2d(tgt_idx.tolist()))
-        # exit()
 
         result, node_res, edge_res = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
@@ -95,14 +94,3 @@ def eval_trans(
             ele_acc, ele_total = ele_acc + A, ele_total + B
         tran_loss.append(loss_tran.item())
     return np.mean(tran_loss), ele_acc / ele_total
-
-
-def evaluate_result(gt, results, tokenizer, tops):
-    res, tpos = tokenizer.decode2d(results), max(top) + 1
-    ax, gt = np.array(tops), ''.join(gt[1: -1])
-    for idx, t in enumerate(res):
-        if t == gt:
-            tpos = idx + 1
-            break
-
-    return (ax >= tpos)

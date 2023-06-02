@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
 import numpy as np
+from tokenlizer import smi_tokenizer
 
 
 class EditDataset(torch.utils.data.Dataset):
@@ -44,7 +45,7 @@ class EditDataset(torch.utils.data.Dataset):
             ret = ['<CLS>']
         else:
             ret = [f'<RXN_{self.rxn_class[index]}>']
-        ret += list(self.reat[index])
+        ret += smi_tokenizer(self.reat[index])
         ret.append('<END>')
 
         if self.rxn_class is not None:
