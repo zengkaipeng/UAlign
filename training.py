@@ -16,11 +16,12 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_trans(
     loader, model, optimizer, device, tokenizer, node_fn,
-    edge_fn, trans_fn, verbose=True, warmup=False,
-    pad='<PAD>', unk='<UNK>'
+    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False,
+    pad='<PAD>', unk='<UNK>', accu=1
 ):
-    model = model.train()
+    model, ele_acc, ele_total = model.train(), 0, 0
     node_loss, edge_loss, tran_loss = [], [], []
+    its, total_len = 1, len(loader)
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
@@ -51,17 +52,28 @@ def train_trans(
             tgt_output.reshape(-1)
         )
 
-        optimizer.zero_grad()
-        (loss_node + loss_edge + loss_tran).backward()
-        optimizer.step()
+        loss = loss_node + loss_edge + loss_tran
+        if warmup and accu > 1:
+            loss = loss / accu
+        loss.backward()
+
+        if its % accu == 0 or its == total_len or warmup:
+            optimizer.zero_grad()
+            optimizer.step()
+        its += 1
 
         node_loss.append(loss_node.item())
         edge_loss.append(loss_edge.item())
         tran_loss.append(loss_tran.item())
 
+        with torch.no_grad():
+            A, B = acc_fn(result, tgt_output)
+            ele_acc, ele_total = ele_acc + A, ele_total + B
+
         if warmup:
             warmup_sher.step()
-    return np.mean(node_loss), np.mean(edge_loss), np.mean(tran_loss)
+    return np.mean(node_loss), np.mean(edge_loss), \
+        np.mean(tran_loss), ele_acc / ele_total
 
 
 def eval_trans(

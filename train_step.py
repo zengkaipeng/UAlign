@@ -124,6 +124,10 @@ if __name__ == '__main__':
         '--label_smooth', default=0.0, type=float,
         help='the label smoothing for transformer'
     )
+    parser.add_argument(
+        '--accu', type=int, default=1,
+        help='the number of batch accu'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -236,13 +240,14 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss, tran_loss = train_trans(
+        node_loss, edge_loss, tran_loss, tracc = train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            node_fn, edge_fn, tran_fn, verbose=True,
-            warmup=(ep < args.warmup)
+            node_fn, edge_fn, tran_fn, acc_fn, verbose=True,
+            warmup=(ep < args.warmup), accu=args.accu
         )
         log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
+            'node': node_loss, 'edge': edge_loss,
+            'trans': tran_loss, 'acc': tracc
         })
 
         valid_results, valid_acc = eval_trans(
