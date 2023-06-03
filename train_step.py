@@ -22,7 +22,8 @@ def create_log_model(args):
         f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
         f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
         f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
-        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}'
+        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}',
+        f'accu_{args.accu}'
     ]
     if args.kekulize:
         log_dir.append('kekulize')

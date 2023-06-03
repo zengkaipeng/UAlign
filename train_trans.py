@@ -21,7 +21,8 @@ def create_log_model(args):
         f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
         f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
         f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
-        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}'
+        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}',
+        f'accu_{args.accu}'
     ]
     if args.kekulize:
         log_dir.append('kekulize')
@@ -122,6 +123,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--warmup', type=int, default=1,
         help='the number of epochs of warmup, default is 1'
+    )
+    parser.add_argument(
+        '--accu', type=int, default=1,
+        help='the number of batch accu'
     )
 
     args = parser.parse_args()
@@ -228,13 +233,14 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss, tran_loss = train_trans(
+        node_loss, edge_loss, tran_loss, tracc = train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            node_fn, edge_fn, tran_fn, verbose=True,
-            warmup=(ep < args.warmup)
+            node_fn, edge_fn, tran_fn, acc_fn, verbose=True,
+            warmup=(ep < args.warmup), accu=args.accu
         )
         log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss, 'trans': tran_loss
+            'node': node_loss, 'edge': edge_loss,
+            'trans': tran_loss, 'acc': tracc
         })
 
         valid_results, valid_acc = eval_trans(
