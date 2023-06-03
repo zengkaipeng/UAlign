@@ -53,13 +53,13 @@ def train_trans(
         )
 
         loss = loss_node + loss_edge + loss_tran
-        if warmup and accu > 1:
+        if not warmup and accu > 1:
             loss = loss / accu
         loss.backward()
 
         if its % accu == 0 or its == total_len or warmup:
-            optimizer.zero_grad()
             optimizer.step()
+            optimizer.zero_grad()
         its += 1
 
         node_loss.append(loss_node.item())
