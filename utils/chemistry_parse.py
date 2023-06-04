@@ -39,7 +39,8 @@ def canonical_smiles(smi):
         if '.' in canonical_smi:
             canonical_smi_list = canonical_smi.split('.')
             canonical_smi_list = sorted(
-                canonical_smi_list, key=lambda x: (len(x), x))
+                canonical_smi_list, key=lambda x: (len(x), x)
+            )
             canonical_smi = '.'.join(canonical_smi_list)
         return canonical_smi
 

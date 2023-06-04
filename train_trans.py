@@ -284,7 +284,7 @@ if __name__ == '__main__':
                 x['acc'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
-            if all(x >= tx[0] for x in tx) and all(x >= ty[0] for x in ty):
+            if all(x >= tx[0] for x in tx) and all(x <= ty[0] for x in ty):
                 break
 
     print(f'[INFO] best epoch: {best_ep}')
