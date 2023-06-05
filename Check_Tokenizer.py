@@ -4,6 +4,7 @@ import os
 import pandas
 from tqdm import tqdm
 import json
+from rdkit import Chem
 
 def check_tk(smi, F):
     a = smi_tokenizer(smi, False)
@@ -29,7 +30,6 @@ UTPSO_50_FILES = [f'raw_{x}.csv' for x in ['train', 'val', 'test']] +\
 
 EXTEND_PATH = '../data/ord/all_data.json'
 
-vocab = set()
 for x in UTPSO_50_FILES:
     x_path = os.path.join(UTPSO_50_PATH, x)
     df_train = pandas.read_csv(x_path)
