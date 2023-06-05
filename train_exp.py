@@ -23,7 +23,7 @@ def create_log_model(args):
         f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
         f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
         f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}',
-        f'accu_{args.accu}', f'gamma_{args.gamma}'
+        f'accu_{args.accu}', f'gamma_{args.gamma}', f'lrstep_{args.step_start}'
     ]
     if args.kekulize:
         log_dir.append('kekulize')
@@ -122,7 +122,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--base_log', default='log', type=str,
+        '--base_log', default='log_exp', type=str,
         help='the base dir of logging'
     )
     parser.add_argument(
@@ -132,6 +132,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--accu', type=int, default=1,
         help='the number of batch accu'
+    )
+    parser.add_argument(
+        '--step_start', type=int, default=50,
+        help='the step of starting lr decay'
     )
 
     args = parser.parse_args()
@@ -275,7 +279,8 @@ if __name__ == '__main__':
         print('[VALID]', log_info['valid_metric'][-1])
         print('[TEST]', log_info['test_metric'][-1])
 
-        lr_sh.step()
+        if ep >= args.warmup and ep >= args.step_start:
+            lr_sh.step()
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)

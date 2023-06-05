@@ -8,6 +8,7 @@ DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
 
 SMI_REGEX_PATTERN = r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""
+SMI_REGEX_PATTERN_EXT = r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|<-?|->?|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""
 
 
 class Tokenizer:
@@ -49,11 +50,14 @@ class Tokenizer:
         return [self.decode1d(x) for x in seq]
 
 
-def smi_tokenizer(smi):
+def smi_tokenizer(smi, use_ext=False):
     """
     Tokenize a SMILES molecule or reaction
     """
-    regex = re.compile(SMI_REGEX_PATTERN)
+    if use_ext:
+        regex = re.compile(SMI_REGEX_PATTERN_EXT)
+    else:
+        regex = re.compile(SMI_REGEX_PATTERN)
     tokens = [token for token in regex.findall(smi)]
     # assert smi == ''.join(tokens), f"smi is {smi}"
     if smi != ''.join(tokens):
