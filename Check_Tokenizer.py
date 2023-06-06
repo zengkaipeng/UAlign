@@ -9,7 +9,7 @@ from rdkit import Chem
 def check_tk(smi, F):
     a = smi_tokenizer(smi, False)
     b = smi_tokenizer(smi, True)
-    if '.'.join(a) != '.'.join(b):
+    if a != b:
         print('[INFO] DIFF FOUND', smi)
         F.write(f'[ORG] {smi}\n')
         F.write(f'[TOKOLD] {a}\n')

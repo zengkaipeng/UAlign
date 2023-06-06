@@ -50,7 +50,7 @@ class Tokenizer:
         return [self.decode1d(x) for x in seq]
 
 
-def smi_tokenizer(smi, use_ext=False):
+def smi_tokenizer(smi, use_ext=True):
     """
     Tokenize a SMILES molecule or reaction
     """
