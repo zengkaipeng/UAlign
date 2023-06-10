@@ -1,3 +1,4 @@
+import random
 import torch
 from sparse_backBone import (
     GINBase, GATBase, SparseAtomEncoder, SparseBondEncoder
@@ -16,7 +17,9 @@ class EditDataset(torch.utils.data.Dataset):
         activate_nodes: List[List],
         activate_edges: List[List],
         reat: List[str],
-        rxn_class: Optional[List[int]] = None
+        rxn_class: Optional[List[int]] = None,
+        randomize: bool = False,
+        aug_prob: float = 0
     ):
         super(EditDataset, self).__init__()
         self.graphs = graphs
@@ -24,9 +27,21 @@ class EditDataset(torch.utils.data.Dataset):
         self.activate_edges = activate_edges
         self.rxn_class = rxn_class
         self.reat = reat
+        self.randomize = randomize
+        self.aug_prob = aug_prob
 
     def __len__(self):
         return len(self.graphs)
+
+    def process_reac(self, smi):
+        if not self.randomize or not (0 < self.aug_prob < 1):
+            return smi
+        if random.random() < self.aug_prob:
+            x = smi.split('.')
+            random.shuffle(x)
+            return '.'.join(x)
+        else:
+            return smi
 
     def __getitem__(self, index):
         node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
@@ -45,7 +60,7 @@ class EditDataset(torch.utils.data.Dataset):
             ret = ['<CLS>']
         else:
             ret = [f'<RXN_{self.rxn_class[index]}>']
-        ret += smi_tokenizer(self.reat[index])
+        ret += smi_tokenizer(self.process_reac(self.reat[index]))
         ret.append('<END>')
 
         if self.rxn_class is not None:

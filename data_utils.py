@@ -17,9 +17,9 @@ from rdkit import Chem
 
 def create_sparse_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    return_amap=False, verbose=True
+    verbose=True, randomize=False, aug_prob=0
 ):
-    amaps, graphs, nodes, edge_types, ret = [], [], [], [], []
+    graphs, nodes, edge_types, ret = [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         ret.append(clear_map_number(reacts[idx]))
         x, y = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
@@ -35,9 +35,11 @@ def create_sparse_dataset(
             es.append((amap[src], amap[dst]))
         edge_types.append(es)
 
-        amaps.append(amap)
-    dataset = EditDataset(graphs, nodes, edge_types, ret, rxn_class)
-    return (dataset, amaps) if return_amap else dataset
+    dataset = EditDataset(
+        graphs, nodes, edge_types, ret, rxn_class,
+        randomize=randomize, aug_prob=aug_prob
+    )
+    return dataset
 
 
 def load_data(data_dir, part=None):

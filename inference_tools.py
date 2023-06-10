@@ -76,8 +76,8 @@ def greedy_inference_batch(
 
 
 def beam_search_one(
-    model, tokenizer, graph, device, max_len, size=2,
-    begin_token='<CLS>', end_token='<END>', pen_para=0
+    model, tokenizer, graph, device, max_len, size=2, pen_para=0,
+    begin_token='<CLS>', end_token='<END>',  validate=False
 ):
     model = model.eval()
     end_id = tokenizer.token2idx[end_token]
@@ -148,6 +148,8 @@ def beam_search_one(
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
+        if validate and not check_valid(r_smiles):
+            continue
         real_answer.append(r_smiles)
         real_prob.append(y)
     return real_answer, real_prob
