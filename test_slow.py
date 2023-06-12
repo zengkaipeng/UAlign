@@ -3,13 +3,15 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding
-from inference_tools import greedy_inference_one, check_valid
+from inference_tools import greedy_inference_one
+from inference_tools import beam_search_one, check_valid
 import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
 from utils.chemistry_parse import canonical_smiles
 import argparse
+import numpy as np
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
@@ -119,12 +121,11 @@ if __name__ == '__main__':
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
 
-
     state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict)
     model = model.eval()
 
-    acc, valid, total = 0, 0, 0
+    topk_acc = []
     for data in tqdm(test_loader):
         graphs, gt = data
         graphs = graphs.to(device)
@@ -133,17 +134,22 @@ if __name__ == '__main__':
         else:
             rxn_class = None
 
-        result = greedy_inference_one(
-            model, tokenizer, graphs, device, args.max_len,
-            begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
+        result, prob = beam_search_one(
+            model, tokenizer, graphs, device, args.max_len, size=10,
+            begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>',
+            validate=False, end_token='<END>'
         )
 
-        if check_valid(result):
-            result = canonical_smiles(result)
-            gts = ''.join(gt[0][1: -1])
-            acc += (gts == result)
-            valid += 1
-        total += 1
-    print('[TOP1-ACC]', acc / total)
-    print('[VALID]', valid / total)
-    print('[VALACC]', acc / valid)
+        accs, gts = np.zeros(10), ''.join(gt[0][1: -1])
+
+        for idx, t in enumerate(result):
+            if check_valid(t):
+                t = canonical_smiles(t)
+            if t == gts:
+                accs[idx:] = 1
+                break
+        topk_acc.append(accs)
+
+    topk_acc_result = np.mean(topk_acc, dim=0)
+    for tdx in [1, 3, 5, 10]:
+        print(f'[TOP{tdx}-ACC]', topk_acc_result[tdx - 1])
