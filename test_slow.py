@@ -89,7 +89,8 @@ if __name__ == '__main__':
     test_rec, test_prod, test_rxn = load_data(args.data_path)
     test_set = create_sparse_dataset(
         test_rec, test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None
+        rxn_class=test_rxn if args.use_class else None,
+        randomize=False
     )
     test_loader = DataLoader(
         test_set, collate_fn=fc_collect_fn,
@@ -150,6 +151,6 @@ if __name__ == '__main__':
                 break
         topk_acc.append(accs)
 
-    topk_acc_result = np.mean(topk_acc, dim=0)
+    topk_acc_result = np.mean(topk_acc, axis=0)
     for tdx in [1, 3, 5, 10]:
         print(f'[TOP{tdx}-ACC]', topk_acc_result[tdx - 1])

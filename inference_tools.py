@@ -126,7 +126,7 @@ def beam_search_one(
                 input_beam.append(tgt_base)
                 prob_beam.append(ep + probs[tdx])
                 alive_beam.append(not_end)
-                len_beam.append(torch.ones(size).long() * (idx + 1))
+                len_beam.append(torch.ones(size).long().to(device) * (idx + 1))
 
             input_beam = torch.cat(input_beam, dim=0)
             prob_beam = torch.cat(prob_beam, dim=0)

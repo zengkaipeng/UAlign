@@ -3,12 +3,15 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding
-from inference_tools import greedy_inference_one, greedy_inference_batch
+from inference_tools import greedy_inference_one
+from inference_tools import beam_search_one, check_valid
 import pickle
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
+from utils.chemistry_parse import canonical_smiles
 import argparse
+import numpy as np
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
@@ -72,10 +75,6 @@ if __name__ == '__main__':
         '--max_len', default=200, type=int,
         help='the max length for decoding'
     )
-    parser.add_argument(
-        '--bs', default=32, type=int,
-        help='the batch size for inference'
-    )
 
     args = parser.parse_args()
     print(args)
@@ -94,7 +93,7 @@ if __name__ == '__main__':
     )
     test_loader = DataLoader(
         test_set, collate_fn=fc_collect_fn,
-        batch_size=args.bs, shuffle=False
+        batch_size=1, shuffle=False
     )
 
     if args.backbone == 'GIN':
@@ -122,12 +121,11 @@ if __name__ == '__main__':
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
 
-    model = model.eval()
-
     state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict)
+    model = model.eval()
 
-    acc, total = 0, 0
+    acc, valid, total = 0, 0, 0
     for data in tqdm(test_loader):
         graphs, gt = data
         graphs = graphs.to(device)
@@ -136,14 +134,17 @@ if __name__ == '__main__':
         else:
             rxn_class = None
 
-        result = greedy_inference_batch(
+        result = greedy_inference_one(
             model, tokenizer, graphs, device, args.max_len,
             begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>'
         )
 
-        gts = [''.join(x[1: -1]) for x in gt]
-        for idx, gx in enumerate(gts):
-            if result[idx] == gx:
-                acc += 1
-            total += 1
+        if check_valid(result):
+            result = canonical_smiles(result)
+            gts = ''.join(gt[0][1: -1])
+            acc += (gts == result)
+            valid += 1
+        total += 1
     print('[TOP1-ACC]', acc / total)
+    print('[VALID]', valid / total)
+    print('[VALACC]', acc / valid)

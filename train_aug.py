@@ -143,6 +143,14 @@ if __name__ == '__main__':
         '--step_start', type=int, default=50,
         help='the step of starting lr decay'
     )
+    parser.add_argument(
+        '--checkpoint', type=str, default='',
+        help='the path of checkpoint to restart the exp'
+    )
+    parser.add_argument(
+        '--token_path', type=str, default='',
+        help='the path of tokenizer, when ckpt is loaded, necessary'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -224,6 +232,18 @@ if __name__ == '__main__':
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
+
+    if args.checkpoint != '':
+        assert args.token_path != '', 'Missing Tokenizer Information'
+        print(f'[INFO] Loading model weight in {args.checkpoint}')
+        weight = torch.load(args.checkpoint, map_location=device)
+        model.load_state_dict(weight)
+
+    if args.token_path != '':
+        print(f'[INFO] Loading tokenizer from {args.token_path}')
+        with open(args.token_path, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     lr_sh = ExponentialLR(
         optimizer, gamma=args.gamma, verbose=True
