@@ -148,7 +148,7 @@ if __name__ == '__main__':
         help='the path of checkpoint to restart the exp'
     )
     parser.add_argument(
-        '--token_path', type=str, default='',
+        '--token_ckpt', type=str, default='',
         help='the path of tokenizer, when ckpt is loaded, necessary'
     )
 
@@ -234,14 +234,14 @@ if __name__ == '__main__':
     ).to(device)
 
     if args.checkpoint != '':
-        assert args.token_path != '', 'Missing Tokenizer Information'
+        assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight)
 
-    if args.token_path != '':
-        print(f'[INFO] Loading tokenizer from {args.token_path}')
-        with open(args.token_path, 'rb') as Fin:
+    if args.token_ckpt != '':
+        print(f'[INFO] Loading tokenizer from {args.token_ckpt}')
+        with open(args.token_ckpt, 'rb') as Fin:
             tokenizer = pickle.load(Fin)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -321,7 +321,7 @@ if __name__ == '__main__':
             best_acc, best_ep2 = valid_acc, ep
             torch.save(model.state_dict(), acc_dir)
 
-        if args.early_stop > 5 and ep > max(20, args.early_stop):
+        if args.early_stop > 3 and ep > max(10, args.early_stop):
             tx = [
                 x['trans'] for x in
                 log_info['valid_metric'][-args.early_stop:]
