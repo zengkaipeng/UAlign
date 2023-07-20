@@ -16,7 +16,8 @@ from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 import torch.distributed as torch_dist
 import torch.multiprocessing as torch_mp
-
+from torch.utils.data.distributed import DistributedSampler
+from ddp_training import ddp_train_trans, ddp_eval_trans
 
 
 def create_log_model(args):
@@ -52,10 +53,13 @@ if __name__ == '__main__':
         '--dim', default=256, type=int,
         help='the hidden dim of model'
     )
-
     parser.add_argument(
-        '--world_size', type=int, default=int(os.environ['WORLD_SIZE']),
-        help='the number of cards used in this training'
+        '--port', type=str, default='12345',
+        help='the port for ddp message passing'
+    )
+    parser.add_argument(
+        '--num_gpus', type=int, required=True,
+        help='the number of used gpus'
     )
     parser.add_argument(
         '--kekulize', action='store_true',
@@ -160,12 +164,17 @@ if __name__ == '__main__':
     print(args)
     log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
 
-    if not torch.cuda.is_available() or args.device < 0:
-        device = torch.device('cpu')
-    else:
-        device = torch.device(f'cuda:{args.device}')
-
     fix_seed(args.seed)
+    torch_mp.spawn(main_worker, args=(args, ))
+
+
+def main_worker(worker_idx, args):
+    torch_dist.init_process_group(
+        backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
+        world_size=args.num_gpus, rank=worker_idx
+    )
+
+    torch.cuda.set_device(worker_idx)
 
     with open(args.token_path) as Fin:
         ALL_TOKEN = json.load(Fin)
@@ -181,7 +190,7 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    print('[INFO] Data Loaded')
+    print(f'[INFO {worker_idx}] Data Loaded')
 
     train_set = create_sparse_dataset(
         train_rec, train_prod, kekulize=args.kekulize,
@@ -199,17 +208,21 @@ if __name__ == '__main__':
         randomize=False
     )
 
+    train_sampler = DistributedSampler(train_set, shuffle=True)
+    valid_sampler = DistributedSampler(valid_set, shuffle=False)
+    test_sampler = DistributedSampler(test_set, shuffle=False)
+
     train_loader = DataLoader(
-        train_set, collate_fn=fc_collect_fn,
-        batch_size=args.bs, shuffle=True,
+        train_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        shuffle=False, batch_sampler=train_sampler, pin_memory=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=fc_collect_fn,
-        batch_size=args.bs, shuffle=False
+        valid_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        shuffle=False, batch_sampler=valid_sampler, pin_memory=True,
     )
     test_loader = DataLoader(
-        test_set, collate_fn=fc_collect_fn,
-        batch_size=args.bs, shuffle=False
+        test_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        shuffle=False, batch_sampler=test_sampler, pin_memory=True
     )
 
     if args.backbone == 'GIN':
@@ -235,23 +248,26 @@ if __name__ == '__main__':
     model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
-    ).to(device)
+    ).cuda()
 
     if args.checkpoint != '':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
-        print(f'[INFO] Loading model weight in {args.checkpoint}')
-        weight = torch.load(args.checkpoint, map_location=device)
+        print(f'[INFO {worker_idx}] Loading model weight in {args.checkpoint}')
+        weight = torch.load(args.checkpoint, map_location=torch.device('cuda'))
         model.load_state_dict(weight)
 
     if args.token_ckpt != '':
-        print(f'[INFO] Loading tokenizer from {args.token_ckpt}')
+        print(f'[INFO {worker_idx}] Loading tokenizer from {args.token_ckpt}')
         with open(args.token_ckpt, 'rb') as Fin:
             tokenizer = pickle.load(Fin)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    lr_sh = ExponentialLR(
-        optimizer, gamma=args.gamma, verbose=True
+    model = torch.nn.parallel.DistributedDataParallel(
+        model, device_ids=[worker_idx]
     )
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    verbose = (worker_idx == 0)
+    lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=verbose)
     best_perf, best_ep = None, None
     best_acc, best_ep2 = None, None
 
@@ -266,68 +282,70 @@ if __name__ == '__main__':
     )
 
     acc_fn = Acc_fn(ignore_index=tokenizer.token2idx['<PAD>'])
-    print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
+    print(f'[INFO {worker_idx}] padding index', tokenizer.token2idx['<PAD>'])
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
     }
 
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
+    if verbose:
+        with open(token_dir, 'wb') as Fout:
+            pickle.dump(tokenizer, Fout)
 
-    with open(log_dir, 'w') as Fout:
-        json.dump(log_info, Fout, indent=4)
+        with open(log_dir, 'w') as Fout:
+            json.dump(log_info, Fout, indent=4)
 
     for ep in range(args.epoch):
-        print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss, tran_loss, tracc = train_trans(
-            train_loader, model, optimizer, device, tokenizer,
-            node_fn, edge_fn, tran_fn, acc_fn, verbose=True,
+        if verbose:
+            print(f'[INFO] traing at epoch {ep + 1}')
+        train_metrics = ddp_train_trans(
+            train_loader, model, optimizer, tokenizer, node_fn,
+            edge_fn, tran_fn, acc_fn, verbose=verbose,
             warmup=(ep < args.warmup), accu=args.accu
         )
-        log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss,
-            'trans': tran_loss, 'acc': tracc
-        })
-
-        valid_results, valid_acc = eval_trans(
-            valid_loader, model, device, valid_fn,
-            tokenizer, acc_fn, verbose=True
+        val_metrics = ddp_eval_trans(
+            valid_loader, model, valid_fn, tokenizer,
+            acc_fn, verbose=verbose
         )
-        log_info['valid_metric'].append({
-            'trans': valid_results, 'acc': valid_acc
-        })
-
-        test_results, test_acc = eval_trans(
-            test_loader, model, device, valid_fn,
-            tokenizer, acc_fn, verbose=True
+        test_metrics = ddp_eval_trans(
+            test_loader, model, valid_fn, tokenizer,
+            acc_fn, verbose=verbose
         )
+        torch_dist.barrier()
 
-        log_info['test_metric'].append({
-            'trans': test_results, 'acc': test_acc
-        })
+        train_metrics.all_reduct()
+        val_metrics.all_reduct()
+        test_metrics.all_reduct()
 
-        print('[TRAIN]', log_info['train_loss'][-1])
-        print('[VALID]', log_info['valid_metric'][-1])
-        print('[TEST]', log_info['test_metric'][-1])
+        log_info['train_loss'].append(train_metrics.get_all_value_dict())
+        log_info['valid_metric'].append(val_metrics.get_all_value_dict())
+        log_info['test_metric'].append(test_metrics.get_all_value_dict())
+
+        if verbose:
+            print('[TRAIN]', log_info['train_loss'][-1])
+            print('[VALID]', log_info['valid_metric'][-1])
+            print('[TEST]', log_info['test_metric'][-1])
+
+            with open(log_dir, 'w') as Fout:
+                json.dump(log_info, Fout, indent=4)
+
+            valid_results = log_info['valid_metric'][-1]['tloss']
+            valid_acc = log_info['valid_metric'][-1]['acc']
+            if best_perf is None or valid_results < best_perf:
+                best_perf, best_ep = valid_results, ep
+                torch.save(model.state_dict(), model_dir)
+
+            if best_acc is None or valid_acc > best_acc:
+                best_acc, best_ep2 = valid_acc, ep
+                torch.save(model.state_dict(), acc_dir)
 
         if ep >= args.warmup and ep >= args.step_start:
             lr_sh.step()
 
-        with open(log_dir, 'w') as Fout:
-            json.dump(log_info, Fout, indent=4)
-        if best_perf is None or valid_results < best_perf:
-            best_perf, best_ep = valid_results, ep
-            torch.save(model.state_dict(), model_dir)
-
-        if best_acc is None or valid_acc > best_acc:
-            best_acc, best_ep2 = valid_acc, ep
-            torch.save(model.state_dict(), acc_dir)
-
-        if args.early_stop > 3 and ep > max(10, args.early_stop):
+        if args.early_stop > 3 and ep > args.early_stop:
             tx = [
-                x['trans'] for x in
+                x['tloss'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
             ty = [
@@ -335,7 +353,10 @@ if __name__ == '__main__':
                 log_info['valid_metric'][-args.early_stop:]
             ]
             if all(x >= tx[0] for x in tx) and all(x <= ty[0] for x in ty):
+                print(f'[INFO {worker_idx}] early_stop_break')
                 break
+    if not verbose:
+        return
 
     print(f'[INFO] best loss epoch: {best_ep}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
