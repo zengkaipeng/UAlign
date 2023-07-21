@@ -20,7 +20,7 @@ def create_sparse_dataset(
     verbose=True, randomize=False, aug_prob=0
 ):
     graphs, nodes, edge_types, ret = [], [], [], []
-    for idx, prod in enumerate(tqdm(prods) if verbose else prods):
+    for idx, prod in enumerate(tqdm(prods, ascii=True) if verbose else prods):
         ret.append(clear_map_number(reacts[idx]))
         x, y = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)

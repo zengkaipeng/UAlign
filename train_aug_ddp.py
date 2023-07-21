@@ -47,14 +47,15 @@ def create_log_model(args):
     return detail_log_dir, detail_model_dir, token_dir, bacc_dir
 
 
-def main_worker(worker_idx, total_gpus, args):
+def main_worker(worker_idx, args):
     print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
         backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
-        world_size=total_gpus, rank=worker_idx
+        world_size=args.num_gpus, rank=worker_idx
     )
 
     torch.cuda.set_device(worker_idx)
+    verbose = (worker_idx == 0)
 
     with open(args.token_path) as Fin:
         ALL_TOKEN = json.load(Fin)
@@ -75,17 +76,17 @@ def main_worker(worker_idx, total_gpus, args):
     train_set = create_sparse_dataset(
         train_rec, train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None,
-        randomize=True, aug_prob=args.aug_prob
+        randomize=True, aug_prob=args.aug_prob, verbose=verbose
     )
     valid_set = create_sparse_dataset(
         val_rec, val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None,
-        randomize=False
+        randomize=False, verbose=verbose
     )
     test_set = create_sparse_dataset(
         test_rec, test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None,
-        randomize=False
+        randomize=False, verbose=verbose
     )
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
@@ -94,15 +95,15 @@ def main_worker(worker_idx, total_gpus, args):
 
     train_loader = DataLoader(
         train_set, collate_fn=fc_collect_fn, batch_size=args.bs,
-        shuffle=False, batch_sampler=train_sampler, pin_memory=True
+        shuffle=False, sampler=train_sampler, pin_memory=True
     )
     valid_loader = DataLoader(
         valid_set, collate_fn=fc_collect_fn, batch_size=args.bs,
-        shuffle=False, batch_sampler=valid_sampler, pin_memory=True,
+        shuffle=False, sampler=valid_sampler, pin_memory=True,
     )
     test_loader = DataLoader(
         test_set, collate_fn=fc_collect_fn, batch_size=args.bs,
-        shuffle=False, batch_sampler=test_sampler, pin_memory=True
+        shuffle=False, sampler=test_sampler, pin_memory=True
     )
 
     if args.backbone == 'GIN':
@@ -146,7 +147,6 @@ def main_worker(worker_idx, total_gpus, args):
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    verbose = (worker_idx == 0)
     lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=verbose)
     best_perf, best_ep = None, None
     best_acc, best_ep2 = None, None
@@ -367,4 +367,4 @@ if __name__ == '__main__':
     log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
 
     fix_seed(args.seed)
-    torch_mp.spawn(main_worker, args=(args.num_gpus, args))
+    torch_mp.spawn(main_worker, nprocs=args.num_gpus, args=(args, ))
