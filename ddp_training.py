@@ -91,8 +91,9 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def ddp_train_trans(
-    loader, model, optimizer, tokenizer, node_fn, edge_fn, trans_fn,
-    acc_fn, verbose=True, warmup=False, pad='<PAD>', unk='<UNK>', accu=1
+    loader, model, optimizer, tokenizer, device, node_fn, 
+    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False, 
+    pad='<PAD>', unk='<UNK>', accu=1
 ):
     model = model.train()
     node_loss = MetricCollector('nloss', type_fmt=':.3f')
@@ -109,9 +110,9 @@ def ddp_train_trans(
     iterx = tqdm(loader, ascii=True, desc='train') if verbose else loader
     for data in iterx:
         graphs, tgt = data
-        graphs = graphs.cuda(non_blocking=True)
+        graphs = graphs.to(device, non_blocking=True)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt))
-        tgt_idx = tgt_idx.cuda(non_blocking=True)
+        tgt_idx = tgt_idx.to(device, non_blocking=True)
 
         UNK_IDX = tokenizer.token2idx[unk]
         assert torch.all(tgt_idx != UNK_IDX).item(), \
@@ -123,8 +124,8 @@ def ddp_train_trans(
         pad_mask, sub_mask = generate_tgt_mask(
             tgt_input, tokenizer, pad, 'cpu'
         )
-        pad_mask = pad_mask.cuda(non_blocking=True)
-        sub_mask = sub_mask.cuda(non_blocking=True)
+        pad_mask = pad_mask.to(device, non_blocking=True)
+        sub_mask = sub_mask.to(device, non_blocking=True)
 
         result, node_res, edge_res = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
@@ -166,7 +167,7 @@ def ddp_train_trans(
 
 
 def ddp_eval_trans(
-    loader, model, tran_fn, tokenizer,
+    loader, model, tran_fn, tokenizer, device,
     acc_fn, pad='<PAD>', verbose=True
 ):
     model = model.eval()
@@ -178,9 +179,9 @@ def ddp_eval_trans(
 
     for data in iterx:
         graphs, tgt = data
-        graphs = graphs.cuda(non_blocking=True)
+        graphs = graphs.to(device, non_blocking=True)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt))
-        tgt_idx = tgt_idx.cuda(non_blocking=True)
+        tgt_idx = tgt_idx.to(device, non_blocking=True)
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
 
@@ -188,8 +189,8 @@ def ddp_eval_trans(
             tgt_input, tokenizer, pad, 'cpu'
         )
 
-        pad_mask = pad_mask.cuda(non_blocking=True)
-        sub_mask = sub_mask.cuda(non_blocking=True)
+        pad_mask = pad_mask.to(device, non_blocking=True)
+        sub_mask = sub_mask.to(device, non_blocking=True)
 
         with torch.no_grad():
             result = model(

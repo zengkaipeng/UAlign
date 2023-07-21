@@ -54,7 +54,7 @@ def main_worker(worker_idx, args, tokenizer):
         world_size=args.num_gpus, rank=worker_idx
     )
 
-    torch.cuda.set_device(worker_idx)
+    device = torch.device(f'cuda:{worker_idx}')
     verbose = (worker_idx == 0)
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
@@ -120,23 +120,23 @@ def main_worker(worker_idx, args, tokenizer):
     model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
-    ).cuda()
+    ).to(device)
+
+    print(f'[INFO {worker_idx}] model on single card created')
 
     if args.checkpoint != '':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO {worker_idx}] Loading model weight in {args.checkpoint}')
-        weight = torch.load(args.checkpoint, map_location=torch.device('cuda'))
+        weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight)
 
-
     model = torch.nn.parallel.DistributedDataParallel(
-        model, device_ids=[worker_idx]
+        model, device_ids=[worker_idx], output_device=worker_idx,
+        find_unused_parameters=True
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=verbose)
-    best_perf, best_ep = None, None
-    best_acc, best_ep2 = None, None
 
     node_fn = torch.nn.CrossEntropyLoss(reduction='sum')
     edge_fn = torch.nn.CrossEntropyLoss(reduction='sum')
@@ -150,10 +150,15 @@ def main_worker(worker_idx, args, tokenizer):
 
     acc_fn = Acc_fn(ignore_index=tokenizer.token2idx['<PAD>'])
 
+    print(f'[INFO {worker_idx}] Model Created')
+
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
     }
+
+    best_perf, best_ep = None, None
+    best_acc, best_ep2 = None, None
 
     if verbose:
         with open(token_dir, 'wb') as Fout:
@@ -168,17 +173,17 @@ def main_worker(worker_idx, args, tokenizer):
 
         train_sampler.set_epoch(ep)
         train_metrics = ddp_train_trans(
-            train_loader, model, optimizer, tokenizer, node_fn,
-            edge_fn, tran_fn, acc_fn, verbose=verbose,
+            train_loader, model, optimizer, tokenizer, device, 
+            node_fn, edge_fn, tran_fn, acc_fn, verbose=verbose,
             warmup=(ep < args.warmup), accu=args.accu
         )
         val_metrics = ddp_eval_trans(
             valid_loader, model, valid_fn, tokenizer,
-            acc_fn, verbose=verbose
+            device, acc_fn, verbose=verbose
         )
         test_metrics = ddp_eval_trans(
             test_loader, model, valid_fn, tokenizer,
-            acc_fn, verbose=verbose
+            device, acc_fn, verbose=verbose
         )
         torch_dist.barrier()
 
@@ -371,6 +376,6 @@ if __name__ == '__main__':
             tokenizer = pickle.load(Fin)
 
     torch_mp.spawn(
-        main_worker, nprocs=args.num_gpus, 
+        main_worker, nprocs=args.num_gpus,
         args=(args, tokenizer)
     )
