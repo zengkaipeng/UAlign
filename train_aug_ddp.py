@@ -47,131 +47,11 @@ def create_log_model(args):
     return detail_log_dir, detail_model_dir, token_dir, bacc_dir
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
-    parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--port', type=str, default='12345',
-        help='the port for ddp message passing'
-    )
-    parser.add_argument(
-        '--num_gpus', type=int, required=True,
-        help='the number of used gpus'
-    )
-    parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
-    )
-    parser.add_argument(
-        '--aug_prob', default=0.5, type=float,
-        help='the probability of performing data augumentation '
-        "should be between 0 and 1"
-    )
-    parser.add_argument(
-        '--layer_encoder', default=8, type=int,
-        help='the layer of encoder gnn'
-    )
-    parser.add_argument(
-        '--layer_decoder', default=8, type=int,
-        help='the layer of transformer decoder'
-    )
-    parser.add_argument(
-        '--token_path', required=True, type=str,
-        help='the path of a json containing all tokens'
-    )
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--warmup', default=1, type=int,
-        help='the epoch of warmup'
-    )
-    parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN'],
-        help='type of gnn backbone', required=True
-    )
-    parser.add_argument(
-        '--gamma', default=0.998, type=float,
-        help='the gamma of lr scheduler'
-    )
-    parser.add_argument(
-        '--dropout', type=float, default=0.3,
-        help='the dropout rate, useful for all backbone'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--data_path', required=True, type=str,
-        help='the path containing dataset'
-    )
-    parser.add_argument(
-        '--use_class', action='store_true',
-        help='use rxn_class for training or not'
-    )
-    parser.add_argument(
-        '--seed', type=int, default=2023,
-        help='the seed for training'
-    )
-    parser.add_argument(
-        '--bs', type=int, default=512,
-        help='the batch size for training'
-    )
-    parser.add_argument(
-        '--epoch', type=int, default=200,
-        help='the max epoch for training'
-    )
-    parser.add_argument(
-        '--early_stop', default=0, type=int,
-        help='number of epochs to judger early stop '
-        ', will be ignored when it\'s less than 5'
-    )
-    parser.add_argument(
-        '--lr', default='1e-3', type=float,
-        help='the learning rate for training'
-    )
-    parser.add_argument(
-        '--base_log', default='log_exp', type=str,
-        help='the base dir of logging'
-    )
-    parser.add_argument(
-        '--label_smooth', default=0.0, type=float,
-        help='the label smoothing for transformer'
-    )
-    parser.add_argument(
-        '--accu', type=int, default=1,
-        help='the number of batch accu'
-    )
-    parser.add_argument(
-        '--step_start', type=int, default=50,
-        help='the step of starting lr decay'
-    )
-    parser.add_argument(
-        '--checkpoint', type=str, default='',
-        help='the path of checkpoint to restart the exp'
-    )
-    parser.add_argument(
-        '--token_ckpt', type=str, default='',
-        help='the path of tokenizer, when ckpt is loaded, necessary'
-    )
-
-    args = parser.parse_args()
-    print(args)
-    log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
-
-    fix_seed(args.seed)
-    torch_mp.spawn(main_worker, args=(args, ))
-
-
-def main_worker(worker_idx, args):
+def main_worker(worker_idx, total_gpus, args):
+    print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
         backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
-        world_size=args.num_gpus, rank=worker_idx
+        world_size=total_gpus, rank=worker_idx
     )
 
     torch.cuda.set_device(worker_idx)
@@ -367,3 +247,124 @@ def main_worker(worker_idx, args):
     print(f'[INFO] best acc epoch: {best_ep2}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep2]}')
     print(f'[INFO] best test loss: {log_info["test_metric"][best_ep2]}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    parser.add_argument(
+        '--dim', default=256, type=int,
+        help='the hidden dim of model'
+    )
+    parser.add_argument(
+        '--port', type=int, default='12345',
+        help='the port for ddp message passing'
+    )
+    parser.add_argument(
+        '--num_gpus', type=int, required=True,
+        help='the number of used gpus'
+    )
+    parser.add_argument(
+        '--kekulize', action='store_true',
+        help='kekulize molecules if it\'s added'
+    )
+    parser.add_argument(
+        '--aug_prob', default=0.5, type=float,
+        help='the probability of performing data augumentation '
+        "should be between 0 and 1"
+    )
+    parser.add_argument(
+        '--layer_encoder', default=8, type=int,
+        help='the layer of encoder gnn'
+    )
+    parser.add_argument(
+        '--layer_decoder', default=8, type=int,
+        help='the layer of transformer decoder'
+    )
+    parser.add_argument(
+        '--token_path', required=True, type=str,
+        help='the path of a json containing all tokens'
+    )
+    parser.add_argument(
+        '--heads', default=4, type=int,
+        help='the number of heads for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--warmup', default=1, type=int,
+        help='the epoch of warmup'
+    )
+    parser.add_argument(
+        '--backbone', type=str, choices=['GAT', 'GIN'],
+        help='type of gnn backbone', required=True
+    )
+    parser.add_argument(
+        '--gamma', default=0.998, type=float,
+        help='the gamma of lr scheduler'
+    )
+    parser.add_argument(
+        '--dropout', type=float, default=0.3,
+        help='the dropout rate, useful for all backbone'
+    )
+    parser.add_argument(
+        '--negative_slope', type=float, default=0.2,
+        help='negative slope for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--data_path', required=True, type=str,
+        help='the path containing dataset'
+    )
+    parser.add_argument(
+        '--use_class', action='store_true',
+        help='use rxn_class for training or not'
+    )
+    parser.add_argument(
+        '--seed', type=int, default=2023,
+        help='the seed for training'
+    )
+    parser.add_argument(
+        '--bs', type=int, default=512,
+        help='the batch size for training'
+    )
+    parser.add_argument(
+        '--epoch', type=int, default=200,
+        help='the max epoch for training'
+    )
+    parser.add_argument(
+        '--early_stop', default=0, type=int,
+        help='number of epochs to judger early stop '
+        ', will be ignored when it\'s less than 5'
+    )
+    parser.add_argument(
+        '--lr', default='1e-3', type=float,
+        help='the learning rate for training'
+    )
+    parser.add_argument(
+        '--base_log', default='log_exp', type=str,
+        help='the base dir of logging'
+    )
+    parser.add_argument(
+        '--label_smooth', default=0.0, type=float,
+        help='the label smoothing for transformer'
+    )
+    parser.add_argument(
+        '--accu', type=int, default=1,
+        help='the number of batch accu'
+    )
+    parser.add_argument(
+        '--step_start', type=int, default=50,
+        help='the step of starting lr decay'
+    )
+    parser.add_argument(
+        '--checkpoint', type=str, default='',
+        help='the path of checkpoint to restart the exp'
+    )
+    parser.add_argument(
+        '--token_ckpt', type=str, default='',
+        help='the path of tokenizer, when ckpt is loaded, necessary'
+    )
+
+    args = parser.parse_args()
+    print(args)
+    log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
+
+    fix_seed(args.seed)
+    torch_mp.spawn(main_worker, args=(args.num_gpus, args))
