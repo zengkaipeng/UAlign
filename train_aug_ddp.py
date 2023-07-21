@@ -299,6 +299,8 @@ def main_worker(worker_idx, args):
     for ep in range(args.epoch):
         if verbose:
             print(f'[INFO] traing at epoch {ep + 1}')
+
+        train_sampler.set_epoch(ep)
         train_metrics = ddp_train_trans(
             train_loader, model, optimizer, tokenizer, node_fn,
             edge_fn, tran_fn, acc_fn, verbose=verbose,
@@ -334,11 +336,11 @@ def main_worker(worker_idx, args):
             valid_acc = log_info['valid_metric'][-1]['acc']
             if best_perf is None or valid_results < best_perf:
                 best_perf, best_ep = valid_results, ep
-                torch.save(model.state_dict(), model_dir)
+                torch.save(model.module.state_dict(), model_dir)
 
             if best_acc is None or valid_acc > best_acc:
                 best_acc, best_ep2 = valid_acc, ep
-                torch.save(model.state_dict(), acc_dir)
+                torch.save(model.module.state_dict(), acc_dir)
 
         if ep >= args.warmup and ep >= args.step_start:
             lr_sh.step()
