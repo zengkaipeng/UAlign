@@ -131,8 +131,7 @@ def main_worker(worker_idx, args, tokenizer):
         model.load_state_dict(weight)
 
     model = torch.nn.parallel.DistributedDataParallel(
-        model, device_ids=[worker_idx], output_device=worker_idx,
-        find_unused_parameters=True
+        model, device_ids=[worker_idx], output_device=worker_idx
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -173,7 +172,7 @@ def main_worker(worker_idx, args, tokenizer):
 
         train_sampler.set_epoch(ep)
         train_metrics = ddp_train_trans(
-            train_loader, model, optimizer, tokenizer, device, 
+            train_loader, model, optimizer, tokenizer, device,
             node_fn, edge_fn, tran_fn, acc_fn, verbose=verbose,
             warmup=(ep < args.warmup), accu=args.accu
         )

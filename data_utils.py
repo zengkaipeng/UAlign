@@ -13,6 +13,58 @@ import torch
 from tqdm import tqdm
 import rdkit
 from rdkit import Chem
+import multiprocessing
+
+
+def process_rxn_batch(
+    reacts, prods, Q, rxn_class=None, kekulize=False,
+    display_step=50000, display_fmt='{} / {} DONE'
+):
+    graphs, nodes, edge_types, ret = [], [], [], []
+    for idx, prod in enumerate(prods):
+        ret.append(clear_map_number(reacts[idx]))
+        x, y = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
+        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
+        graphs.append(graph)
+        nodes.append([amap[t] for t in x])
+        es = []
+        for edgs in y:
+            src, dst, _, _ = edgs.split(':')
+            src, dst = int(src), int(dst)
+            if dst == 0:
+                continue
+            es.append((amap[src], amap[dst]))
+        edge_types.append(es)
+
+        if (idx + 1) % display_step == 0:
+            print(display_fmt.format(idx + 1, len(prods)))
+
+    Q.put([graphs, nodes, edge_types, ret, rxn_class])
+
+
+def create_sparse_dataset_mp(
+    reacts, prods, num_proc, rxn_class=None, kekulize=False, 
+    randomize=False,  aug_prob=0, display_fmt='{} / {} DONE', 
+    display_step=50000, batch_size=200000
+):
+    graphs, nodes, edge_types, ret, rcls = [], [], [], [], []
+    pool = multiprocessing.Pool(processes=num_proc)
+    MpQ = multiprocessing.Manager().Queue()
+    ppargs, all_len = [], len(prods)
+    for idx in range(0, all_len, batch_size):
+        ed_idx = idx + batch_size
+        ppargs.append((
+            reacts[idx: ed_idx], prods[idx: ed_idx], MpQ, 
+            None if rxn_class is None else rxn_class[idx: ed_idx],
+            kekulize, display_step, display_fmt
+        ))
+
+    pool.starmap(process_rxn_batch, ppargs)
+    pool.close()
+    pool.join()
+
+    while not MpQ.empty():
+        pass
 
 
 def create_sparse_dataset(
