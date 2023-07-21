@@ -47,7 +47,7 @@ def create_log_model(args):
     return detail_log_dir, detail_model_dir, token_dir, bacc_dir
 
 
-def main_worker(worker_idx, args):
+def main_worker(worker_idx, args, tokenizer):
     print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
         backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
@@ -56,16 +56,6 @@ def main_worker(worker_idx, args):
 
     torch.cuda.set_device(worker_idx)
     verbose = (worker_idx == 0)
-
-    with open(args.token_path) as Fin:
-        ALL_TOKEN = json.load(Fin)
-
-    if args.use_class:
-        SP_TOKEN = DEFAULT_SP | {f'<RXN_{i}>' for i in range(10)}
-    else:
-        SP_TOKEN = DEFAULT_SP
-
-    tokenizer = Tokenizer(ALL_TOKEN, SP_TOKEN)
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
@@ -105,6 +95,7 @@ def main_worker(worker_idx, args):
         test_set, collate_fn=fc_collect_fn, batch_size=args.bs,
         shuffle=False, sampler=test_sampler, pin_memory=True
     )
+    print(f'[INFO {worker_idx}] DataLoader Finished')
 
     if args.backbone == 'GIN':
         GNN = GINBase(
@@ -137,10 +128,6 @@ def main_worker(worker_idx, args):
         weight = torch.load(args.checkpoint, map_location=torch.device('cuda'))
         model.load_state_dict(weight)
 
-    if args.token_ckpt != '':
-        print(f'[INFO {worker_idx}] Loading tokenizer from {args.token_ckpt}')
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
 
     model = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[worker_idx]
@@ -162,7 +149,6 @@ def main_worker(worker_idx, args):
     )
 
     acc_fn = Acc_fn(ignore_index=tokenizer.token2idx['<PAD>'])
-    print(f'[INFO {worker_idx}] padding index', tokenizer.token2idx['<PAD>'])
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -367,4 +353,24 @@ if __name__ == '__main__':
     log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
 
     fix_seed(args.seed)
-    torch_mp.spawn(main_worker, nprocs=args.num_gpus, args=(args, ))
+
+    with open(args.token_path) as Fin:
+        ALL_TOKEN = json.load(Fin)
+
+    if args.use_class:
+        SP_TOKEN = DEFAULT_SP | {f'<RXN_{i}>' for i in range(10)}
+    else:
+        SP_TOKEN = DEFAULT_SP
+
+    tokenizer = Tokenizer(ALL_TOKEN, SP_TOKEN)
+    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
+
+    if args.token_ckpt != '':
+        print(f'[INFO] Loading tokenizer from {args.token_ckpt}')
+        with open(args.token_ckpt, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+
+    torch_mp.spawn(
+        main_worker, nprocs=args.num_gpus, 
+        args=(args, tokenizer)
+    )
