@@ -43,18 +43,18 @@ def process_rxn_batch(
 
 
 def create_sparse_dataset_mp(
-    reacts, prods, num_proc, rxn_class=None, kekulize=False, 
-    randomize=False,  aug_prob=0, display_fmt='{} / {} DONE', 
+    reacts, prods, num_proc, rxn_class=None, kekulize=False,
+    randomize=False,  aug_prob=0, display_fmt='{} / {} DONE',
     display_step=50000, batch_size=200000
 ):
-    graphs, nodes, edge_types, ret, rcls = [], [], [], [], []
+    graphs, nodes, edge_types, ret = [], [], [], []
     pool = multiprocessing.Pool(processes=num_proc)
     MpQ = multiprocessing.Manager().Queue()
     ppargs, all_len = [], len(prods)
     for idx in range(0, all_len, batch_size):
         ed_idx = idx + batch_size
         ppargs.append((
-            reacts[idx: ed_idx], prods[idx: ed_idx], MpQ, 
+            reacts[idx: ed_idx], prods[idx: ed_idx], MpQ,
             None if rxn_class is None else rxn_class[idx: ed_idx],
             kekulize, display_step, display_fmt
         ))
@@ -63,8 +63,21 @@ def create_sparse_dataset_mp(
     pool.close()
     pool.join()
 
+    rcls = None if rxn_class is None else []
+
     while not MpQ.empty():
-        pass
+        a, b, c, d, e = MpQ.get()
+        graphs.extend(a)
+        nodes.extend(b)
+        edge_types.extend(c)
+        ret.extend(d)
+        if rcls is not None:
+            rcls.extend(e)
+
+    dataset = EditDataset(
+        graphs, nodes, edge_types, ret, rcls,
+        randomize=randomize, aug_prob=aug_prob
+    )
 
 
 def create_sparse_dataset(
