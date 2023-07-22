@@ -75,32 +75,32 @@ def main_worker(worker_idx, args, tokenizer):
         valid_set = create_sparse_dataset(
             val_rec, val_prod, kekulize=args.kekulize,
             rxn_class=val_rxn if args.use_class else None,
-            randomize=False, verbose=verbose
+            randomize=False, verbose=verbose, aug_prob=0
         )
         test_set = create_sparse_dataset(
             test_rec, test_prod, kekulize=args.kekulize,
             rxn_class=test_rxn if args.use_class else None,
-            randomize=False, verbose=verbose
+            randomize=False, verbose=verbose, aug_prob=0
         )
     else:
         train_set = create_sparse_dataset_mp(
             train_rec, train_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=train_rxn if args.use_class else None,
-            randomize=True, aug_prob=args.aug_prob, verbose=verbose,
+            randomize=True, aug_prob=args.aug_prob, 
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
         valid_set = create_sparse_dataset_mp(
             val_rec, val_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=val_rxn if args.use_class else None,
-            randomize=False, aug_prob=0, verbose=verbose,
+            randomize=False, aug_prob=0, 
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
         test_set = create_sparse_dataset_mp(
             test_rec, test_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=test_rxn if args.use_class else None,
-            randomize=False, aug_prob=0, verbose=verbose,
+            randomize=False, aug_prob=0, 
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
