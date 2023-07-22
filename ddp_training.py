@@ -23,7 +23,7 @@ class MetricCollector(object):
 
     def update(self, val, num=1):
         self.val = val
-        self.sum += val * num
+        self.sum += val
         self.cnt += num
         self.avg = self.sum / self.cnt
 
