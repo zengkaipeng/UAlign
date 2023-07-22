@@ -79,7 +79,7 @@ def create_sparse_dataset_mp(
         randomize=randomize, aug_prob=aug_prob
     )
 
-    print('dataset_len': len(dataset))
+    print('dataset_len', len(dataset))
     return dataset
 
 

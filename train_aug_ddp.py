@@ -50,7 +50,9 @@ def create_log_model(args):
     return detail_log_dir, detail_model_dir, token_dir, bacc_dir
 
 
-def main_worker(worker_idx, args, tokenizer):
+def main_worker(
+    worker_idx, args, tokenizer, log_dir, model_dir, token_dir, acc_dir
+):
     print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
         backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
@@ -86,21 +88,21 @@ def main_worker(worker_idx, args, tokenizer):
         train_set = create_sparse_dataset_mp(
             train_rec, train_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=train_rxn if args.use_class else None,
-            randomize=True, aug_prob=args.aug_prob, 
+            randomize=True, aug_prob=args.aug_prob,
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
         valid_set = create_sparse_dataset_mp(
             val_rec, val_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=val_rxn if args.use_class else None,
-            randomize=False, aug_prob=0, 
+            randomize=False, aug_prob=0,
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
         test_set = create_sparse_dataset_mp(
             test_rec, test_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=test_rxn if args.use_class else None,
-            randomize=False, aug_prob=0, 
+            randomize=False, aug_prob=0,
             display_fmt='{} / {} DONE on process %d' % worker_idx,
         )
 
@@ -405,5 +407,5 @@ if __name__ == '__main__':
 
     torch_mp.spawn(
         main_worker, nprocs=args.num_gpus,
-        args=(args, tokenizer)
+        args=(args, tokenizer, log_dir, model_dir, token_dir, acc_dir)
     )
