@@ -4,6 +4,7 @@ import torch.distributed as torch_dist
 
 from data_utils import generate_tgt_mask
 from enum import Enum
+from tqdm import tqdm
 
 
 class Summary(Enum):
@@ -15,6 +16,7 @@ class MetricCollector(object):
         super(MetricCollector, self).__init__()
         self.name, self.type_fmt = name, type_fmt
         self.summary_type = summary_type
+        self.reset()
 
     def reset(self):
         self.val, self.sum, self.cnt, self.avg = [0] * 4
@@ -91,8 +93,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def ddp_train_trans(
-    loader, model, optimizer, tokenizer, device, node_fn, 
-    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False, 
+    loader, model, optimizer, tokenizer, device, node_fn,
+    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False,
     pad='<PAD>', unk='<UNK>', accu=1
 ):
     model = model.train()

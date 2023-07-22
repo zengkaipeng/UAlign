@@ -78,8 +78,6 @@ def create_sparse_dataset_mp(
         graphs, nodes, edge_types, ret, rcls,
         randomize=randomize, aug_prob=aug_prob
     )
-
-    print('dataset_len', len(dataset))
     return dataset
 
 
