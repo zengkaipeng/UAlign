@@ -60,8 +60,8 @@ def main_worker(
     )
 
     device = torch.device(f'cuda:{worker_idx}')
-    # verbose = (worker_idx == 0)
-    verbose = True
+    verbose = (worker_idx == 0)
+    # verbose = True
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
