@@ -60,7 +60,8 @@ def main_worker(
     )
 
     device = torch.device(f'cuda:{worker_idx}')
-    verbose = (worker_idx == 0)
+    # verbose = (worker_idx == 0)
+    verbose = True
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
@@ -213,9 +214,9 @@ def main_worker(
         )
         torch_dist.barrier()
 
-        train_metrics.all_reduct()
-        val_metrics.all_reduct()
-        test_metrics.all_reduct()
+        train_metrics.all_reduct(device)
+        val_metrics.all_reduct(device)
+        test_metrics.all_reduct(device)
 
         log_info['train_loss'].append(train_metrics.get_all_value_dict())
         log_info['valid_metric'].append(val_metrics.get_all_value_dict())

@@ -27,8 +27,8 @@ class MetricCollector(object):
         self.cnt += num
         self.avg = self.sum / self.cnt
 
-    def all_reduce(self):
-        infos = torch.FloatTensor([self.sum, self.cnt]).cuda()
+    def all_reduce(self, device):
+        infos = torch.FloatTensor([self.sum, self.cnt]).to(device)
         torch_dist.all_reduce(infos, torch_dist.ReduceOp.SUM)
         self.sum, self.cnt = infos.tolist()
         self.avg = self.sum / self.cnt
@@ -71,9 +71,9 @@ class MetricManager(object):
         super(MetricManager, self).__init__()
         self.metrics = metrics
 
-    def all_reduct(self):
+    def all_reduct(self, device):
         for idx in range(len(self.metrics)):
-            self.metrics[idx].all_reduce()
+            self.metrics[idx].all_reduce(device)
 
     def summary_all(self, split_string='  '):
         return split_string.join(x.summary() for x in self.metrics)
