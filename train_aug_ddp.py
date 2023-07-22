@@ -11,7 +11,10 @@ from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, fc_collect_fn, PositionalEncoding, Acc_fn
 from training import train_trans, eval_trans
-from data_utils import create_sparse_dataset, load_data, fix_seed
+from data_utils import (
+    create_sparse_dataset, load_data, fix_seed,
+    create_sparse_dataset_mp
+)
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 import torch.distributed as torch_dist
@@ -63,21 +66,43 @@ def main_worker(worker_idx, args, tokenizer):
 
     print(f'[INFO {worker_idx}] Data Loaded')
 
-    train_set = create_sparse_dataset(
-        train_rec, train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None,
-        randomize=True, aug_prob=args.aug_prob, verbose=verbose
-    )
-    valid_set = create_sparse_dataset(
-        val_rec, val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None,
-        randomize=False, verbose=verbose
-    )
-    test_set = create_sparse_dataset(
-        test_rec, test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None,
-        randomize=False, verbose=verbose
-    )
+    if args.nproc_pre <= 0:
+        train_set = create_sparse_dataset(
+            train_rec, train_prod, kekulize=args.kekulize,
+            rxn_class=train_rxn if args.use_class else None,
+            randomize=True, aug_prob=args.aug_prob, verbose=verbose
+        )
+        valid_set = create_sparse_dataset(
+            val_rec, val_prod, kekulize=args.kekulize,
+            rxn_class=val_rxn if args.use_class else None,
+            randomize=False, verbose=verbose
+        )
+        test_set = create_sparse_dataset(
+            test_rec, test_prod, kekulize=args.kekulize,
+            rxn_class=test_rxn if args.use_class else None,
+            randomize=False, verbose=verbose
+        )
+    else:
+        train_set = create_sparse_dataset_mp(
+            train_rec, train_prod, args.nproc_pre, kekulize=args.kekulize,
+            rxn_class=train_rxn if args.use_class else None,
+            randomize=True, aug_prob=args.aug_prob, verbose=verbose,
+            display_fmt='{} / {} DONE on process %d' % worker_idx,
+        )
+
+        valid_set = create_sparse_dataset_mp(
+            val_rec, val_prod, args.nproc_pre, kekulize=args.kekulize,
+            rxn_class=val_rxn if args.use_class else None,
+            randomize=False, aug_prob=0, verbose=verbose,
+            display_fmt='{} / {} DONE on process %d' % worker_idx,
+        )
+
+        test_set = create_sparse_dataset_mp(
+            test_rec, test_prod, args.nproc_pre, kekulize=args.kekulize,
+            rxn_class=test_rxn if args.use_class else None,
+            randomize=False, aug_prob=0, verbose=verbose,
+            display_fmt='{} / {} DONE on process %d' % worker_idx,
+        )
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
     valid_sampler = DistributedSampler(valid_set, shuffle=False)
@@ -269,6 +294,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--layer_decoder', default=8, type=int,
         help='the layer of transformer decoder'
+    )
+    parser.add_argument(
+        '--nproc_pre', type=int, default=-1,
+        help='the number of processes to preprocess dataset'
     )
     parser.add_argument(
         '--token_path', required=True, type=str,
