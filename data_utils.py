@@ -17,8 +17,8 @@ import multiprocessing
 
 
 def process_rxn_batch(
-    reacts, prods, Q, rxn_class=None, kekulize=False,
-    display_step=50000, display_fmt='{} / {} DONE'
+    pid, reacts, prods, rxn_class=None, kekulize=False,
+    display_step=50000, display_fmt='{}-th part, {} / {} DONE'
 ):
     graphs, nodes, edge_types, ret = [], [], [], []
     for idx, prod in enumerate(prods):
@@ -37,36 +37,35 @@ def process_rxn_batch(
         edge_types.append(es)
 
         if (idx + 1) % display_step == 0:
-            print(display_fmt.format(idx + 1, len(prods)))
+            print(display_fmt.format(pid, idx + 1, len(prods)))
 
-    Q.put([graphs, nodes, edge_types, ret, rxn_class])
+    return graphs, nodes, edge_types, ret, rxn_class
 
 
 def create_sparse_dataset_mp(
     reacts, prods, num_proc, rxn_class=None, kekulize=False,
-    randomize=False,  aug_prob=0, display_fmt='{} / {} DONE',
+    randomize=False,  aug_prob=0, display_fmt='{}-th part, {} / {} DONE',
     display_step=50000, batch_size=200000
 ):
     graphs, nodes, edge_types, ret = [], [], [], []
     pool = multiprocessing.Pool(processes=num_proc)
-    MpQ = multiprocessing.Manager().Queue()
     ppargs, all_len = [], len(prods)
     for idx in range(0, all_len, batch_size):
         ed_idx = idx + batch_size
-        ppargs.append((
-            reacts[idx: ed_idx], prods[idx: ed_idx], MpQ,
+        ppargs.append(pool.apply_async(process_rxn_batch, args=(
+            reacts[idx: ed_idx], prods[idx: ed_idx],
             None if rxn_class is None else rxn_class[idx: ed_idx],
             kekulize, display_step, display_fmt
-        ))
+        )))
 
-    pool.starmap(process_rxn_batch, ppargs)
     pool.close()
     pool.join()
 
     rcls = None if rxn_class is None else []
 
-    while not MpQ.empty():
-        a, b, c, d, e = MpQ.get()
+    print('[INFO] Merging')
+    for ares in ppargs:
+        a, b, c, d, e = ares.get()
         graphs.extend(a)
         nodes.extend(b)
         edge_types.extend(c)
