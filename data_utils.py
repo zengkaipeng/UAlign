@@ -50,10 +50,10 @@ def create_sparse_dataset_mp(
     graphs, nodes, edge_types, ret = [], [], [], []
     pool = multiprocessing.Pool(processes=num_proc)
     ppargs, all_len = [], len(prods)
-    for idx in range(0, all_len, batch_size):
+    for epx, idx in enumerate(range(0, all_len, batch_size)):
         ed_idx = idx + batch_size
         ppargs.append(pool.apply_async(process_rxn_batch, args=(
-            reacts[idx: ed_idx], prods[idx: ed_idx],
+            epx, reacts[idx: ed_idx], prods[idx: ed_idx],
             None if rxn_class is None else rxn_class[idx: ed_idx],
             kekulize, display_step, display_fmt
         )))

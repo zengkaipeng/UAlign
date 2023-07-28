@@ -90,21 +90,21 @@ def main_worker(
             train_rec, train_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=train_rxn if args.use_class else None,
             randomize=True, aug_prob=args.aug_prob,
-            display_fmt='{} / {} DONE on process %d' % worker_idx,
+            display_fmt='{}-th path, {} / {} DONE on process %d' % worker_idx,
         )
 
         valid_set = create_sparse_dataset_mp(
             val_rec, val_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=val_rxn if args.use_class else None,
             randomize=False, aug_prob=0,
-            display_fmt='{} / {} DONE on process %d' % worker_idx,
+            display_fmt='{}-th part, {} / {} DONE on process %d' % worker_idx,
         )
 
         test_set = create_sparse_dataset_mp(
             test_rec, test_prod, args.nproc_pre, kekulize=args.kekulize,
             rxn_class=test_rxn if args.use_class else None,
             randomize=False, aug_prob=0,
-            display_fmt='{} / {} DONE on process %d' % worker_idx,
+            display_fmt='{}-th part, {} / {} DONE on process %d' % worker_idx,
         )
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
