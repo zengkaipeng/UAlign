@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
 import numpy as np
+import multiprocessing
 from tokenlizer import smi_tokenizer
 
 
@@ -18,12 +19,23 @@ class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
         self, prod_sm: List[str], reat_sm: List[str],
         rxn_class: Optional[List[int]] = None, kekulize: bool = False,
-        randomize: bool = False, aug_prob: float = 0
+        randomize: bool = False, aug_prob: float = 0, nproc: int = 0
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
         self.reat_sm = reat_sm
-        self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
+        if nproc <= 1:
+            self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
+        else:
+            pol = multiprocessing.Pool(processes=nproc)
+            res = [
+                pol.apply_async(clear_map_number, args=(x, ))
+                for x in reat_sm
+            ]
+            pol.close()
+            pol.join()
+            self.reat_wo_amap = [x.get() for x in res]
+
         self.rxn_class = rxn_class
         self.randomize = randomize
         self.aug_prob = aug_prob

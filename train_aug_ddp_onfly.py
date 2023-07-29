@@ -71,17 +71,17 @@ def main_worker(
     train_set = OnFlyDataset(
         prod_sm=train_prod, reat_sm=train_rec, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None,
-        aug_prob=args.aug_prob, randomize=True
+        aug_prob=args.aug_prob, randomize=True, nproc=args.num_workers
     )
     valid_set = OnFlyDataset(
         prod_sm=val_prod, reat_sm=val_rec, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None,
-        aug_prob=0, randomize=False
+        aug_prob=0, randomize=False, nproc=args.num_workers
     )
     test_set = OnFlyDataset(
         prod_sm=test_prod, reat_sm=test_rec, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None,
-        aug_prob=0, randomize=False
+        aug_prob=0, randomize=False, nproc=args.num_workers
     )
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
