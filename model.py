@@ -4,11 +4,81 @@ from sparse_backBone import (
     GINBase, GATBase, SparseAtomEncoder, SparseBondEncoder
 )
 
+from utils.chemistry_parse import get_reaction_core, clear_map_number
+from utils.graph_utils import smiles2graph
+
 from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 import math
 import numpy as np
 from tokenlizer import smi_tokenizer
+
+
+class OnFlyDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, prod_sm: List[str], reat_sm: List[str],
+        rxn_class: Optional[List[int]] = None, kekulize: bool = False,
+        randomize: bool = False, aug_prob: float = 0
+    ):
+        super(OnFlyDataset, self).__init__()
+        self.prod_sm = prod_sm
+        self.reat_sm = reat_sm
+        self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
+        self.rxn_class = rxn_class
+        self.randomize = randomize
+        self.aug_prob = aug_prob
+
+    def __len__(self):
+        return len(self.reat_wo_amap)
+
+    def process_reac(self, smi):
+        if not self.randomize or not (0 < self.aug_prob < 1):
+            return smi
+        if random.random() < self.aug_prob:
+            x = smi.split('.')
+            random.shuffle(x)
+            return '.'.join(x)
+        else:
+            return smi
+
+    def __getitem__(self, index):
+        if self.rxn_class is None:
+            ret = ['<CLS>']
+        else:
+            ret = [f'<RXN_{self.rxn_class[index]}>']
+        ret += smi_tokenizer(self.process_reac(self.reat_wo_amap[index]))
+        ret.append('<END>')
+
+        x, y = get_reaction_core(
+            self.reat_sm[index], self.prod_sm[index], kekulize=self.kekulize
+        )
+
+        graph, amap = smiles2graph(
+            self.prod_sm[index], with_amap=True, kekulize=self.kekulize
+        )
+
+        node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
+        node_label[[amap[t] for t in x]] = 1
+
+        num_edges = graph['edge_index'].shape[0]
+
+        es, edge_label = [], torch.zeros(num_edges).long()
+        for edgs in y:
+            src, dst, _, _ = edgs.split(':')
+            src, dst = int(src), int(dst)
+            if dst == 0:
+                continue
+            es.append((amap[src], amap[dst]))
+
+        for idx, t in enumerate(graph['edge_index'][0]):
+            src, dst = t.item(), graph['edge_index'][1][idx]
+            if (src, dst) in es or (dst, src) in es:
+                edge_label[idx] = 1
+
+        if self.rxn_class is None:
+            return graph, node_label, edge_label, ret
+        else:
+            return graph, self.rxn_class[index], node_label, edge_label, ret
 
 
 class EditDataset(torch.utils.data.Dataset):
