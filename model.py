@@ -27,6 +27,7 @@ class OnFlyDataset(torch.utils.data.Dataset):
         self.rxn_class = rxn_class
         self.randomize = randomize
         self.aug_prob = aug_prob
+        self.kekulize = kekulize
 
     def __len__(self):
         return len(self.reat_wo_amap)
@@ -57,10 +58,10 @@ class OnFlyDataset(torch.utils.data.Dataset):
             self.prod_sm[index], with_amap=True, kekulize=self.kekulize
         )
 
-        node_label = torch.zeros(self.graphs[index]['num_nodes']).long()
+        node_label = torch.zeros(graph['num_nodes']).long()
         node_label[[amap[t] for t in x]] = 1
 
-        num_edges = graph['edge_index'].shape[0]
+        num_edges = graph['edge_feat'].shape[0]
 
         es, edge_label = [], torch.zeros(num_edges).long()
         for edgs in y:
