@@ -19,22 +19,22 @@ class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
         self, prod_sm: List[str], reat_sm: List[str],
         rxn_class: Optional[List[int]] = None, kekulize: bool = False,
-        randomize: bool = False, aug_prob: float = 0, nproc: int = 0
+        randomize: bool = False, aug_prob: float = 0
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
         self.reat_sm = reat_sm
-        if nproc <= 1:
-            self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
-        else:
-            pol = multiprocessing.Pool(processes=nproc)
-            res = [
-                pol.apply_async(clear_map_number, args=(x, ))
-                for x in reat_sm
-            ]
-            pol.close()
-            pol.join()
-            self.reat_wo_amap = [x.get() for x in res]
+        # if nproc <= 1:
+        #     self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
+        # else:
+        #     pol = multiprocessing.Pool(processes=nproc)
+        #     res = [
+        #         pol.apply_async(clear_map_number, args=(x, ))
+        #         for x in reat_sm
+        #     ]
+        #     pol.close()
+        #     pol.join()
+        #     self.reat_wo_amap = [x.get() for x in res]
 
         self.rxn_class = rxn_class
         self.randomize = randomize
@@ -42,7 +42,7 @@ class OnFlyDataset(torch.utils.data.Dataset):
         self.kekulize = kekulize
 
     def __len__(self):
-        return len(self.reat_wo_amap)
+        return len(self.reat_sm)
 
     def process_reac(self, smi):
         if not self.randomize or not (0 < self.aug_prob < 1):
@@ -59,7 +59,9 @@ class OnFlyDataset(torch.utils.data.Dataset):
             ret = ['<CLS>']
         else:
             ret = [f'<RXN_{self.rxn_class[index]}>']
-        ret += smi_tokenizer(self.process_reac(self.reat_wo_amap[index]))
+        ret += smi_tokenizer(self.process_reac(
+            clear_map_number(self.reat_sm[index])
+        ))
         ret.append('<END>')
 
         x, y = get_reaction_core(
