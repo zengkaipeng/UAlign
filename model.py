@@ -17,24 +17,14 @@ from tokenlizer import smi_tokenizer
 
 class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
-        self, prod_sm: List[str], reat_sm: List[str],
+        self, prod_sm: List[str], reat_sm: List[str], target: List[str],
         rxn_class: Optional[List[int]] = None, kekulize: bool = False,
         randomize: bool = False, aug_prob: float = 0
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
         self.reat_sm = reat_sm
-        # if nproc <= 1:
-        #     self.reat_wo_amap = [clear_map_number(x) for x in reat_sm]
-        # else:
-        #     pol = multiprocessing.Pool(processes=nproc)
-        #     res = [
-        #         pol.apply_async(clear_map_number, args=(x, ))
-        #         for x in reat_sm
-        #     ]
-        #     pol.close()
-        #     pol.join()
-        #     self.reat_wo_amap = [x.get() for x in res]
+        self.target = target
 
         self.rxn_class = rxn_class
         self.randomize = randomize
@@ -59,17 +49,17 @@ class OnFlyDataset(torch.utils.data.Dataset):
             ret = ['<CLS>']
         else:
             ret = [f'<RXN_{self.rxn_class[index]}>']
-        ret += smi_tokenizer(self.process_reac(
-            clear_map_number(self.reat_sm[index])
-        ))
+        ret += smi_tokenizer(self.process_reac(self.target[index]))
         ret.append('<END>')
 
         x, y = get_reaction_core(
-            self.reat_sm[index], self.prod_sm[index], kekulize=self.kekulize
+            r=self.reat_sm[index], p=self.prod_sm[index], 
+            kekulize=self.kekulize
         )
 
         graph, amap = smiles2graph(
-            self.prod_sm[index], with_amap=True, kekulize=self.kekulize
+            smiles_string=self.prod_sm[index], 
+            with_amap=True, kekulize=self.kekulize
         )
 
         node_label = torch.zeros(graph['num_nodes']).long()

@@ -13,7 +13,7 @@ from model import (
     Graph2Seq, fc_collect_fn, PositionalEncoding, Acc_fn, OnFlyDataset
 )
 from training import train_trans, eval_trans
-from data_utils import load_data, fix_seed
+from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 import torch.distributed as torch_dist
@@ -62,9 +62,12 @@ def main_worker(
     verbose = (worker_idx == 0)
     # verbose = True
 
-    train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
-    val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
-    test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
+    train_rec, train_prod, train_rxn, train_target =\
+        load_ext_data(args.data_path, 'train')
+    val_rec, val_prod, val_rxn, val_target =\
+        load_ext_data(args.data_path, 'valid')
+    test_rec, test_prod, test_rxn, test_target =\
+        load_ext_data(args.data_path, 'test')
 
     print(f'[INFO {worker_idx}] Data Loaded')
 

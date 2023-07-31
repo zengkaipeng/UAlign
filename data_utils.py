@@ -15,70 +15,6 @@ from rdkit import Chem
 import multiprocessing
 
 
-def process_rxn_batch(
-    pid, reacts, prods, rxn_class=None, kekulize=False,
-    display_step=50000, display_fmt='{}-th part, {} / {} DONE'
-):
-    graphs, nodes, edge_types, ret = [], [], [], []
-    for idx, prod in enumerate(prods):
-        ret.append(clear_map_number(reacts[idx]))
-        x, y = get_reaction_core(reacts[idx], prod, kekulize=kekulize)
-        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
-        graphs.append(graph)
-        nodes.append([amap[t] for t in x])
-        es = []
-        for edgs in y:
-            src, dst, _, _ = edgs.split(':')
-            src, dst = int(src), int(dst)
-            if dst == 0:
-                continue
-            es.append((amap[src], amap[dst]))
-        edge_types.append(es)
-
-        if (idx + 1) % display_step == 0:
-            print(display_fmt.format(pid, idx + 1, len(prods)))
-
-    return graphs, nodes, edge_types, ret, rxn_class
-
-
-def create_sparse_dataset_mp(
-    reacts, prods, num_proc, rxn_class=None, kekulize=False,
-    randomize=False,  aug_prob=0, display_fmt='{}-th part, {} / {} DONE',
-    display_step=50000, batch_size=200000
-):
-    graphs, nodes, edge_types, ret = [], [], [], []
-    pool = multiprocessing.Pool(processes=num_proc)
-    ppargs, all_len = [], len(prods)
-    for epx, idx in enumerate(range(0, all_len, batch_size)):
-        ed_idx = idx + batch_size
-        ppargs.append(pool.apply_async(process_rxn_batch, args=(
-            epx, reacts[idx: ed_idx], prods[idx: ed_idx],
-            None if rxn_class is None else rxn_class[idx: ed_idx],
-            kekulize, display_step, display_fmt
-        )))
-
-    pool.close()
-    pool.join()
-
-    rcls = None if rxn_class is None else []
-
-    print('[INFO] Merging')
-    for ares in ppargs:
-        a, b, c, d, e = ares.get()
-        graphs.extend(a)
-        nodes.extend(b)
-        edge_types.extend(c)
-        ret.extend(d)
-        if rcls is not None:
-            rcls.extend(e)
-
-    dataset = EditDataset(
-        graphs, nodes, edge_types, ret, rcls,
-        randomize=randomize, aug_prob=aug_prob
-    )
-    return dataset
-
-
 def create_sparse_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     verbose=True, randomize=False, aug_prob=0
@@ -120,6 +56,22 @@ def load_data(data_dir, part=None):
         reacts.append(rea)
         prods.append(prd)
     return reacts, prods, rxn_class
+
+
+def load_ext_data(data_dir, part=None):
+    if part is not None:
+        fname = os.path.join(data_dir, f'extend_{part}.csv')
+        df_train = pandas.read_csv(fname)
+    else:
+        df_train = pandas.read_csv(data_dir)
+    rxn_class, reacts, prods, target = [], [], [], []
+    for idx, resu in enumerate(df_train['reactants>reagents>production']):
+        rxn_class.append(df_train['class'][idx])
+        rea, prd = resu.strip().split('>>')
+        reacts.append(rea)
+        prods.append(prd)
+        target.append(df_train['clean_reactant'][idx])
+    return reacts, prods, rxn_class, target
 
 
 def fix_seed(seed):
