@@ -19,9 +19,9 @@ class BinaryEditDataset(torch.utils.data.Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        node_labels = torch.zeros(self.graphs[index]['num_nodes']).long()
+        node_labels = torch.zeros(self.graphs[index]['num_nodes'])
         node_labels[self.activate_nodes[index]] = 1
-        edge_labels = torch.zeros(self.graphs[index]['num_edges']).long()
+        edge_labels = torch.zeros(self.graphs[index]['num_edges'])
         edges = self.graphs[index]['edge_index'][0]
         for idx, src in enumerate(edges[0]):
             src, dst = src.item(), edges[1][idx].item()
@@ -66,7 +66,7 @@ def edit_col_fn(selfloop):
                 edge_cnt += node_cnt
                 self_mask.append(torch.ones(node_cnt).bool())
                 org_mask.append(torch.zeros(node_cnt).bool())
-                all_edge.append(torch.zeros(node_cnt).long())
+                all_edge.append(torch.zeros(node_cnt))
 
             lstnode += node_cnt
             lstedge += edge_cnt
