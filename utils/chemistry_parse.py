@@ -191,6 +191,58 @@ def get_reaction_core(
     return rxn_core, core_edits, reac_bonds
 
 
+def get_modified_atoms_bonds(
+    reac: str, prod: str, kekulize: bool
+) -> Tuple[Set, List]:
+    reac_mol = get_mol(reac)
+    prod_mol = get_mol(prod)
+
+    if reac_mol is None or prod_mol is None:
+        return set(), []
+    if kekulize:
+        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+
+    prod_bonds = get_bond_info(prod_mol)
+    prod_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in prod_mol.GetAtoms()
+    }
+    max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
+    for atom in reac_mol.GetAtoms():
+        if atom.GetAtomMapNum() == 0:
+            atom.SetAtomMapNum(max_amap + 1)
+            max_amap += 1
+
+    reac_bonds = get_bond_info(reac_mol)
+    reac_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in reac_mol.GetAtoms()
+    }
+
+    atom_edit, edge_edit = set(), []
+    for bond, bond_type in prod_bonds.items():
+        if (bond in reac_bonds and reac_bonds[bond][0] != bond_type) \
+                or bond not in reac_bonds:
+            edge_edit.append(bond)
+            atom_edit.update(bond)
+
+    for bond in reac_bonds:
+        if bond not in prod_bonds:
+            atom_edit.update(bond)
+
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+
+        numHs_prod = atom.GetTotalNumHs()
+        numHs_reac = reac_mol.GetAtomWithIdx(
+            reac_amap[amap_num]
+        ).GetTotalNumHs()
+        if numHs_prod != numHs_reac:
+            atom_edit.add(amap_num)
+
+    return atom_edit, edge_edit
+
+
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
         content = Fin.readlines()
