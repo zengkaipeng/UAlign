@@ -210,8 +210,8 @@ def get_modified_atoms_bonds(
     max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
     for atom in reac_mol.GetAtoms():
         if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_amap + 1)
-            max_amap += 1
+            atom.SetAtomMapNum(max_reac_amap + 1)
+            max_reac_amap += 1
 
     reac_bonds = get_bond_info(reac_mol)
     reac_amap_idx = {
@@ -228,7 +228,11 @@ def get_modified_atoms_bonds(
 
     for bond in reac_bonds:
         if bond not in prod_bonds:
-            atom_edit.update(bond)
+            start, end = bond
+            if start in reac_amap_idx:
+                atom_edit.add(start)
+            if end in reac_amap_idx:
+                atom_edit.add(end)
 
     for atom in prod_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
