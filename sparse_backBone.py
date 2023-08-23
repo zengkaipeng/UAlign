@@ -1,7 +1,6 @@
 import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-from torch_geometric.data import Data
 from GATconv import MyGATConv
 from GINConv import MyGINConv
 import numpy as np
@@ -146,47 +145,6 @@ class GATBase(torch.nn.Module):
         return node_feats, edge_feats
 
 
-def sparse_edit_collect_fn(data_batch):
-    batch_size, rxn_class, node_label, num_l = len(data_batch), [], [], []
-    edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
-    activate_nodes, num_e, edge_types = [], [], []
-    for idx, data in enumerate(data_batch):
-        if len(data) == 4:
-            graph, n_lb,  e_type, A_node = data
-        else:
-            graph, r_class, n_lb,  e_type, A_node = data
-            rxn_class.append(r_class)
-
-        edge_types.append(e_type)
-        node_label.append(n_lb)
-        num_l.append(graph['num_nodes'])
-        num_e.append(graph['edge_index'].shape[1])
-
-        edge_idxes.append(graph['edge_index'] + lstnode)
-        edge_feats.append(graph['edge_feat'])
-        node_feats.append(graph['node_feat'])
-        lstnode += graph['num_nodes']
-        batch.append(np.ones(graph['num_nodes'], dtype=np.int64) * idx)
-        activate_nodes.append(A_node)
-
-    result = {
-        'edge_index': np.concatenate(edge_idxes, axis=-1),
-        'edge_attr': np.concatenate(edge_feats, axis=0),
-        'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0)
-    }
-    result = {k: torch.from_numpy(v) for k, v in result.items()}
-    result['num_nodes'] = lstnode
-    node_label = torch.cat(node_label, dim=0)
-
-    if len(rxn_class) == 0:
-        return Data(**result), node_label, num_l, num_e,\
-            edge_types, activate_nodes
-    else:
-        return Data(**result), torch.LongTensor(rxn_class),\
-            node_label, num_l, num_e, edge_types, activate_nodes
-
-
 class SparseAtomEncoder(torch.nn.Module):
     def __init__(self, dim, n_class=None):
         super(SparseAtomEncoder, self).__init__()
@@ -213,7 +171,6 @@ class SparseBondEncoder(torch.nn.Module):
     def __init__(self, dim, n_class=None):
         super(SparseBondEncoder, self).__init__()
         self.bond_encoder = BondEncoder(dim)
-        self.pad_embedding = torch.nn.Parameter(torch.randn(dim))
         self.self_embedding = torch.nn.Parameter(torch.randn(dim))
         self.n_class = n_class
         if n_class is not None:
@@ -221,16 +178,17 @@ class SparseBondEncoder(torch.nn.Module):
             self.lin = torch.nn.Linear(dim + dim, dim)
         self.dim = dim
 
-    def forward(self, edge_feat, org_ptr, pad_ptr, self_ptr, rxn_class=None):
-        result = torch.zeros(self_ptr, self.dim).to(edge_feat.device)
-        result[:org_ptr] = self.bond_encoder(edge_feat)
-        if org_ptr != pad_ptr:
-            result[org_ptr: pad_ptr] = self.pad_embedding
-        if pad_ptr != self_ptr:
-            result[pad_ptr: self_ptr] = self.self_embedding
+    def forward(self, edge_feat, org_mask, self_mask, rxn_class=None):
+        assert org_mask.shape == self_mask.shape, \
+            'org mask and self mask should share the same shape'
+
+        num_edges = org_mask.shape[0]
+        result = torch.zeros(num_edges, self.dim).to(edge_feat.device)
+        result[org_mask] = self.bond_encoder(edge_feat)
+        result[self_mask] = self.self_embedding
 
         if self.n_class is not None:
-            if rxn_class is None or num_edges is None:
+            if rxn_class is None:
                 raise ValueError('missing reaction class information')
             else:
                 rxn_class_emb = self.rxn_class_emb(rxn_class)
