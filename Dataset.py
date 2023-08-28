@@ -38,12 +38,20 @@ class BinaryEditDataset(torch.utils.data.Dataset):
 
 
 def edit_col_fn(selfloop):
+    def add_list_to_dict(k, v, it):
+        if k not in it:
+            it[k] = [v]
+        else:
+            it[k].append(v)
+
     def real_fn(batch):
         batch_size, all_node, all_edge = len(batch), [], []
-        edge_index, node_feat, edge_feat = [], [], []
+        edge_idx, node_feat, edge_feat = [], [], []
         node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
         node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
         self_mask, org_mask = [], []
+
+        all_pos_enc = {}
 
         for idx, data in enumerate(batch):
             if len(data) == 4:
@@ -53,16 +61,20 @@ def edit_col_fn(selfloop):
 
             node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
 
+            for k, v in gp.items():
+                if 'pos_enc' in k:
+                    add_list_to_dict(k, v, all_pos_enc)
+
             node_feat.append(gp['node_feat'])
             edge_feat.append(gp['edge_feat'])
-            edge_index.append(gp['edge_index'] + lstnode)
+            edge_idx.append(gp['edge_index'] + lstnode)
             self_mask.append(torch.zeros(edge_cnt).bool())
             org_mask.append(torch.ones(edge_cnt).bool())
             all_node.append(nlb)
             all_edge.append(elb)
 
             if selfloop:
-                edge_index.append(torch.range(0, node_cnt) + lstnode)
+                edge_idx.append(torch.range(0, node_cnt) + lstnode)
                 edge_cnt += node_cnt
                 self_mask.append(torch.ones(node_cnt).bool())
                 org_mask.append(torch.zeros(node_cnt).bool())
@@ -86,7 +98,7 @@ def edit_col_fn(selfloop):
             'e_ptr': torch.LongTensor(edge_ptr),
             'batch': torch.LongTensor(node_batch),
             'e_batch': torch.LongTensor(edge_batch),
-            'edge_index': torch.from_numpy(np.concatenate(edge_index, axis=-1)),
+            'edge_index': torch.from_numpy(np.concatenate(edge_idx, axis=-1)),
             "self_mask": torch.cat(self_mask, dim=0),
             'org_mask': torch.cat(org_mask, dim=0),
             'node_label': torch.cat(all_node, dim=0),
@@ -94,6 +106,12 @@ def edit_col_fn(selfloop):
             'num_nodes': lstnode,
             'num_edges': lstedge
         }
+
+        for k, v in all_pos_enc:
+            v = torch.from_numpy(np.concatenate(v, axis=0))
+            all_pos_enc[k] = v
+
+        result.update(all_pos_enc)
 
         if len(node_rxn) > 0:
             node_rxn = np.concatenate(node_rxn, axis=0)
