@@ -25,9 +25,6 @@ class BinaryGraphEditModel(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(node_dim, 1)
         )
-        if self.sparse:
-            self.atom_encoder = SparseAtomEncoder(node_dim)
-            self.bond_encoder = SparseBondEncoder(edge_dim)
 
     def make_useful_mask(
         self, edge_index, mode, real_label=None, pred_label=None,
@@ -97,10 +94,7 @@ class BinaryGraphEditModel(torch.nn.Module):
         self, graph, mask_mode, reduce_mode,
         graph_level=True, ret_loss=True
     ):
-        node_feat, edge_feat = self.base_model(
-            node_feats=graph.x, edge_feats=graph.edge_attr,
-            edge_index=graph.edge_index
-        )
+        node_feat, edge_feat = self.base_model(graph)
 
         node_logits = self.node_predictor(node_feat)
         node_logits = node_logits.squeeze(dim=-1)

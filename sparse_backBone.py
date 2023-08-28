@@ -46,6 +46,7 @@ class GINBase(torch.nn.Module):
         dropout: float = 0.7,
         residual: bool = True,
         edge_last: bool = True,
+        n_class: Optional[int] = None
     ):
         super(GINBase, self).__init__()
         if num_layers < 2:
@@ -64,13 +65,22 @@ class GINBase(torch.nn.Module):
                 ))
         self.residual = residual
         self.edge_last = edge_last
+        self.atom_encoder = SparseAtomEncoder(embedding_dim, n_class)
+        self.bond_encoder = SparseBondEncoder(embedding_dim, n_class)
 
     def forward(self, graph) -> torch.Tensor:
+        node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))
+        edge_feats = self.bond_encoder(
+            graph.edge_attr, graph.org_mask,
+            graph.self_mask, graph.get('edge_rxn', None)
+        )
+
         node_feats, edge_feats, edge_index = \
             graph.x, graph.edge_attr, graph.edge_index
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=edge_index,
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index,
             ))
 
             node_feats = self.dropout_fun(
@@ -81,17 +91,17 @@ class GINBase(torch.nn.Module):
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_feats=edge_feats, node_feats=node_feats,
-                    edge_index=edge_index
+                    edge_index=graph.edge_index
                 )
         return node_feats, edge_feats
 
 
 class GATBase(torch.nn.Module):
     def __init__(
-        self, num_layers: int = 4, num_heads: int = 4,
-        embedding_dim: int = 64, dropout: float = 0.7,
-        residual: bool = True, negative_slope: float = 0.2,
-        edge_last: bool = True, self_loop: bool = True
+        self, num_layers: int = 4, num_heads: int = 4, embedding_dim: int = 64,
+        dropout: float = 0.7, residual: bool = True, edge_last: bool = True,
+        negative_slope: float = 0.2, self_loop: bool = True,
+        n_class: Optional[int] = None
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -118,13 +128,19 @@ class GATBase(torch.nn.Module):
         self.residual = residual
         self.edge_last = edge_last
         self.add_self_loop = self_loop
+        self.atom_encoder = SparseAtomEncoder(dim, n_class)
+        self.bond_encoder = SparseBondEncoder(dim, n_class)
 
     def forward(self, graph) -> torch.Tensor:
-        node_feats, edge_feats, edge_index = \
-            graph.x, graph.edge_attr, graph.edge_index
+        node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))
+        edge_feats = self.bond_encoder(
+            graph.edge_attr, graph.org_mask,
+            graph.self_mask, graph.get('edge_rxn', None)
+        )
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=edge_index
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index
             ))
             node_feats = self.dropout_fun(
                 conv_res if layer == self.num_layers - 1
@@ -133,7 +149,7 @@ class GATBase(torch.nn.Module):
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_attr=edge_feats, x=node_feats,
-                    edge_index=edge_index
+                    edge_index=graph.edge_index
                 )
 
         return node_feats, edge_feats
