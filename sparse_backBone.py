@@ -65,16 +65,12 @@ class GINBase(torch.nn.Module):
         self.residual = residual
         self.edge_last = edge_last
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> torch.Tensor:
-        num_nodes = node_feats.shape[0]
+    def forward(self, graph) -> torch.Tensor:
+        node_feats, edge_feats, edge_index = \
+            graph.x, graph.edge_attr, graph.edge_index
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                node_feats=node_feats, edge_feats=edge_feats,
-                edge_index=edge_index, num_nodes=num_nodes
+                x=node_feats, edge_attr=edge_feats, edge_index=edge_index,
             ))
 
             node_feats = self.dropout_fun(
@@ -123,11 +119,9 @@ class GATBase(torch.nn.Module):
         self.edge_last = edge_last
         self.add_self_loop = self_loop
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, graph) -> torch.Tensor:
+        node_feats, edge_feats, edge_index = \
+            graph.x, graph.edge_attr, graph.edge_index
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=edge_index
@@ -138,7 +132,7 @@ class GATBase(torch.nn.Module):
             ) + (node_feats if self.residual else 0)
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
-                    edge_feats=edge_feats, node_feats=node_feats,
+                    edge_attr=edge_feats, x=node_feats,
                     edge_index=edge_index
                 )
 
