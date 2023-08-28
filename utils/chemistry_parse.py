@@ -229,9 +229,9 @@ def get_modified_atoms_bonds(
     for bond in reac_bonds:
         if bond not in prod_bonds:
             start, end = bond
-            if start in reac_amap_idx:
+            if start in prod_amap_idx:
                 atom_edit.add(start)
-            if end in reac_amap_idx:
+            if end in prod_amap_idx:
                 atom_edit.add(end)
 
     for atom in prod_mol.GetAtoms():
