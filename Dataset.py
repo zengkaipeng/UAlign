@@ -49,9 +49,11 @@ def edit_col_fn(selfloop):
         edge_idx, node_feat, edge_feat = [], [], []
         node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
         node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
-        self_mask, org_mask = [], []
+        self_mask, org_mask, attn_mask = [], [], []
 
         all_pos_enc = {}
+        max_node = max(x[0]['num_nodes'] for x in batch)
+
 
         for idx, data in enumerate(batch):
             if len(data) == 4:
@@ -72,6 +74,10 @@ def edit_col_fn(selfloop):
             org_mask.append(torch.ones(edge_cnt).bool())
             all_node.append(nlb)
             all_edge.append(elb)
+
+            ams = torch.zeros((max_node, max_node))
+            ams[:node_cnt, :node_cnt] = 1
+            attn_mask.append(ams.bool())
 
             if selfloop:
                 edge_idx.append(torch.range(0, node_cnt) + lstnode)
@@ -104,7 +110,8 @@ def edit_col_fn(selfloop):
             'node_label': torch.cat(all_node, dim=0),
             'edge_label': torch.cat(all_edge, dim=0),
             'num_nodes': lstnode,
-            'num_edges': lstedge
+            'num_edges': lstedge,
+            'attn_mask': torch.stack(attn_mask, dim=0)
         }
 
         for k, v in all_pos_enc:

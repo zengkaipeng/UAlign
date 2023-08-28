@@ -2,11 +2,11 @@ import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 from collections.abc import Iterable
 import torch.nn.functional as F
-
-
-
-
-
+from GATconv import MyGATConv
+from GINConv import MyGINConv
+from sparse_backBone import (
+    SparseAtomEncoder, SparseBondEncoder, SparseEdgeUpdateLayer
+)
 
 
 class MhAttnBlock(torch.nn.Module):
@@ -74,51 +74,49 @@ class SelfAttnBlock(torch.nn.Module):
 
 class MixConv(torch.nn.Module):
     def __init__(
-        self, input_dim: int, output_dim: int, heads: int = 1,
-        negative_slope: float = 0.2, residual: bool = True,
-        dropout: float = 0, attn_dim: Optional[int] = None
+        self, emb_dim: int, gnn_args: Dict[str, Any],
+        heads: int = 1, negative_slope: float = 0.2,
+        dropout: float = 0, gnn_type: str = 'gin',
+        gated: bool = False
     ):
         super(MixConv, self).__init__()
-        attn_dim = input_dim if attn_dim is None else attn_dim
-        assert attn_dim % heads == 0, 'The dim of attention input' +\
+        assert emb_dim % heads == 0, 'The dim of input' +\
             ' should be evenly divided by num of heads'
         self.attn_conv = SelfAttnBlock(
-            input_dim=attn_dim, output_dim=attn_dim // heads,
-            heads=heads, negative_slope=negative_slope, dropout=dropout
+            input_dim=emb_dim, output_dim=emb_dim // heads, heads=heads,
+            negative_slope=negative_slope, dropout=dropout
         )
-        self.gin_conv = MyGINConv(input_dim)
-        self.ff_block = torch.nn.Sequential(
-            torch.nn.Linear(input_dim + attn_dim, output_dim),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(dropout),
-            torch.nn.Linear(output_dim, output_dim),
-        )
-        self.ln1 = torch.nn.LayerNorm(input_dim)
-        self.ln2 = torch.nn.LayerNorm(input_dim)
-        self.residual = residual
+
+        if gnn_type == 'gin':
+            self.gnn_conv = MyGINConv(**gnn_args)
+        elif gnn_type == 'gat':
+            self.gnn_conv = MyGATConv(**gnn_args)
+        else:
+            raise NotImplementedError(f'Invalid gnn type {gcn}')
+        self.gated = gated
+        if gated:
+            self.update_gate = torch.nn.GRUCell(emb_dim, emb_dim)
 
     def forward(
         self, node_feat: torch.Tensor, attn_mask: torch.Tensor,
         edge_index: torch.Tensor, edge_feat: torch.Tensor,
-        num_nodes: torch.Tensor, ptr: torch.Tensor,
-        attn_input: Optional[torch.Tensor] = None
+        ptr: torch.Tensor,
     ) -> torch.Tensor:
+        conv_res = self.gnn_conv(
+            x=node_feat, edge_attr=edge_feat, edge_index=edge_index
+        )
         batch_size, max_node = attn_mask.shape[:2]
         batch_mask = self.batch_mask(ptr, max_node, batch_size)
         attn_input = self.graph2batch(
-            attn_input if attn_input is not None else node_feat,
-            batch_mask=batch_mask, batch_size=batch_size, max_node=max_node
+            node_feat=node_feat, batch_mask=batch_mask,
+            batch_size=batch_size, max_node=max_node
         )
         attn_res = self.attn_conv(attn_input, attn_mask=attn_mask)
-        gin_res = self.gin_conv(node_feat, edge_feat, edge_index, num_nodes)
-        if self.residual:
-            attn_res = attn_res + attn_input
-            gin_res = gin_res + node_feat
 
-        attn_res = self.ln1(attn_res)[batch_mask]
-        gin_res = self.ln2(gin_res)
-
-        return self.ff_block(torch.cat([gin_res, attn_res], dim=-1))
+        if self.gated:
+            return self.update_gate(attn_res[batch_mask], conv_res)
+        else:
+            return attn_res[batch_mask] + conv_res
 
     def batch_mask(
         self, ptr: torch.Tensor, max_node: int, batch_size: int
@@ -136,3 +134,29 @@ class MixConv(torch.nn.Module):
         answer = answer.to(node_feat.device)
         answer[batch_mask] = node_feat
         return answer
+
+
+class MixFormer(torch.nn.Module):
+    def __init__(
+        self, emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]],
+        dropout: float = 0, heads: int = 1, negative_slope: float = 0.2,
+        pos_enc: str = 'none', pos_args: Optional[Dict] = None,
+        n_class: Optional[int] = None
+    ):
+        super(MixFormer, self).__init__()
+
+        self.pos_enc = pos_enc
+        self.atom_encoder = SparseAtomEncoder(emb_dim, n_class)
+        self.bond_encoder = SparseBondEncoder(emb_dim, n_class)
+
+        if pos_enc == 'Lap':
+            assert pos_args is not None, 'require parameters for pos emb'
+            self.merger = torch.nn.Linear(pos_args['dim'] + emb_dim, emb_dim)
+        elif pos_enc != 'none':
+            raise NotImplementedError(f'Invalid pos enc {pos_enc}')
+
+    def transform_pos(self, x, graph):
+        if self.pos_enc == 'Lap':
+            return self.merger(torch.cat(x, graph.lap_pos_enc))
+        elif self.pos_enc != 'none':
+            raise NotImplementedError(f'Invalid pos enc {self.pos_enc}')
