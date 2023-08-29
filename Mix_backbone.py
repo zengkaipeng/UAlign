@@ -77,7 +77,7 @@ class MixConv(torch.nn.Module):
         self, emb_dim: int, gnn_args: Dict[str, Any],
         heads: int = 1, negative_slope: float = 0.2,
         dropout: float = 0, gnn_type: str = 'gin',
-        gated: bool = False
+        update_gate: str = 'add'
     ):
         super(MixConv, self).__init__()
         assert emb_dim % heads == 0, 'The dim of input' +\
@@ -87,15 +87,20 @@ class MixConv(torch.nn.Module):
             negative_slope=negative_slope, dropout=dropout
         )
 
+        assert update_gate in ['add', 'cat', 'gate'], \
+            f'Invalid update method {update_gate}'
+
         if gnn_type == 'gin':
             self.gnn_conv = MyGINConv(**gnn_args)
         elif gnn_type == 'gat':
             self.gnn_conv = MyGATConv(**gnn_args)
         else:
             raise NotImplementedError(f'Invalid gnn type {gcn}')
-        self.gated = gated
-        if gated:
+        self.update_method = update_gate
+        if self.update_method == 'gate':
             self.update_gate = torch.nn.GRUCell(emb_dim, emb_dim)
+        elif self.update_method == 'cat':
+            self.update_gate = torch.nn.Linear(emb_dim << 1, emb_dim)
 
     def forward(
         self, node_feat: torch.Tensor, attn_mask: torch.Tensor,
@@ -113,8 +118,12 @@ class MixConv(torch.nn.Module):
         )
         attn_res = self.attn_conv(attn_input, attn_mask=attn_mask)
 
-        if self.gated:
+        if self.update_method == 'gate':
             return self.update_gate(attn_res[batch_mask], conv_res)
+        elif self.update_method == 'cat':
+            return self.update_gate(torch.cat(
+                [attn_res[batch_mask], conv_res], dim=-1
+            ))
         else:
             return attn_res[batch_mask] + conv_res
 
@@ -142,7 +151,8 @@ class MixFormer(torch.nn.Module):
         dropout: float = 0, heads: int = 1, negative_slope: float = 0.2,
         pos_enc: str = 'none', pos_args: Optional[Dict] = None,
         n_class: Optional[int] = None, gnn_type: str = 'gin',
-        gated: bool = False, residual: bool = True, edge_last: bool = True
+        update_gate: str = 'add', residual: bool = True,
+        edge_last: bool = True
     ):
         super(MixFormer, self).__init__()
 
@@ -164,7 +174,7 @@ class MixFormer(torch.nn.Module):
             gnn_layer = gnn_args[i] if isinstance(gnn_args, list) else gnn_args
             self.convs.append(MixConv(
                 emb_dim=emb_dim, gnn_args=gnn_layer, heads=heads,
-                dropout=dropout, gnn_type=gnn_type, gated=gated
+                dropout=dropout, gnn_type=gnn_type, update_gate=update_gate
             ))
             if i < self.num_layers - 1 or self.edge_last:
                 self.edge_update.append(SparseEdgeUpdateLayer(
