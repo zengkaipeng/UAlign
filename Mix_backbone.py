@@ -141,13 +141,35 @@ class MixFormer(torch.nn.Module):
         self, emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]],
         dropout: float = 0, heads: int = 1, negative_slope: float = 0.2,
         pos_enc: str = 'none', pos_args: Optional[Dict] = None,
-        n_class: Optional[int] = None
+        n_class: Optional[int] = None, gnn_type: str = 'gin',
+        gated: bool = False, residual: bool = True, edge_last: bool = True
     ):
         super(MixFormer, self).__init__()
 
         self.pos_enc = pos_enc
+        self.residual = residual
         self.atom_encoder = SparseAtomEncoder(emb_dim, n_class)
         self.bond_encoder = SparseBondEncoder(emb_dim, n_class)
+
+        self.num_layers = n_layers
+        self.lns = torch.nn.ModuleList()
+        self.convs = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.edge_last = edge_last
+
+        self.dropout_fun = torch.nn.Dropout(dropout)
+
+        for i in range(self.num_layers):
+            self.lns.append(torch.nn.LayerNorm(emb_dim))
+            gnn_layer = gnn_args[i] if isinstance(gnn_args, list) else gnn_args
+            self.convs.append(MixConv(
+                emb_dim=emb_dim, gnn_args=gnn_layer, heads=heads,
+                dropout=dropout, gnn_type=gnn_type, gated=gated
+            ))
+            if i < self.num_layers - 1 or self.edge_last:
+                self.edge_update.append(SparseEdgeUpdateLayer(
+                    emb_dim, emb_dim, residual=residual
+                ))
 
         if pos_enc == 'Lap':
             assert pos_args is not None, 'require parameters for pos emb'
@@ -157,6 +179,29 @@ class MixFormer(torch.nn.Module):
 
     def transform_pos(self, x, graph):
         if self.pos_enc == 'Lap':
-            return self.merger(torch.cat(x, graph.lap_pos_enc))
+            return self.merger(torch.cat(x, graph.lap_pos_enc)) + x
         elif self.pos_enc != 'none':
             raise NotImplementedError(f'Invalid pos enc {self.pos_enc}')
+
+    def forward(self, graph):
+        node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))
+        edge_feats = self.bond_encoder(
+            graph.edge_attr, graph.org_mask,
+            graph.self_mask, graph.get('edge_rxn', None)
+        )
+
+        for i in range(self.num_layers):
+            conv_res = self.convs[i](
+                node_feat=node_feats, edge_feat=edge_feats, ptr=graph.ptr,
+                attn_mask=graph.attn_mask, edge_index=graph.edge_index
+            ) + (node_feats if self.residual else 0)
+
+            node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
+
+            if i < self.num_layers - 1 or self.edge_last:
+                edge_feats = self.edge_update[i](
+                    edge_attr=edge_feats, x=node_feats,
+                    edge_index=graph.edge_index
+                )
+
+
