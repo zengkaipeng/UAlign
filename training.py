@@ -27,9 +27,8 @@ def train_sparse_edit(
     for graph in tqdm(loader) if verbose else loader:
         graph = graph.to(device)
 
-        node_pred, edge_pred, loss_node, loss_edge = model(
-            graph, mode, reduction, graph_level, ret_loss=True
-        )
+        node_pred, edge_pred, useful_mask, loss_node, loss_edge = \
+            model(graph, mode, reduction, graph_level, ret_loss=True)
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()
@@ -45,25 +44,26 @@ def train_sparse_edit(
 
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
-    node_cover, node_fit, edge_fit, all_cov, all_fit, tot = [0] * 6
+    node_cov, node_fit, edge_fit, edge_cov, all_cov, all_fit, tot = [0] * 7
     for graph in (tqdm(loader) if verbose else loader):
         graph = graph.to(device)
         with torch.no_grad():
-            node_pred, edge_pred = model(
+            node_pred, edge_pred, useful_mask = model(
                 graph, mask_node='inference', ret_loss=False
             )
+        batch_size = graph.batch.max().item() + 1
 
         metrics = evaluate_sparse(
-            node_res=node_res, edge_res=edge_res, e_ptr=e_ptr,
-            e_labels=torch.LongTensor(e_answer),
-            node_ptr=graphs.ptr.tolist(), act_nodes=act_nodes
+            node_pred, edge_pred, graph.batch, graph.e_batch[useful_mask],
+            graph.node_label, graph.edge_label[useful_mask], batch_size
         )
 
-        node_cover += metrics[0]
+        node_cov += metrics[0]
         node_fit += metrics[1]
-        edge_fit += metrics[2]
-        all_fit += metrics[3]
+        edge_cov += metrics[2]
+        edge_fit += metrics[3]
         all_cov += metrics[4]
-        tot += metrics[5]
-    return node_cover / tot, node_fit / tot, edge_fit / tot, \
-        all_cov / tot, all_fit / tot
+        all_fit += metrics[5]
+        tot += metrics[6]
+    return node_co / tot, node_fit / tot, edge_cov / tot, \
+        edge_fit / tot, all_cov / tot, all_fit / tot

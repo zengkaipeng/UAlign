@@ -121,38 +121,54 @@ class BinaryGraphEditModel(torch.nn.Module):
         if ret_loss:
             n_loss, e_loss = self.calc_loss(
                 node_logits=node_logits, edge_logits=edge_logits,
-                node_label=graph.node_label, edge_label=graph.edge_label,
-                reduction=reduce_mode, graph_level=graph_level,
-                node_batch=graph.node_batch, edge_batch=graph.edge_batch
+                node_label=graph.node_label, node_batch=graph.batch,
+                edge_label=graph.edge_label[useful_mask],
+                edge_batch=graph.e_batch[useful_mask],
+                reduction=reduce_mode, graph_level=graph_level
             )
-            return node_pred, edge_pred, n_loss, e_loss
+            return node_pred, edge_pred, useful_mask, n_loss, e_loss
         else:
-            return node_pred, edge_pred
+            return node_pred, edge_pred, useful_mask
 
 
-# def evaluate_sparse(node_res, edge_res, e_labels, node_ptr, e_ptr, act_nodes):
-#     node_cover, node_fit, edge_fit, all_fit, all_cover = 0, 0, 0, 0, 0
-#     node_res = node_res.cpu().argmax(dim=-1)
-#     if edge_res is not None:
-#         edge_res = edge_res.cpu().argmax(dim=-1)
-#     for idx, a_node in enumerate(act_nodes):
-#         t_node_res = node_res[node_ptr[idx]: node_ptr[idx + 1]] == 1
-#         real_nodes = torch.zeros_like(t_node_res, dtype=bool)
-#         real_nodes[a_node] = True
-#         inters = torch.logical_and(real_nodes, t_node_res)
-#         nf = torch.all(real_nodes == t_node_res).item()
-#         nc = torch.all(real_nodes == inters).item()
+def make_ptr_from_batch(batch, batch_size=None):
+    if batch_size is None:
+        batch_size = batch.max().item() + 1
 
-#         if edge_res is not None:
-#             t_edge_res = edge_res[e_ptr[idx]: e_ptr[idx + 1]]
-#             t_edge_labels = e_labels[e_ptr[idx]: e_ptr[idx + 1]]
-#             ef = torch.all(t_edge_res == t_edge_labels).item()
-#         else:
-#             ef = True
+    ptr = torch.zeros(batch_size).to(batch.device)
+    ptr.scatter_add_(dim=0, src=torch.ones_like(batch), index=batch)
+    ptr = torch.cat([torch.Tensor([0]).to(batch.device), ptr], dim=0)
+    return ptr
 
-#         node_fit += nf
-#         node_cover += nc
-#         edge_fit += ef
-#         all_fit += (nf & ef)
-#         all_cover += (nc & ef)
-#     return node_cover, node_fit, edge_fit, all_fit, all_cover, len(act_nodes)
+
+def evaluate_sparse(
+    node_pred, edge_pred, node_batch, edge_batch,
+    node_label, edge_label, batch_size
+):
+    node_cover, node_fit, edge_fit, edge_cover, all_fit, all_cover = [0] * 6
+    node_ptr = make_ptr_from_batch(node_batch, batch_size)
+    if edge_batch.numel() > 0:
+        edge_ptr = make_ptr_from_batch(edge_batch, batch_size)
+    for idx in range(batch_size):
+        t_node_res = node_pred[node_ptr[idx]: node_ptr[idx + 1]] > 0
+        real_nodes = node_label[node_ptr[idx]: node_ptr[idx + 1]] > 0
+        inters = torch.logical_and(t_node_res, real_nodes)
+        nf = torch.all(real_nodes == t_node_res).item()
+        nc = torch.all(real_nodes == inters).item()
+
+        if edge_batch.numel() > 0:
+            t_edge_res = edge_pred[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
+            real_edges = edge_label[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
+            e_inters = torch.logical_and(t_edge_res, real_edges)
+            ef = torch.all(t_edge_res == real_edges).item()
+            ec = torch.all(real_edges == e_inters).item()
+        else:
+            ef = ec = True
+
+        node_fit += nf
+        node_cover += nc
+        edge_fit += ef
+        edge_cover += ec
+        all_fit += (nf & ef)
+        all_cover += (nc & ec)
+    return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
