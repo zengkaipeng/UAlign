@@ -72,18 +72,21 @@ class BinaryGraphEditModel(torch.nn.Module):
             assert node_batch is not None, 'require node_batch'
             assert edge_batch is not None, 'require edge_batch'
             max_node_batch = node_batch.max().item() + 1
-            max_edge_batch = edge_batch.max().item() + 1
             node_loss = torch.zeros(max_node_batch).to(node_logits)
-            edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
             node_loss_src = binary_cross_entropy_with_logits(
                 node_logits, node_label, reduction='none'
             )
-            edge_loss_src = binary_cross_entropy_with_logits(
-                edge_logits, edge_label, reduction='none'
-            )
-
             node_loss.scatter_add_(0, node_batch, node_loss_src)
-            edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
+
+            if edge_batch.numel() > 0:
+                max_edge_batch = edge_batch.max().item() + 1
+                edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
+                edge_loss_src = binary_cross_entropy_with_logits(
+                    edge_logits, edge_label, reduction='none'
+                )
+                edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
+            else:
+                edge_loss = torch.Tensor([0]).to(node_loss)
 
             if reduction == 'mean':
                 return node_loss.mean(), edge_loss.mean()
@@ -91,7 +94,7 @@ class BinaryGraphEditModel(torch.nn.Module):
                 return node_loss.sum(), edge_loss.sum()
 
     def forward(
-        self, graph, mask_mode, reduce_mode,
+        self, graph, mask_mode, reduce_mode='mean',
         graph_level=True, ret_loss=True
     ):
         node_feat, edge_feat = self.base_model(graph)
@@ -116,7 +119,12 @@ class BinaryGraphEditModel(torch.nn.Module):
         edge_pred[edge_pred <= 0] = 0
 
         if ret_loss:
-            n_loss, e_loss = self.calc_loss()
+            n_loss, e_loss = self.calc_loss(
+                node_logits=node_logits, edge_logits=edge_logits,
+                node_label=graph.node_label, edge_label=graph.edge_label,
+                reduction=reduce_mode, graph_level=graph_level,
+                node_batch=graph.node_batch, edge_batch=graph.edge_batch
+            )
             return node_pred, edge_pred, n_loss, e_loss
         else:
             return node_pred, edge_pred
