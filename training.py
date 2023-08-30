@@ -64,6 +64,6 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         edge_fit += metrics[3]
         all_cov += metrics[4]
         all_fit += metrics[5]
-        tot += metrics[6]
+        tot += batch_size
     return node_co / tot, node_fit / tot, edge_cov / tot, \
         edge_fit / tot, all_cov / tot, all_fit / tot
