@@ -74,16 +74,16 @@ class SelfAttnBlock(torch.nn.Module):
 
 class MixConv(torch.nn.Module):
     def __init__(
-        self, emb_dim: int, gnn_args: Dict[str, Any],
-        heads: int = 1, negative_slope: float = 0.2,
-        dropout: float = 0, gnn_type: str = 'gin',
-        update_gate: str = 'add'
+        self, emb_dim: int, gnn_args: Dict[str, Any], heads: int = 1,
+        negative_slope: float = 0.2, dropout: float = 0, gnn_type: str = 'gin',
+        update_gate: str = 'add', attn_dim: Optional[int] = None
     ):
         super(MixConv, self).__init__()
+        attn_dim = attn_dim if attn_dim is not None else emb_dim
         assert emb_dim % heads == 0, 'The dim of input' +\
             ' should be evenly divided by num of heads'
         self.attn_conv = SelfAttnBlock(
-            input_dim=emb_dim, output_dim=emb_dim // heads, heads=heads,
+            input_dim=attn_dim, output_dim=emb_dim // heads, heads=heads,
             negative_slope=negative_slope, dropout=dropout
         )
 
@@ -105,7 +105,7 @@ class MixConv(torch.nn.Module):
     def forward(
         self, node_feat: torch.Tensor, attn_mask: torch.Tensor,
         edge_index: torch.Tensor, edge_feat: torch.Tensor,
-        ptr: torch.Tensor,
+        ptr: torch.Tensor, attn_input: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         conv_res = self.gnn_conv(
             x=node_feat, edge_attr=edge_feat, edge_index=edge_index
@@ -113,8 +113,8 @@ class MixConv(torch.nn.Module):
         batch_size, max_node = attn_mask.shape[:2]
         batch_mask = self.batch_mask(ptr, max_node, batch_size)
         attn_input = self.graph2batch(
-            node_feat=node_feat, batch_mask=batch_mask,
-            batch_size=batch_size, max_node=max_node
+            node_feat=node_feat if attn_input is None else attn_input,
+            batch_mask=batch_mask, batch_size=batch_size, max_node=max_node
         )
         attn_res = self.attn_conv(attn_input, attn_mask=attn_mask)
 
@@ -172,26 +172,21 @@ class MixFormer(torch.nn.Module):
         for i in range(self.num_layers):
             self.lns.append(torch.nn.LayerNorm(emb_dim))
             gnn_layer = gnn_args[i] if isinstance(gnn_args, list) else gnn_args
-            self.convs.append(MixConv(
-                emb_dim=emb_dim, gnn_args=gnn_layer, heads=heads,
-                dropout=dropout, gnn_type=gnn_type, update_gate=update_gate
-            ))
+            if i == 0 and self.pos_enc == 'Lap':
+                self.convs.append(MixConv(
+                    emb_dim=emb_dim, gnn_args=gnn_layer,  dropout=dropout,
+                    gnn_type=gnn_type, update_gate=update_gate, heads=heads,
+                    attn_dim=emb_dim + pos_args['dim']
+                ))
+            else:
+                self.convs.append(MixConv(
+                    emb_dim=emb_dim, gnn_args=gnn_layer, heads=heads,
+                    dropout=dropout, gnn_type=gnn_type, update_gate=update_gate
+                ))
             if i < self.num_layers - 1 or self.edge_last:
                 self.edge_update.append(SparseEdgeUpdateLayer(
                     emb_dim, emb_dim, residual=residual
                 ))
-
-        if pos_enc == 'Lap':
-            assert pos_args is not None, 'require parameters for pos emb'
-            self.merger = torch.nn.Linear(pos_args['dim'] + emb_dim, emb_dim)
-        elif pos_enc != 'none':
-            raise NotImplementedError(f'Invalid pos enc {pos_enc}')
-
-    def transform_pos(self, x, graph):
-        if self.pos_enc == 'Lap':
-            return self.merger(torch.cat(x, graph.lap_pos_enc)) + x
-        elif self.pos_enc != 'none':
-            raise NotImplementedError(f'Invalid pos enc {self.pos_enc}')
 
     def forward(self, graph):
         node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))
@@ -200,10 +195,16 @@ class MixFormer(torch.nn.Module):
             graph.self_mask, graph.get('edge_rxn', None)
         )
 
+        if self.pos_enc == 'Lap':
+            attn_input = torch.cat([node_feats, graph.lap_pos_enc], dim=-1)
+        else:
+            attn_input = None
+
         for i in range(self.num_layers):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats, ptr=graph.ptr,
-                attn_mask=graph.attn_mask, edge_index=graph.edge_index
+                attn_mask=graph.attn_mask, edge_index=graph.edge_index,
+                attn_input=attn_input
             ) + (node_feats if self.residual else 0)
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
@@ -213,5 +214,8 @@ class MixFormer(torch.nn.Module):
                     edge_attr=edge_feats, x=node_feats,
                     edge_index=graph.edge_index
                 )
+
+            # remove pos enc in layers not the first
+            attn_input = None
 
         return node_feats, edge_feats
