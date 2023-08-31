@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from GATconv import MyGATConv
 from GINConv import MyGINConv
+from GCNConv import MyGCNConv
 import numpy as np
 
 
@@ -83,10 +84,63 @@ class GINBase(torch.nn.Module):
                 edge_index=graph.edge_index,
             ))
 
-            node_feats = self.dropout_fun(
-                conv_res if layer == self.num_layers - 1
-                else torch.relu(conv_res)
-            ) + (node_feats if self.residual else 0)
+            node_feats = self.dropout_fun(torch.relu(conv_res)) \
+                + (node_feats if self.residual else 0)
+
+            if self.edge_last or layer < self.num_layers - 1:
+                edge_feats = self.edge_update[layer](
+                    edge_feats=edge_feats, node_feats=node_feats,
+                    edge_index=graph.edge_index
+                )
+        return node_feats, edge_feats
+
+
+class GCNBase(torch.nn.Module):
+    def __init__(
+        self,  num_layers: int = 4,
+        embedding_dim: int = 64,
+        dropout: float = 0.7,
+        residual: bool = True,
+        edge_last: bool = True,
+        n_class: Optional[int] = None
+    ):
+        super(GCNBase, self).__init__()
+        if num_layers < 2:
+            raise ValueError("Number of GNN layers must be greater than 1.")
+        self.convs = torch.nn.ModuleList()
+        self.batch_norms = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers = num_layers
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        for layer in range(self.num_layers):
+            self.convs.append(MyGCNConv(embedding_dim))
+            self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
+            if edge_last or layer < self.num_layers - 1:
+                self.edge_update.append(SparseEdgeUpdateLayer(
+                    embedding_dim, embedding_dim, residual=residual
+                ))
+        self.residual = residual
+        self.edge_last = edge_last
+        self.atom_encoder = SparseAtomEncoder(embedding_dim, n_class)
+        self.bond_encoder = SparseBondEncoder(embedding_dim, n_class)
+
+    def forward(self, graph) -> torch.Tensor:
+        node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))
+        edge_feats = self.bond_encoder(
+            graph.edge_attr, graph.org_mask,
+            graph.self_mask, graph.get('edge_rxn', None)
+        )
+
+        node_feats, edge_feats, edge_index = \
+            graph.x, graph.edge_attr, graph.edge_index
+        for layer in range(self.num_layers):
+            conv_res = self.batch_norms[layer](self.convs[layer](
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index,
+            ))
+
+            node_feats = self.dropout_fun(conv_res) \
+                + (node_feats if self.residual else 0)
 
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
@@ -142,10 +196,8 @@ class GATBase(torch.nn.Module):
                 x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index
             ))
-            node_feats = self.dropout_fun(
-                conv_res if layer == self.num_layers - 1
-                else torch.relu(conv_res)
-            ) + (node_feats if self.residual else 0)
+            node_feats = self.dropout_fun(torch.relu(conv_res)) \
+                + (node_feats if self.residual else 0)
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
                     edge_attr=edge_feats, x=node_feats,

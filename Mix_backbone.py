@@ -4,6 +4,7 @@ from collections.abc import Iterable
 import torch.nn.functional as F
 from GATconv import MyGATConv
 from GINConv import MyGINConv
+from GCNConv import MyGCNConv
 from sparse_backBone import (
     SparseAtomEncoder, SparseBondEncoder, SparseEdgeUpdateLayer
 )
@@ -94,6 +95,8 @@ class MixConv(torch.nn.Module):
             self.gnn_conv = MyGINConv(**gnn_args)
         elif gnn_type == 'gat':
             self.gnn_conv = MyGATConv(**gnn_args)
+        elif gnn_type == 'gcn':
+            self.gnn_conv = MyGCNConv(**gnn_args)
         else:
             raise NotImplementedError(f'Invalid gnn type {gcn}')
         self.update_method = update_gate

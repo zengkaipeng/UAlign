@@ -6,33 +6,23 @@ import time
 
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import GraphEditModel, get_collate_fn
+from Mix_backbone import MixFormer
+from Dataset import GraphEditModel, edit_col_fn
 from training import train_sparse_edit, eval_sparse_edit
 from data_utils import (
-    create_sparse_dataset, load_data, fix_seed,
+    create_edit_dataset, load_data, fix_seed,
     check_early_stop
 )
 
 
 def create_log_model(args):
+    if args.pos_enc == 'Lap' and args.lap_enc_dim <= 0:
+        raise ValueError('The dim of positional enc should be positive')
+
     timestamp = time.time()
-    log_dir = [
-        f'dim_{args.dim}', f'n_layer_{args.n_layer}', f'seed_{args.seed}',
-        f'dropout_{args.dropout}', f'bs_{args.bs}', f'lr_{args.lr}',
-        f'mode_{args.mode}'
-    ]
-    if args.kekulize:
-        log_dir.append('kekulize')
-
-    if args.backbone == 'GAT':
-        if args.add_self_loop:
-            log_dir.append('self_loop')
-        log_dir.append(f'heads_{args.heads}')
-
     detail_log_folder = os.path.join(
-        args.base_log,
-        'with_class' if args.use_class else 'wo_class',
-        args.backbone, '-'.join(log_dir)
+        args.base_log, 'with_class' if args.use_class else 'wo_class',
+        ('Gtrans' if args.transformers else '') + args.gnn_type
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
@@ -43,6 +33,7 @@ def create_log_model(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    # public setting
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
@@ -52,30 +43,8 @@ if __name__ == '__main__':
         help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
-        '--n_layer', default=4, type=int,
+        '--n_layer', default=5, type=int,
         help='the layer of backbones'
-    )
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN'],
-        help='type of gnn backbone', required=True
-    )
-    parser.add_argument(
-        '--dropout', type=float, default=0.1,
-        help='the dropout rate, useful for all backbone'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--mode', choices=['together', 'original'], type=str,
-        help='the training mode, together will extend the '
-        'training data using the node result',
-        default='together'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,
@@ -111,18 +80,47 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--base_log', default='log_edit/new_loss', type=str,
-        help='the base dir of logging'
+        '--gnn_type', type=str, choices=['GAT', 'GIN'],
+        help='type of gnn backbone', required=True
     )
     parser.add_argument(
-        '--add_self_loop', action='store_true',
-        help='explictly add self loop in the graph data'
-        ' only useful for gat'
+        '--dropout', type=float, default=0.1,
+        help='the dropout rate, useful for all backbone'
+    )
+    parser.add_argument(
+        '--mode', choices=['all', 'org', 'merge'], type=str,
+        help='the training mode for synthon prediction',
+        default='org'
+    )
+    parser.add_argument(
+        '--base_log', default='log_edit', type=str,
+        help='the base dir of logging'
+    )
+
+    # GAT & Gtrans setting
+    parser.add_argument(
+        '--transformer', action='store_true',
+        help='use graph transformer or not'
+    )
+    parser.add_argument(
+        '--heads', default=4, type=int,
+        help='the number of heads for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--negative_slope', type=float, default=0.2,
+        help='negative slope for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--pos_enc', choices=['none', 'Lap'], type=str,
+        help='the method to add graph positional encoding'
+    )
+
+    parser.add_argument(
+        '--lap_pos_dim', type=int, default=5,
+        help='the dim of lap pos encoding'
     )
 
     args = parser.parse_args()
-    if args.backbone == 'GIN':
-        args.add_self_loop = False
     print(args)
 
     log_dir, model_dir = create_log_model(args)
@@ -138,22 +136,21 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    train_set = create_sparse_dataset(
+    train_set = create_edit_dataset(
         train_rec, train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None
     )
 
-    valid_set = create_sparse_dataset(
+    valid_set = create_edit_dataset(
         val_rec, val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None
     )
-    test_set = create_sparse_dataset(
+    test_set = create_edit_dataset(
         test_rec, test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None
     )
 
-    col_fn = get_collate_fn(sparse=True, self_loop=args.add_self_loop)
-
+    col_fn = edit_col_fn(self_loop=args.gnn_type == 'GAT')
     train_loader = DataLoader(
         train_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=True
@@ -167,18 +164,20 @@ if __name__ == '__main__':
         batch_size=args.bs, shuffle=False
     )
 
-    if args.backbone == 'GIN':
-        GNN = GINBase(
-            num_layers=args.n_layer, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=False, residual=True
-        )
+    if args.transformers:
+        pass
     else:
-        GNN = GATBase(
-            num_layers=args.n_layer, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=False,
-            residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads, self_loop=not args.add_self_loop
-        )
+        if args.backbone == 'GIN':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, edge_last=True, residual=True
+            )
+        else:
+            GNN = GATBase(
+                num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
+                embedding_dim=args.dim, edge_last=True, residual=True,
+                negative_slope=args.negative_slope, num_heads=args.heads
+            )
 
     model = GraphEditModel(
         GNN, True, args.dim, args.dim,
