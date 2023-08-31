@@ -30,8 +30,8 @@ class BinaryGraphEditModel(torch.nn.Module):
         self, edge_index, mode, real_label=None, pred_label=None,
     ):
         def f(src, dst, lb):
-            xa = torch.index_select(lb, dim=0, src) == 1
-            xb = torch.index_select(lb, dim=0, dst) == 1
+            xa = torch.index_select(lb, dim=0, src) > 0
+            xb = torch.index_select(lb, dim=0, dst) > 0
             return torch.logical_and(xa, xb)
 
         assert mode in ['inference', 'all', 'merge', 'org'], \
@@ -43,14 +43,14 @@ class BinaryGraphEditModel(torch.nn.Module):
         elif mode == 'merge':
             assert real_label is not None, f'Missing real for mode {mode}'
             assert pred_label is not None, f'Missing pred for mode {mode}'
-            mix_label = torch.logical_or(real_label == 1, pred_label == 1)
+            mix_label = torch.logical_or(real_label > 0, pred_label > 0)
             useful_mask = f(src, dst, mix_label)
         elif mode == 'org':
             assert real_label is not None, f'Missing real for mode {mode}'
-            useful_mask = f(src, dst, real_label == 1)
+            useful_mask = f(src, dst, real_label > 0)
         else:
             assert pred_label is not None, f'Missing pred for mode {mode}'
-            useful_mask = f(src, dst, pred_label == 1)
+            useful_mask = f(src, dst, pred_label > 0)
         return useful_mask
 
     def calc_loss(

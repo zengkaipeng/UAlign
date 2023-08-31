@@ -5,7 +5,7 @@ import os
 import time
 
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase
+from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
 from Dataset import GraphEditModel, edit_col_fn
 from training import train_sparse_edit, eval_sparse_edit
@@ -22,7 +22,7 @@ def create_log_model(args):
     timestamp = time.time()
     detail_log_folder = os.path.join(
         args.base_log, 'with_class' if args.use_class else 'wo_class',
-        ('Gtrans' if args.transformers else '') + args.gnn_type
+        ('Gtrans' if args.transformer else '') + args.gnn_type
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
@@ -80,7 +80,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--gnn_type', type=str, choices=['GAT', 'GIN'],
+        '--gnn_type', type=str, choices=['gat', 'gin', 'gcn'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -118,6 +118,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--lap_pos_dim', type=int, default=5,
         help='the dim of lap pos encoding'
+    )
+    parser.add_argument(
+        '--update_gate', choices=['cat', 'add', 'gate'], default='add',
+        help='the update method for mixformer', type=str,
     )
 
     args = parser.parse_args()
@@ -164,20 +168,50 @@ if __name__ == '__main__':
         batch_size=args.bs, shuffle=False
     )
 
-    if args.transformers:
-        pass
-    else:
-        if args.backbone == 'GIN':
-            GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, edge_last=True, residual=True
-            )
+    if args.transformer:
+        if args.pos_enc == 'Lap':
+            pos_args = {'dim': args.lap_enc_dim}
         else:
+            pos_args = None
+
+        if args.gnn_type == 'gcn':
+            gnn_args = {'emb_dim': args.dim}
+        elif args.gnn_type == 'gin':
+            gnn_args = {'embedding_dim': args.dim}
+        elif args.backbone == 'gat':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'negative_slope': args.negative_slope, 
+                'dropout': args.dropout, 'add_self_loop': False,
+                'edge_dim': args.dim, 'heads': args.heads
+            }
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+
+        GNN = MixFormer(emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]])
+    else:
+        if args.backbone == 'gin':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=args.dropout, residual=True,
+                embedding_dim=args.dim, edge_last=True, 
+                n_class=10 if args.use_class else None
+            )
+        elif args.backbone == 'gat':
             GNN = GATBase(
                 num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
                 embedding_dim=args.dim, edge_last=True, residual=True,
-                negative_slope=args.negative_slope, num_heads=args.heads
+                negative_slope=args.negative_slope, num_heads=args.heads,
+                n_class=10 if args.use_class else None
             )
+        elif args.backbone == 'gcn':
+            GNN = GCNBase(
+                num_layers=args.n_layer, dropout=args.dropout, residual=True,
+                embedding_dim=args.dim, edge_last=True, 
+                n_class=10 if args.use_class else None
+            )
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
 
     model = GraphEditModel(
         GNN, True, args.dim, args.dim,
