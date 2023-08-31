@@ -87,11 +87,7 @@ if __name__ == '__main__':
         '--dropout', type=float, default=0.1,
         help='the dropout rate, useful for all backbone'
     )
-    parser.add_argument(
-        '--mode', choices=['all', 'org', 'merge'], type=str,
-        help='the training mode for synthon prediction',
-        default='org'
-    )
+
     parser.add_argument(
         '--base_log', default='log_edit', type=str,
         help='the base dir of logging'
@@ -122,6 +118,21 @@ if __name__ == '__main__':
     parser.add_argument(
         '--update_gate', choices=['cat', 'add', 'gate'], default='add',
         help='the update method for mixformer', type=str,
+    )
+
+    # training
+    parser.add_argument(
+        '--mode', choices=['all', 'org', 'merge'], type=str,
+        help='the training mode for synthon prediction',
+        default='org'
+    )
+    parser.add_argument(
+        '--reduction', choices=['sum', 'mean'], type=str,
+        default='mean', help='the method to reduce loss'
+    )
+    parser.add_argument(
+        '--graph_level', action='store_true',
+        help='calc loss in graph level'
     )
 
     args = parser.parse_args()
@@ -218,10 +229,7 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = GraphEditModel(
-        GNN, True, args.dim, args.dim,
-        4 if args.kekulize else 5
-    ).to(device)
+    model = GraphEditModel(GNN, args.dim, args.dim, args.dropout).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None
@@ -237,8 +245,9 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device,
-            verbose=True, warmup=(ep == 0), mode=args.mode
+            train_loader, model, optimizer, device, mode=args.mode,
+            verbose=True, warmup=(ep == 0), reduction=args.reduction,
+            graph_level=args.graph_level
         )
         log_info['train_loss'].append({
             'node': node_loss, 'edge': edge_loss
@@ -250,8 +259,8 @@ if __name__ == '__main__':
         )
         log_info['valid_metric'].append({
             'node_cover': valid_results[0], 'node_fit': valid_results[1],
-            'edge_fit': valid_results[2], 'all_cover': valid_results[3],
-            'all_fit': valid_results[4]
+            'edge_cover': valid_results[2], 'edge_fit': valid_results[3]
+            'all_cover': valid_results[4], 'all_fit': valid_results[5]
         })
 
         print('[VALID]', log_info['valid_metric'][-1])
@@ -262,16 +271,17 @@ if __name__ == '__main__':
 
         log_info['test_metric'].append({
             'node_cover': test_results[0], 'node_fit': test_results[1],
-            'edge_fit': test_results[2], 'all_cover': test_results[3],
-            'all_fit': test_results[4]
+            'edge_cover': test_results[2], 'edge_fit': test_results[3],
+            'all_cover': test_results[4], 'all_fit': test_results[5]
         })
 
         print('[TEST]', log_info['test_metric'][-1])
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
-        if best_perf is None or valid_results[3] > best_perf:
-            best_perf, best_ep = valid_results[3], ep
+
+        if best_perf is None or valid_results[4] > best_perf:
+            best_perf, best_ep = valid_results[4], ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 5 and ep > max(20, args.early_stop):
@@ -279,9 +289,14 @@ if __name__ == '__main__':
                 x['node_cover'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
-            ef = [
+            ec = [
+                x['edge_cover'] for x in
+                log_info['valid_metric'][-args.early_stop:]
+            ]
+            ac = [
                 x['all_cover'] for x in
                 log_info['valid_metric'][-args.early_stop:]
             ]
-            if check_early_stop(nc, ef):
+
+            if check_early_stop(nc, ec, nc):
                 break

@@ -16,8 +16,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def train_sparse_edit(
-    loader, model, optimizer, device, mode, empty_type=0,
-    verbose=True, warmup=True, reduction='mean', graph_level=True
+    loader, model, optimizer, device, mode, verbose=True, 
+    warmup=True, reduction='mean', graph_level=True
 ):
     model = model.train()
     node_loss, edge_loss = [], []
