@@ -181,20 +181,25 @@ if __name__ == '__main__':
         elif args.backbone == 'gat':
             gnn_args = {
                 'in_channels': args.dim, 'out_channels': args.dim,
-                'negative_slope': args.negative_slope, 
+                'negative_slope': args.negative_slope,
                 'dropout': args.dropout, 'add_self_loop': False,
                 'edge_dim': args.dim, 'heads': args.heads
             }
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-
-        GNN = MixFormer(emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]])
+        GNN = MixFormer(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            dropout=args.dropout, heads=args.heads, pos_enc=args.pos_enc,
+            negative_slope=args.negative_slope, pos_args=pos_args,
+            n_class=10 if args.use_class else None, edge_last=True,
+            residual=True, update_gate=args.update_gate,
+        )
     else:
         if args.backbone == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True, 
+                embedding_dim=args.dim, edge_last=True,
                 n_class=10 if args.use_class else None
             )
         elif args.backbone == 'gat':
@@ -207,7 +212,7 @@ if __name__ == '__main__':
         elif args.backbone == 'gcn':
             GNN = GCNBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True, 
+                embedding_dim=args.dim, edge_last=True,
                 n_class=10 if args.use_class else None
             )
         else:
