@@ -30,8 +30,8 @@ class BinaryGraphEditModel(torch.nn.Module):
         self, edge_index, mode, real_label=None, pred_label=None,
     ):
         def f(src, dst, lb):
-            xa = torch.index_select(lb, dim=0, src) > 0
-            xb = torch.index_select(lb, dim=0, dst) > 0
+            xa = torch.index_select(lb, dim=0, index=src) > 0
+            xb = torch.index_select(lb, dim=0, index=dst) > 0
             return torch.logical_and(xa, xb)
 
         assert mode in ['inference', 'all', 'merge', 'org'], \

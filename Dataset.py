@@ -7,7 +7,7 @@ import torch_geometric
 class BinaryEditDataset(torch.utils.data.Dataset):
     def __init__(
         self, graphs: List[Dict], activate_nodes: List[List[int]],
-        changed_edges: List[List[Union(List[int], Tuple[int])]],
+        changed_edges: List[List[Union[List[int], Tuple[int]]]],
         rxn_class: Optional[List[int]] = None
     ):
         self.graphs = graphs

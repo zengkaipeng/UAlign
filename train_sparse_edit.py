@@ -7,7 +7,8 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
-from Dataset import GraphEditModel, edit_col_fn
+from Dataset import edit_col_fn
+from model import BinaryGraphEditModel
 from training import train_sparse_edit, eval_sparse_edit
 from data_utils import (
     create_edit_dataset, load_data, fix_seed,
@@ -259,7 +260,7 @@ if __name__ == '__main__':
         )
         log_info['valid_metric'].append({
             'node_cover': valid_results[0], 'node_fit': valid_results[1],
-            'edge_cover': valid_results[2], 'edge_fit': valid_results[3]
+            'edge_cover': valid_results[2], 'edge_fit': valid_results[3],
             'all_cover': valid_results[4], 'all_fit': valid_results[5]
         })
 
