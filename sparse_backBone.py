@@ -76,8 +76,6 @@ class GINBase(torch.nn.Module):
             graph.self_mask, graph.get('edge_rxn', None)
         )
 
-        node_feats, edge_feats, edge_index = \
-            graph.x, graph.edge_attr, graph.edge_index
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
@@ -131,14 +129,11 @@ class GCNBase(torch.nn.Module):
             graph.self_mask, graph.get('edge_rxn', None)
         )
 
-        node_feats, edge_feats, edge_index = \
-            graph.x, graph.edge_attr, graph.edge_index
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index
             ))
-
             node_feats = self.dropout_fun(conv_res) \
                 + (node_feats if self.residual else 0)
 

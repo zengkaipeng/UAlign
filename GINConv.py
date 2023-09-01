@@ -18,11 +18,11 @@ class MyGINConv(torch.nn.Module):
     ) -> torch.Tensor:
         num_nodes = x.shape[0]
         message_node = torch.index_select(input=x, dim=0, index=edge_index[1])
-        message = torch.relu(message_node + edge_feats)
+        message = torch.relu(message_node + edge_attr)
         dim = message.shape[-1]
 
         message_reduce = torch.zeros(num_nodes, dim).to(message)
         index = edge_index[0].unsqueeze(-1).repeat(1, dim)
         message_reduce.scatter_add_(dim=0, index=index, src=message)
 
-        return self.mlp((1 + self.eps) * x + message_reduce)
+        return self.mlp((1 + self.eps) * x + torch.relu(message_reduce))
