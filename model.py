@@ -141,9 +141,10 @@ def make_ptr_from_batch(batch, batch_size=None):
     if batch_size is None:
         batch_size = batch.max().item() + 1
 
-    ptr = torch.zeros(batch_size).to(batch.device)
+    ptr = torch.zeros(batch_size).to(batch)
     ptr.scatter_add_(dim=0, src=torch.ones_like(batch), index=batch)
     ptr = torch.cat([torch.Tensor([0]).to(batch.device), ptr], dim=0)
+    ptr = torch.cumsum(ptr, dim=0)
     return ptr
 
 
