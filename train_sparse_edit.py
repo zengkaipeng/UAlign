@@ -23,7 +23,7 @@ def create_log_model(args):
     timestamp = time.time()
     detail_log_folder = os.path.join(
         args.base_log, 'with_class' if args.use_class else 'wo_class',
-        ('Gtrans' if args.transformer else '') + args.gnn_type
+        ('Gtrans_' if args.transformer else '') + args.gnn_type
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
@@ -197,7 +197,7 @@ if __name__ == '__main__':
             gnn_args = {'emb_dim': args.dim}
         elif args.gnn_type == 'gin':
             gnn_args = {'embedding_dim': args.dim}
-        elif args.backbone == 'gat':
+        elif args.gnn_type == 'gat':
             gnn_args = {
                 'in_channels': args.dim, 'out_channels': args.dim,
                 'negative_slope': args.negative_slope,

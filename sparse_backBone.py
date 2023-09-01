@@ -215,7 +215,7 @@ class SparseAtomEncoder(torch.nn.Module):
     def forward(self, node_feat, rxn_class=None):
         result = self.atom_encoder(node_feat)
         if self.n_class is not None:
-            if rxn_class is None or num_nodes is None:
+            if rxn_class is None:
                 raise ValueError('missing reaction class information')
             else:
                 rxn_class_emb = self.rxn_class_emb(rxn_class)
