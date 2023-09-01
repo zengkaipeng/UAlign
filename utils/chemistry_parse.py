@@ -239,7 +239,7 @@ def get_modified_atoms_bonds(
 
         numHs_prod = atom.GetTotalNumHs()
         numHs_reac = reac_mol.GetAtomWithIdx(
-            reac_amap[amap_num]
+            reac_amap_idx[amap_num]
         ).GetTotalNumHs()
         if numHs_prod != numHs_reac:
             atom_edit.add(amap_num)

@@ -29,7 +29,7 @@ def get_lap_pos_encoding(
 
 
 def add_pos_enc(graph, method='none', **kwargs):
-    assert pos_enc in ['none', 'Lap'], f'Invalid node pos enc {method}'
+    assert method in ['none', 'Lap'], f'Invalid node pos enc {method}'
     if method == 'Lap':
         matrix = np.zeros((graph['num_nodes'], graph['num_nodes']))
         matrix[graph['edge_index'][0], graph['edge_index'][1]] = 1
@@ -43,14 +43,14 @@ def add_pos_enc(graph, method='none', **kwargs):
 
 
 def create_edit_dataset(
-    reacts, prods, rxn_class=None, kekulize=False, return_amap=False,
+    reacts, prods, rxn_class=None, kekulize=False,
     verbose=True, pos_enc='none', **kwargs
 ):
     amaps, graphs, nodes, edges = [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        x, y = get_modified_atoms_bonds(reacts, prods, kekulize)
+        x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
-        graph = add_pos_enc(graph, pos_enc)
+        graph = add_pos_enc(graph, method=pos_enc, **kwargs)
         graphs.append(graph)
         amaps.append(amap)
         nodes.append([amap[t] for t in x])

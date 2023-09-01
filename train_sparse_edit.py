@@ -108,7 +108,7 @@ if __name__ == '__main__':
         help='negative slope for attention, only useful for gat'
     )
     parser.add_argument(
-        '--pos_enc', choices=['none', 'Lap'], type=str,
+        '--pos_enc', choices=['none', 'Lap'], type=str, default='none',
         help='the method to add graph positional encoding'
     )
 
@@ -152,21 +152,28 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
+    if args.pos_enc == 'none':
+        dataset_kwargs = {'pos_enc': args.pos_enc}
+    elif args.pos_enc == 'Lap':
+        dataset_kwargs = {'pos_enc': args.pos_enc, 'dim': args.lap_pos_dim}
+    else:
+        raise ValueError(f'Invalid pos_enc {args.pos_enc}')
+
     train_set = create_edit_dataset(
-        train_rec, train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None
+        reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
+        rxn_class=train_rxn if args.use_class else None, **dataset_kwargs
     )
 
     valid_set = create_edit_dataset(
-        val_rec, val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None
+        reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
+        rxn_class=val_rxn if args.use_class else None, **dataset_kwargs
     )
     test_set = create_edit_dataset(
-        test_rec, test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None
+        reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
+        rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
     )
 
-    col_fn = edit_col_fn(self_loop=args.gnn_type == 'GAT')
+    col_fn = edit_col_fn(selfloop=args.gnn_type == 'GAT')
     train_loader = DataLoader(
         train_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=True
@@ -208,20 +215,20 @@ if __name__ == '__main__':
             residual=True, update_gate=args.update_gate,
         )
     else:
-        if args.backbone == 'gin':
+        if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
                 embedding_dim=args.dim, edge_last=True,
                 n_class=10 if args.use_class else None
             )
-        elif args.backbone == 'gat':
+        elif args.gnn_type == 'gat':
             GNN = GATBase(
                 num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
                 embedding_dim=args.dim, edge_last=True, residual=True,
                 negative_slope=args.negative_slope, num_heads=args.heads,
                 n_class=10 if args.use_class else None
             )
-        elif args.backbone == 'gcn':
+        elif args.gnn_type == 'gcn':
             GNN = GCNBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
                 embedding_dim=args.dim, edge_last=True,
