@@ -112,7 +112,10 @@ class BinaryGraphEditModel(torch.nn.Module):
                 real_label=graph.node_label, pred_label=node_pred
             )
         else:
-            useful_mask = self.make_useful_mask(graph.edge_index, mask_mode)
+            useful_mask = self.make_useful_mask(
+                graph.edge_index, mode=mask_mode,
+                pred_label=node_pred
+            )
 
         edge_logits = self.edge_predictor(edge_feat[useful_mask])
         edge_logits = edge_logits.squeeze(dim=-1)

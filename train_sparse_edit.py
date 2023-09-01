@@ -212,7 +212,7 @@ if __name__ == '__main__':
             dropout=args.dropout, heads=args.heads, pos_enc=args.pos_enc,
             negative_slope=args.negative_slope, pos_args=pos_args,
             n_class=10 if args.use_class else None, edge_last=True,
-            residual=True, update_gate=args.update_gate,
+            residual=True, update_gate=args.update_gate, gnn_type=args.gnn_type
         )
     else:
         if args.gnn_type == 'gin':

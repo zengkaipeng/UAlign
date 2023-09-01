@@ -214,7 +214,7 @@ class MixFormer(torch.nn.Module):
 
             if i < self.num_layers - 1 or self.edge_last:
                 edge_feats = self.edge_update[i](
-                    edge_attr=edge_feats, x=node_feats,
+                    edge_feats=edge_feats, node_feats=node_feats,
                     edge_index=graph.edge_index
                 )
 
