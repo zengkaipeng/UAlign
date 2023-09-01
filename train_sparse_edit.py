@@ -237,7 +237,8 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = GraphEditModel(GNN, args.dim, args.dim, args.dropout).to(device)
+    model = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+    model = model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None

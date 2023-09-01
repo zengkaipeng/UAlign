@@ -11,7 +11,7 @@ from torch.nn.functional import binary_cross_entropy_with_logits
 
 class BinaryGraphEditModel(torch.nn.Module):
     def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
-        super(GraphEditModel, self).__init__()
+        super(BinaryGraphEditModel, self).__init__()
         self.base_model = base_model
 
         self.edge_predictor = torch.nn.Sequential(
@@ -106,10 +106,13 @@ class BinaryGraphEditModel(torch.nn.Module):
         node_pred[node_pred > 0] = 1
         node_pred[node_pred <= 0] = 0
 
-        useful_mask = self.make_useful_mask(
-            edge_index=graph.edge_index, mode=mask_mode,
-            real_label=graph.node_label, pred_label=node_pred
-        )
+        if mask_mode != 'inference':
+            useful_mask = self.make_useful_mask(
+                edge_index=graph.edge_index, mode=mask_mode,
+                real_label=graph.node_label, pred_label=node_pred
+            )
+        else:
+            useful_mask = self.make_useful_mask(graph.edge_index, mask_mode)
 
         edge_logits = self.edge_predictor(edge_feat[useful_mask])
         edge_logits = edge_logits.squeeze(dim=-1)

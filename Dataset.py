@@ -21,7 +21,8 @@ class BinaryEditDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         node_labels = torch.zeros(self.graphs[index]['num_nodes'])
         node_labels[self.activate_nodes[index]] = 1
-        edge_labels = torch.zeros(self.graphs[index]['num_edges'])
+        num_edges = self.graphs[index]['edge_index'].shape[1]
+        edge_labels = torch.zeros(num_edges)
         edges = self.graphs[index]['edge_index'][0]
         for idx, src in enumerate(edges[0]):
             src, dst = src.item(), edges[1][idx].item()
@@ -54,7 +55,6 @@ def edit_col_fn(selfloop):
         all_pos_enc = {}
         max_node = max(x[0]['num_nodes'] for x in batch)
 
-
         for idx, data in enumerate(batch):
             if len(data) == 4:
                 gp, nlb, elb, rxn = data
@@ -80,7 +80,9 @@ def edit_col_fn(selfloop):
             attn_mask.append(ams.bool())
 
             if selfloop:
-                edge_idx.append(torch.range(0, node_cnt) + lstnode)
+                edge_idx.append(torch.LongTensor([
+                    list(range(node_cnt)), list(range(node_cnt))
+                ]) + lstnode)
                 edge_cnt += node_cnt
                 self_mask.append(torch.ones(node_cnt).bool())
                 org_mask.append(torch.zeros(node_cnt).bool())

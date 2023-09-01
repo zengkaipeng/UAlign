@@ -182,8 +182,8 @@ class GATBase(torch.nn.Module):
         self.residual = residual
         self.edge_last = edge_last
         self.add_self_loop = self_loop
-        self.atom_encoder = SparseAtomEncoder(dim, n_class)
-        self.bond_encoder = SparseBondEncoder(dim, n_class)
+        self.atom_encoder = SparseAtomEncoder(embedding_dim, n_class)
+        self.bond_encoder = SparseBondEncoder(embedding_dim, n_class)
 
     def forward(self, graph) -> torch.Tensor:
         node_feats = self.atom_encoder(graph.x, graph.get('node_rxn', None))

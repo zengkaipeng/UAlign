@@ -49,7 +49,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         graph = graph.to(device)
         with torch.no_grad():
             node_pred, edge_pred, useful_mask = model(
-                graph, mask_node='inference', ret_loss=False
+                graph, mask_mode='inference', ret_loss=False
             )
         batch_size = graph.batch.max().item() + 1
 
