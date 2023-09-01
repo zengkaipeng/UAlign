@@ -12,7 +12,7 @@ class BinaryEditDataset(torch.utils.data.Dataset):
     ):
         self.graphs = graphs
         self.activate_nodes = activate_nodes
-        self.chaged_edges = changed_edges
+        self.changed_edges = changed_edges
         self.rxn_class = rxn_class
 
     def __len__(self):
@@ -21,9 +21,8 @@ class BinaryEditDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         node_labels = torch.zeros(self.graphs[index]['num_nodes'])
         node_labels[self.activate_nodes[index]] = 1
-        num_edges = self.graphs[index]['edge_index'].shape[1]
-        edge_labels = torch.zeros(num_edges)
-        edges = self.graphs[index]['edge_index'][0]
+        edges = self.graphs[index]['edge_index']
+        edge_labels = torch.zeros(edges.shape[1])
         for idx, src in enumerate(edges[0]):
             src, dst = src.item(), edges[1][idx].item()
             if (src, dst) in self.changed_edges[index]:
@@ -104,8 +103,8 @@ def edit_col_fn(selfloop):
             "edge_attr": torch.from_numpy(np.concatenate(edge_feat, axis=0)),
             'ptr': torch.LongTensor(node_ptr),
             'e_ptr': torch.LongTensor(edge_ptr),
-            'batch': torch.LongTensor(node_batch),
-            'e_batch': torch.LongTensor(edge_batch),
+            'batch': torch.from_numpy(np.concatenate(node_batch, axis=0)),
+            'e_batch': torch.from_numpy(np.concatenate(edge_batch, axis=0)),
             'edge_index': torch.from_numpy(np.concatenate(edge_idx, axis=-1)),
             "self_mask": torch.cat(self_mask, dim=0),
             'org_mask': torch.cat(org_mask, dim=0),

@@ -9,7 +9,7 @@ class MyGCNConv(torch.nn.Module):
 
     def forward(
         x: torch.Tensor, edge_index: torch.Tensor,
-        edge_attr: torch.Tensor,
+        edge_attr: torch.Tensor
     ) -> torch.Tensor:
         x = self.linear(x)
         (N, Dim), device = x.shape, x.device

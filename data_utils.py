@@ -54,7 +54,7 @@ def create_edit_dataset(
         graphs.append(graph)
         amaps.append(amap)
         nodes.append([amap[t] for t in x])
-        edges.append((amap[i], amap[j]) for i, j in y)
+        edges.append([(amap[i], amap[j]) for i, j in y])
 
     return BinaryEditDataset(graphs, nodes, edges, rxn_class=rxn_class)
 

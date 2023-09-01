@@ -81,7 +81,7 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
-                edge_index=graph.edge_index,
+                edge_index=graph.edge_index
             ))
 
             node_feats = self.dropout_fun(torch.relu(conv_res)) \
@@ -136,7 +136,7 @@ class GCNBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
-                edge_index=graph.edge_index,
+                edge_index=graph.edge_index
             ))
 
             node_feats = self.dropout_fun(conv_res) \
@@ -200,7 +200,7 @@ class GATBase(torch.nn.Module):
                 + (node_feats if self.residual else 0)
             if self.edge_last or layer < self.num_layers - 1:
                 edge_feats = self.edge_update[layer](
-                    edge_attr=edge_feats, x=node_feats,
+                    edge_feats=edge_feats, node_feats=node_feats,
                     edge_index=graph.edge_index
                 )
 
