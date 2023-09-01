@@ -8,8 +8,8 @@ class MyGCNConv(torch.nn.Module):
         self.linear = torch.nn.Linear(emb_dim, emb_dim)
 
     def forward(
-        x: torch.Tensor, edge_index: torch.Tensor,
-        edge_attr: torch.Tensor
+        self, x: torch.Tensor, edge_index: torch.Tensor,
+        edge_attr: torch.Tensor,
     ) -> torch.Tensor:
         x = self.linear(x)
         (N, Dim), device = x.shape, x.device
@@ -41,8 +41,8 @@ class MyGCNConv(torch.nn.Module):
             index=row.unsqueeze(-1).repeat(1, Dim)
         )
 
-        node_feat = torch.relu(torch.matmul(adj_t, x) + message_edge)
-        node_feat += torch.relu(x + self.root_emb) * \
+        node_feat = torch.relu(torch.matmul(adj_t, x) + message_edge) + \
+            torch.relu(x + self.root_emb) * \
             (deg_inv_sqrt_i * deg_inv_sqrt_j).unsqueeze(-1)
 
         return node_feat
