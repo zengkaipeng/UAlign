@@ -220,11 +220,16 @@ def get_modified_atoms_bonds(
     }
 
     atom_edit, edge_edit = set(), []
-    for bond, bond_type in prod_bonds.items():
-        if (bond in reac_bonds and reac_bonds[bond][0] != bond_type) \
-                or bond not in reac_bonds:
+    for bond in prod_bonds:
+        if bond not in reac_bonds:
             edge_edit.append(bond)
             atom_edit.update(bond)
+        else:
+            reac_bond_type = reac_bonds[bond][0]
+            prod_bond_type = prod_bonds[bond][0]
+            if reac_bond_type != prod_bond_type:
+                edge_edit.append(bond)
+                atom_edit.update(bond)
 
     for bond in reac_bonds:
         if bond not in prod_bonds:
