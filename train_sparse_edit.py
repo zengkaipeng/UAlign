@@ -29,7 +29,8 @@ def create_log_model(args):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
     detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir
+    fit_dir = os.path.join(detail_log_folder, f'fit-{timestamp}.pth')
+    return detail_log_dir, detail_model_dir, fit_dir
 
 
 if __name__ == '__main__':
@@ -139,7 +140,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir = create_log_model(args)
+    log_dir, model_dir, fit_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -201,7 +202,7 @@ if __name__ == '__main__':
             assert args.dim % args.heads == 0, \
                 'The model dim should be evenly divided by num_heads'
             gnn_args = {
-                'in_channels': args.dim, 
+                'in_channels': args.dim,
                 'out_channels': args.dim // args.heads,
                 'negative_slope': args.negative_slope,
                 'dropout': args.dropout, 'add_self_loop': False,
@@ -245,6 +246,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_perf, best_ep = None, None
+    best_fit, best_ep2 = None, None
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -295,6 +297,10 @@ if __name__ == '__main__':
         if best_perf is None or valid_results[4] > best_perf:
             best_perf, best_ep = valid_results[4], ep
             torch.save(model.state_dict(), model_dir)
+
+        if best_fit is None or valid_results[5] > best_fit:
+            best_fit, best_ep2 = valid_results[5], ep
+            torch.save(model.state_dict(), fit_dir)
 
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             nc = [
