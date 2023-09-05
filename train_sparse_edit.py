@@ -303,18 +303,10 @@ if __name__ == '__main__':
             torch.save(model.state_dict(), fit_dir)
 
         if args.early_stop > 5 and ep > max(20, args.early_stop):
-            nc = [
-                x['node_cover'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
-            ec = [
-                x['edge_cover'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
-            ac = [
-                x['all_cover'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
+            val_his = log_info['valid_metric'][-args.early_stop:]
+            nf = [x['node_fit'] for x in val_his]
+            ef = [x['edge_fit'] for x in val_his]
+            af = [x['all_fit'] for x in val_his]
 
-            if check_early_stop(nc, ec, nc):
+            if check_early_stop(nf, ef, af):
                 break

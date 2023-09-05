@@ -8,8 +8,8 @@ if __name__ == '__main__':
     parser.add_argument('--dir', required=True)
     args = parser.parse_args()
 
-    bpref, btime, bargs = None, None, None
-    fpref, ftime, fargs = None, None, None
+    bpref, btime, bargs, bep = None, None, None, None
+    fpref, ftime, fargs, fep = None, None, None, None
     for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
             with open(os.path.join(args.dir, x)) as Fin:
@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
             if bpref is None or best_all_cover > bpref['all_cover']:
                 bpref = INFO['test_metric'][best_idx]
-                btime, bargs = timestamp, INFO['args']
+                btime, bargs, bep = timestamp, INFO['args'], best_idx
 
             best_idx = np.argmax(valid_all_hit)
             best_all_hit = test_all_hit[best_idx]
@@ -37,15 +37,17 @@ if __name__ == '__main__':
             best_idx = np.argmax(valid_all_hit)
             if fpref is None or best_all_hit > fpref['all_fit']:
                 fpref = INFO['test_metric'][best_idx]
-                ftime, fargs = timestamp, INFO['args']
+                ftime, fargs, fep = timestamp, INFO['args'], best_idx
 
 
     print('[best_cover]')
     print('[args]\n', bargs)
     print('[TIME]', btime)
+    print('[EPOCH]', bep)
     print('[pref]', bpref)
 
     print('[best_fit]')
     print('[args]\n', fargs)
     print('[TIME]', ftime)
+    print('[EPOCH]', fep)
     print('[pref]', fpref)
