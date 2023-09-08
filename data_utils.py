@@ -24,7 +24,8 @@ def get_lap_pos_encoding(
     EigVec = EigVec[:, EigVal.argsort()]
     t_result = EigVec[:, 1: dim + 1]
     result, rdim = torch.zeros(num_nodes, dim), t_result.shape[1]
-    result[:, -rdim:] = torch.from_numpy(t_result.real).float()
+    if rdim > 0:
+        result[:, -rdim:] = torch.from_numpy(t_result.real).float()
     return result
 
 

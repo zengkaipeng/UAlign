@@ -115,7 +115,7 @@ def edit_col_fn(selfloop):
             'attn_mask': torch.stack(attn_mask, dim=0)
         }
 
-        for k, v in all_pos_enc:
+        for k, v in all_pos_enc.items():
             v = torch.from_numpy(np.concatenate(v, axis=0))
             all_pos_enc[k] = v
 

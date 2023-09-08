@@ -3,10 +3,24 @@ import os
 import argparse
 import numpy as np
 
+
+def filter_args(args, filter_ag):
+    for k, v in filter_ag.items():
+        if args.get(k, None) != v:
+            return False
+    return True
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dir', required=True)
+    parser.add_argument(
+        '--filter', type=str, default='{}',
+        help='a string as filter dict'
+    )
+
     args = parser.parse_args()
+    args_ft = eval(args.filter)
 
     bpref, btime, bargs, bep = None, None, None, None
     fpref, ftime, fargs, fep = None, None, None, None
@@ -15,6 +29,9 @@ if __name__ == '__main__':
             with open(os.path.join(args.dir, x)) as Fin:
                 INFO = json.load(Fin)
             timestamp = x[4: -5]
+
+            if not filter_args(INFO['args'], args_ft):
+                continue
 
             valid_all_covers = [x['all_cover'] for x in INFO['valid_metric']]
             test_all_covers = [x['all_cover'] for x in INFO['test_metric']]
@@ -38,7 +55,6 @@ if __name__ == '__main__':
             if fpref is None or best_all_hit > fpref['all_fit']:
                 fpref = INFO['test_metric'][best_idx]
                 ftime, fargs, fep = timestamp, INFO['args'], best_idx
-
 
     print('[best_cover]')
     print('[args]\n', bargs)

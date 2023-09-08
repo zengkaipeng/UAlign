@@ -17,7 +17,7 @@ from data_utils import (
 
 
 def create_log_model(args):
-    if args.pos_enc == 'Lap' and args.lap_enc_dim <= 0:
+    if args.pos_enc == 'Lap' and args.lap_pos_dim <= 0:
         raise ValueError('The dim of positional enc should be positive')
 
     timestamp = time.time()
@@ -190,7 +190,7 @@ if __name__ == '__main__':
 
     if args.transformer:
         if args.pos_enc == 'Lap':
-            pos_args = {'dim': args.lap_enc_dim}
+            pos_args = {'dim': args.lap_pos_dim}
         else:
             pos_args = None
 
