@@ -8,6 +8,25 @@ from GATconv import NyGATConv
 from GCNConv import MyGCNConv
 
 
+def batch_mask(
+    ptr: torch.Tensor, max_node: int, batch_size: int
+) -> torch.Tensor:
+    num_nodes = ptr[1:] - ptr[:-1]
+    mask = torch.arange(max_node).repeat(batch_size, 1)
+    mask = mask.to(num_nodes.device)
+    return mask < num_nodes.reshape(-1, 1)
+
+
+def graph2batch(
+    node_feat: torch.Tensor, batch_mask: torch.Tensor,
+    batch_size: int, max_node: int
+) -> torch.Tensor:
+    answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+    answer = answer.to(node_feat.device)
+    answer[batch_mask] = node_feat
+    return answer
+
+
 class Feat_init(torch.nn.Module):
     def __init__(
         self, n_pad: int, dim: int, heads: int = 2, dropout: float = 0.1,
@@ -117,28 +136,11 @@ class MixDecoder(torch.nn.Module):
                 heads=heads, dropout=dropout
             ))
 
-    def batch_mask(
-        self, ptr: torch.Tensor, max_node: int, batch_size: int
-    ) -> torch.Tensor:
-        num_nodes = ptr[1:] - ptr[:-1]
-        mask = torch.arange(max_node).repeat(batch_size, 1)
-        mask = mask.to(num_nodes.device)
-        return mask < num_nodes.reshape(-1, 1)
-
-    def graph2batch(
-        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
-        batch_size: int, max_node: int
-    ) -> torch.Tensor:
-        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
-        answer = answer.to(node_feat.device)
-        answer[batch_mask] = node_feat
-        return answer
-
     def forward(self, graph, memory, mem_pad_mask=None):
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
 
         batch_size, max_node = graph.attn_mask.shape[:2]
-        batch_mask = self.batch_mask(graph.ptr, max_node, batch_size)
+        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
         if mem_pad_mask is not None:
             cross_mask = torch.zeros_like(mem_pad_mask)
             cross_mask[mem_pad_mask] = True
@@ -155,7 +157,7 @@ class MixDecoder(torch.nn.Module):
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
 
-            node_feats = self.graph2batch(
+            node_feats = graph2batch(
                 node_feats, batch_mask, batch_size, max_node
             )
 
