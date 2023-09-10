@@ -214,7 +214,7 @@ class GATDecoder(torch.nn.Module):
             n_class=n_class, negative_slope=negative_slope
         )
 
-    def forward(self, graph) -> torch.Tensor:
+    def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
         batch_size, max_node = graph.attn_mask.shape[:2]
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
@@ -284,7 +284,7 @@ class GCNDecoder(torch.nn.Module):
             n_class=n_class, negative_slope=negative_slope
         )
 
-    def forward(self, graph) -> torch.Tensor:
+    def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
         batch_size, max_node = graph.attn_mask.shape[:2]
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
@@ -346,7 +346,7 @@ class GINBase(torch.nn.Module):
             n_class=n_class, negative_slope=negative_slope
         )
 
-    def forward(self, graph) -> torch.Tensor:
+    def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
         batch_size, max_node = graph.attn_mask.shape[:2]
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
