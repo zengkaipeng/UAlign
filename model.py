@@ -178,3 +178,19 @@ def evaluate_sparse(
         all_fit += (nf & ef)
         all_cover += (nc & ec)
     return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
+
+
+class DecoderOnly(torch.nn.Module):
+    def __init__(
+        self, backbone, node_dim, edge_dim,
+        node_class, edge_class
+    ):
+        super(DecoderOnly, self).__init__()
+        self.backbone = backbone
+        self.node_predictor = torch.nn.Linear(node_dim, node_class)
+        self.edge_predictor = torch.nn.Linear(edge_dim, edge_class)
+
+    def forward(self, graph, memory, mem_pad_mask=None):
+        node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
+        node_pred = self.node_predictor(node_feat)
+        edge_feat = self.edge_predictor(edge_feat)

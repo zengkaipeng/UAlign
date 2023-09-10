@@ -377,3 +377,4 @@ class GINBase(torch.nn.Module):
                 edge_index=graph.edge_index
             )
         return node_feats, edge_feats
+
