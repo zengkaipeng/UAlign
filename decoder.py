@@ -100,11 +100,10 @@ class MixDecoder(torch.nn.Module):
         self, emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]],
         n_pad: int, dropout: float = 0, heads: int = 1, gnn_type: str = 'gin',
         negative_slope: float = 0.2, n_class: Optional[int] = None,
-        update_gate: str = 'add', residual: bool = True
+        update_gate: str = 'add'
     ):
         super(MixDecoder, self).__init__()
 
-        self.residual = residual
         self.feat_init = Feat_init(
             n_pad, emb_dim, heads=heads, dropout=dropout,
             n_class=n_class, negative_slope=negative_slope
@@ -116,7 +115,6 @@ class MixDecoder(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.edge_update = torch.nn.ModuleList()
         self.cross_attns = torch.nn.ModuleList()
-        self.edge_last = edge_last
 
         self.dropout_fun = torch.nn.Dropout(dropout)
 
@@ -129,7 +127,7 @@ class MixDecoder(torch.nn.Module):
                 dropout=dropout, gnn_type=gnn_type, update_gate=update_gate
             ))
             self.edge_update.append(SparseEdgeUpdateLayer(
-                emb_dim, emb_dim, residual=residual
+                emb_dim, emb_dim, residual=True
             ))
             self.cross_attns.append(MhAttnBlock(
                 Qdim=dim, Kdim=dim, Vdim=dim, Odim=dim // heads,
@@ -153,7 +151,7 @@ class MixDecoder(torch.nn.Module):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats, ptr=graph.ptr,
                 attn_mask=graph.attn_mask, edge_index=graph.edge_index,
-            ) + (node_feats if self.residual else 0)
+            ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
 
@@ -163,7 +161,7 @@ class MixDecoder(torch.nn.Module):
 
             cross_res = self.cross_attns[i](
                 Q=node_feats, K=memory, V=memory, attn_mask=cross_mask
-            ) + (node_feats if self.residual else 0)
+            ) + node_feats
 
             node_feats = torch.relu(self.ln2[i](cross_res))[batch_mask]
 
@@ -172,4 +170,210 @@ class MixDecoder(torch.nn.Module):
                 edge_index=graph.edge_index
             )
 
+        return node_feats, edge_feats
+
+
+class GATDecoder(torch.nn.Module):
+    def __init__(
+        self, num_layers: int = 4, num_heads: int = 4, embedding_dim: int = 64,
+        dropout: float = 0.7,  self_loop: bool = True,
+        negative_slope: float = 0.2, n_class: Optional[int] = None
+    ):
+        super(GATDecoder, self).__init__()
+        if num_layers < 2:
+            raise ValueError("Number of GNN layers must be greater than 1.")
+        self.convs = torch.nn.ModuleList()
+        self.ln1 = torch.nn.ModuleList()
+        self.ln2 = torch.nn.ModuleList()
+        self.cross_attns = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers, self.num_heads = num_layers, num_heads
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        assert embedding_dim % num_heads == 0, \
+            'The embedding dim should be evenly divided by num_heads'
+        for layer in range(self.num_layers):
+            self.convs.append(MyGATConv(
+                in_channels=embedding_dim, heads=num_heads,
+                out_channels=embedding_dim // num_heads,
+                negative_slope=negative_slope, add_self_loop=self_loop,
+                dropout=dropout, edge_dim=embedding_dim
+            ))
+            self.ln1.append(torch.nn.LayerNorm(embedding_dim))
+            self.ln2.append(torch.nn.LayerNorm(embedding_dim))
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim, residual=True
+            ))
+            self.cross_attns.append(MhAttnBlock(
+                Qdim=dim, Kdim=dim, Vdim=dim, Odim=dim // heads,
+                heads=heads, dropout=dropout
+            ))
+        self.add_self_loop = self_loop
+
+        self.feat_init = Feat_init(
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, negative_slope=negative_slope
+        )
+
+    def forward(self, graph) -> torch.Tensor:
+        node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
+        batch_size, max_node = graph.attn_mask.shape[:2]
+        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+        if mem_pad_mask is not None:
+            cross_mask = torch.zeros_like(mem_pad_mask)
+            cross_mask[mem_pad_mask] = True
+            cross_mask = cross_mask.unsqueeze(1).repeat(1, max_node, 1)
+            cross_mask[~batch_mask] = False
+        else:
+            cross_mask = None
+
+        for layer in range(self.num_layers):
+            conv_res = self.ln1[layer](self.convs[layer](
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index
+            ))
+            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
+
+            node_feats = graph2batch(
+                node_feats, batch_mask, batch_size, max_node
+            )
+
+            cross_res = self.cross_attns[i](
+                Q=node_feats, K=memory, V=memory, attn_mask=cross_mask
+            ) + node_feats
+
+            node_feats = torch.relu(self.ln2[i](cross_res))[batch_mask]
+
+            edge_feats = self.edge_update[layer](
+                edge_feats=edge_feats, node_feats=node_feats,
+                edge_index=graph.edge_index
+            )
+
+        return node_feats, edge_feats
+
+
+class GCNDecoder(torch.nn.Module):
+    def __init__(
+        self,  num_layers: int = 4,
+        embedding_dim: int = 64,
+        dropout: float = 0.7,
+        n_class: Optional[int] = None
+    ):
+        super(GCNDecoder, self).__init__()
+        if num_layers < 2:
+            raise ValueError("Number of GNN layers must be greater than 1.")
+        self.convs = torch.nn.ModuleList()
+        self.ln1 = torch.nn.ModuleList()
+        self.ln2 = torch.nn.ModuleList()
+        self.cross_attns = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers = num_layers
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        for layer in range(self.num_layers):
+            self.convs.append(MyGCNConv(embedding_dim))
+            self.ln1.append(torch.nn.LayerNorm(embedding_dim))
+            self.ln2.append(torch.nn.LayerNorm(embedding_dim))
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim, residual=True
+            ))
+            self.cross_attns.append(MhAttnBlock(
+                Qdim=dim, Kdim=dim, Vdim=dim, Odim=dim // heads,
+                heads=heads, dropout=dropout
+            ))
+        self.feat_init = Feat_init(
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, negative_slope=negative_slope
+        )
+
+    def forward(self, graph) -> torch.Tensor:
+        node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
+        batch_size, max_node = graph.attn_mask.shape[:2]
+        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+        if mem_pad_mask is not None:
+            cross_mask = torch.zeros_like(mem_pad_mask)
+            cross_mask[mem_pad_mask] = True
+            cross_mask = cross_mask.unsqueeze(1).repeat(1, max_node, 1)
+            cross_mask[~batch_mask] = False
+        else:
+            cross_mask = None
+
+        for layer in range(self.num_layers):
+            conv_res = self.ln1[layer](self.convs[layer](
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index
+            ))
+            node_feats = self.dropout_fun(conv_res) + node_feats
+            node_feats = graph2batch(
+                node_feats, batch_mask, batch_size, max_node
+            )
+            cross_res = self.cross_attns[i](
+                Q=node_feats, K=memory, V=memory, attn_mask=cross_mask
+            ) + node_feats
+            node_feats = torch.relu(self.ln2[i](cross_res))[batch_mask]
+
+            edge_feats = self.edge_update[layer](
+                edge_feats=edge_feats, node_feats=node_feats,
+                edge_index=graph.edge_index
+            )
+        return node_feats, edge_feats
+
+
+class GINBase(torch.nn.Module):
+    def __init__(
+        self,  num_layers: int = 4,
+        embedding_dim: int = 64,
+        dropout: float = 0.7,
+        n_class: Optional[int] = None
+    ):
+        super(GINBase, self).__init__()
+        if num_layers < 2:
+            raise ValueError("Number of GNN layers must be greater than 1.")
+        self.convs = torch.nn.ModuleList()
+        self.ln1 = torch.nn.ModuleList()
+        self.ln2 = torch.nn.ModuleList()
+        self.cross_attns = torch.nn.ModuleList()
+        self.edge_update = torch.nn.ModuleList()
+        self.num_layers = num_layers
+        self.dropout_fun = torch.nn.Dropout(dropout)
+        for layer in range(self.num_layers):
+            self.convs.append(MyGINConv(embedding_dim))
+            self.ln1.append(torch.nn.LayerNorm(embedding_dim))
+            self.ln2.append(torch.nn.LayerNorm(embedding_dim))
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim, residual=True
+            ))
+        self.feat_init = Feat_init(
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, negative_slope=negative_slope
+        )
+
+    def forward(self, graph) -> torch.Tensor:
+        node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
+        batch_size, max_node = graph.attn_mask.shape[:2]
+        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+        if mem_pad_mask is not None:
+            cross_mask = torch.zeros_like(mem_pad_mask)
+            cross_mask[mem_pad_mask] = True
+            cross_mask = cross_mask.unsqueeze(1).repeat(1, max_node, 1)
+            cross_mask[~batch_mask] = False
+        else:
+            cross_mask = None
+
+        for layer in range(self.num_layers):
+            conv_res = self.ln1[layer](self.convs[layer](
+                x=node_feats, edge_attr=edge_feats,
+                edge_index=graph.edge_index
+            ))
+            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
+            node_feats = graph2batch(
+                node_feats, batch_mask, batch_size, max_node
+            )
+            cross_res = self.cross_attns[i](
+                Q=node_feats, K=memory, V=memory, attn_mask=cross_mask
+            ) + node_feats
+            node_feats = torch.relu(self.ln2[i](cross_res))[batch_mask]
+
+            edge_feats = self.edge_update[layer](
+                edge_feats=edge_feats, node_feats=node_feats,
+                edge_index=graph.edge_index
+            )
         return node_feats, edge_feats
