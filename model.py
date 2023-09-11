@@ -64,9 +64,12 @@ class BinaryGraphEditModel(torch.nn.Module):
             node_loss = binary_cross_entropy_with_logits(
                 node_logits, node_label, reduction=reduction
             )
-            edge_loss = binary_cross_entropy_with_logits(
-                edge_logits, edge_label, reduction=reduction
-            )
+            if edge_logits.numel() > 0:
+                edge_loss = binary_cross_entropy_with_logits(
+                    edge_logits, edge_label, reduction=reduction
+                )
+            else:
+                edge_loss = 0
             return node_loss, edge_loss
         else:
             assert node_batch is not None, 'require node_batch'
@@ -95,7 +98,7 @@ class BinaryGraphEditModel(torch.nn.Module):
 
     def forward(
         self, graph, mask_mode, reduce_mode='mean',
-        graph_level=True, ret_loss=True
+        graph_level=True, ret_loss=True, ret_feat=False
     ):
         node_feat, edge_feat = self.base_model(graph)
 
@@ -132,9 +135,13 @@ class BinaryGraphEditModel(torch.nn.Module):
                 edge_batch=graph.e_batch[useful_mask],
                 reduction=reduce_mode, graph_level=graph_level
             )
-            return node_pred, edge_pred, useful_mask, n_loss, e_loss
+            answer = (node_pred, edge_pred, useful_mask, n_loss, e_loss)
         else:
-            return node_pred, edge_pred, useful_mask
+            answer = (node_pred, edge_pred, useful_mask)
+
+        if ret_feat:
+            answer += (node_feat, edge_feat)
+        return answer
 
 
 def make_ptr_from_batch(batch, batch_size=None):
