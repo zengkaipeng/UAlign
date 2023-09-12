@@ -228,14 +228,20 @@ class EncoderDecoder(torch.nn.Module):
                 = encoder_answer
 
         device = encoder_graph.x.device
-        batch_size = graph.batch.max().item() + 1
-        n_nodes = torch.zeros(batch_size).long().to(graph.x.device)
+        batch_size = encoder_graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(device)
         n_nodes.scatter_add_(
-            src=torch.ones_like(graph.batch), 
-            dim=0, index=graph.batch
+            src=torch.ones_like(encoder_graph.batch), 
+            dim=0, index=encoder_graph.batch
         )
         max_node = n_nodes.max().item() + 1
-        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+        mem_pad_mask = batch_mask(encoder_graph.ptr, max_node, batch_size)
+
+        memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        memory = memory.to(device)
+        memory[mem_pad_mask] = node_feat
+
+
 
 
 
