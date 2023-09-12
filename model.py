@@ -7,6 +7,7 @@ from torch_geometric.data import Data
 from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 from torch.nn.functional import binary_cross_entropy_with_logits
+from decoder import batch_mask, graph2batch
 
 
 class BinaryGraphEditModel(torch.nn.Module):
@@ -201,3 +202,42 @@ class DecoderOnly(torch.nn.Module):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_pred = self.node_predictor(node_feat)
         edge_feat = self.edge_predictor(edge_feat)
+
+
+class EncoderDecoder(torch.nn.Module):
+    def __init__(self, encoder, decoder):
+        super(EncoderDecoder, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(
+        self, encoder_graph, decoder_graph, encoder_mode,
+        encoder_reduce='mean', encoder_graph_level=True, ret_loss=True,
+    ):
+        encoder_answer = self.encoder(
+            graph=encoder_graph, graph_level=encoder_graph_level,
+            ret_loss=ret_loss, ret_feat=True, mode=encoder_mode,
+            reduce_mode=encoder_reduce,
+        )
+
+        if ret_loss:
+            node_pred, edge_pred, useful_mask, n_loss, e_loss, \
+                node_feat, edge_feat = encoder_answer
+        else:
+            node_pred, edge_pred, useful_mask, node_feat, edge_feat\
+                = encoder_answer
+
+        device = encoder_graph.x.device
+        batch_size = graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(graph.x.device)
+        n_nodes.scatter_add_(
+            src=torch.ones_like(graph.batch), 
+            dim=0, index=graph.batch
+        )
+        max_node = n_nodes.max().item() + 1
+        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+
+
+
+
+

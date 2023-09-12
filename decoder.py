@@ -216,7 +216,15 @@ class GATDecoder(torch.nn.Module):
 
     def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
-        batch_size, max_node = graph.attn_mask.shape[:2]
+
+        batch_size = graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(graph.x.device)
+        n_nodes.scatter_add_(
+            src=torch.ones_like(graph.batch),
+            dim=0, index=graph.batch
+        )
+        max_node = n_nodes.max().item() + 1
+
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
         if mem_pad_mask is not None:
             cross_mask = torch.zeros_like(mem_pad_mask)
@@ -286,7 +294,13 @@ class GCNDecoder(torch.nn.Module):
 
     def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
-        batch_size, max_node = graph.attn_mask.shape[:2]
+        batch_size = graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(graph.x.device)
+        n_nodes.scatter_add_(
+            src=torch.ones_like(graph.batch),
+            dim=0, index=graph.batch
+        )
+        max_node = n_nodes.max().item() + 1
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
         if mem_pad_mask is not None:
             cross_mask = torch.zeros_like(mem_pad_mask)
@@ -348,7 +362,13 @@ class GINBase(torch.nn.Module):
 
     def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
-        batch_size, max_node = graph.attn_mask.shape[:2]
+        batch_size = graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(graph.x.device)
+        n_nodes.scatter_add_(
+            src=torch.ones_like(graph.batch),
+            dim=0, index=graph.batch
+        )
+        max_node = n_nodes.max().item() + 1
         batch_mask = batch_mask(graph.ptr, max_node, batch_size)
         if mem_pad_mask is not None:
             cross_mask = torch.zeros_like(mem_pad_mask)
@@ -377,4 +397,3 @@ class GINBase(torch.nn.Module):
                 edge_index=graph.edge_index
             )
         return node_feats, edge_feats
-
