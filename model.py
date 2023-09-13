@@ -214,12 +214,12 @@ class EncoderDecoder(torch.nn.Module):
 
     def forward(
         self, encoder_graph, decoder_graph, encoder_mode,
-        encoder_reduce='mean', encoder_graph_level=True, ret_loss=True,
+        reduction='mean', graph_level=True, ret_loss=True,
     ):
         encoder_answer = self.encoder(
-            graph=encoder_graph, graph_level=encoder_graph_level,
+            graph=encoder_graph, graph_level=graph_level,
             ret_loss=ret_loss, ret_feat=True, mode=encoder_mode,
-            reduce_mode=encoder_reduce,
+            reduce_mode=reduction,
         )
 
         if ret_loss:
@@ -250,7 +250,7 @@ class EncoderDecoder(torch.nn.Module):
 
     def loss_calc(
         self, node_logits, edge_logits, pad_node_label, edge_type_dict,
-        graph, reduce='mean', graph_level=True, alpha=1
+        graph, reduction='mean', graph_level=True, alpha=1
     ):
         """[summary]
 
@@ -299,14 +299,17 @@ class EncoderDecoder(torch.nn.Module):
                 dim=0, src=org_edge_loss, index=org_edge_batch
             )
 
-            org_node_loss = org_node_loss_graph.mean()
-            org_edge_loss = org_edge_loss_graph.mean()
+            if reduction == 'mean':
+                org_node_loss = org_node_loss_graph.mean()
+                org_edge_loss = org_edge_loss_graph.mean()
+            else:
+                org_node_loss = org_node_loss_graph.sum()
+                org_edge_loss = org_edge_loss_graph.sum()
+
         else:
             org_node_loss = cross_entropy(
-                org_node_logits, graph.org_node_labels
+                org_node_logits, graph.org_node_labels, reduction=reduction
             )
             org_edge_loss = cross_entropy(
-                org_edge_logits, graph.org_edge_labels
+                org_edge_logits, graph.org_edge_labels, reduction=reduction
             )
-
-        
