@@ -7,6 +7,7 @@ from torch_geometric.data import Data
 from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 from torch.nn.functional import binary_cross_entropy_with_logits
+from torch.nn.functional import cross_entropy
 from decoder import batch_mask, graph2batch
 
 
@@ -201,7 +202,8 @@ class DecoderOnly(torch.nn.Module):
     def forward(self, graph, memory, mem_pad_mask=None):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_pred = self.node_predictor(node_feat)
-        edge_feat = self.edge_predictor(edge_feat)
+        edge_pred = self.edge_predictor(edge_feat)
+        return node_pred, edge_pred
 
 
 class EncoderDecoder(torch.nn.Module):
@@ -231,7 +233,7 @@ class EncoderDecoder(torch.nn.Module):
         batch_size = encoder_graph.batch.max().item() + 1
         n_nodes = torch.zeros(batch_size).long().to(device)
         n_nodes.scatter_add_(
-            src=torch.ones_like(encoder_graph.batch), 
+            src=torch.ones_like(encoder_graph.batch),
             dim=0, index=encoder_graph.batch
         )
         max_node = n_nodes.max().item() + 1
@@ -241,9 +243,70 @@ class EncoderDecoder(torch.nn.Module):
         memory = memory.to(device)
         memory[mem_pad_mask] = node_feat
 
+        node_logits, edge_logits = self.decoder(
+            graph=decoder_graph, memory=memory,
+            mem_pad_mask=mem_pad_mask
+        )
 
+    def loss_calc(
+        self, node_logits, edge_logits, pad_node_label, edge_type_dict,
+        graph, reduce='mean', graph_level=True, alpha=1
+    ):
+        """[summary]
 
+        calc the loss for decoder with bin matching
 
+        Args:
+            node_logits ([type]): A tensor of (N nodes, n_class), the prediction
+                for the whole batch nodes
+            edge_logits ([type]): A tensor of (N edge, e_class), the prediction
+                for the whole batch edge
+            org_node_label ([type]): A tensor of (N node_org), the label 
+                of all the original nodes
+            org_edge_label ([type]): A tensor of (N edge_org), the label for 
+                all the original edges 
+            pad_node_label ([type]): A tesnor of (batch_size, N_pad), the label
+                for all the padding nodes
+            edge_type_dict ([type]): A dict containing all the edge_type of 
+                every edges in the batch, in form of (idx_i, idx_j) -> e_type
+            reduce (str): the reduction method of loss (default: `'mean'`)
+            graph_level (bool): reduce all the losses first to graph 
+                then to the other, (default: `True`)
+            alpha (number): the weight of org part, as aux loss (default: `1`)
+        """
+        batch_size = pad_node_label.shape[0]
+        device = node_logits.device
+        org_node_logits = node_logits[graph.node_org_mask]
 
+        org_edge_logits = edge_logits[graph.org_mask]
 
+        if self.graph_level:
+            org_node_loss = cross_entropy(
+                org_node_logits, graph.org_node_labels, reduction='none'
+            )
+            org_edge_loss = cross_entropy(
+                org_edge_logits, graph.org_edge_labels, reduction='none'
+            )
+            org_node_batch = graph.batch[graph.node_org_mask]
+            org_edge_batch = graph.e_batch[graph.org_mask]
+            org_node_loss_graph = torch.zeros(batch_size).to(device)
+            org_edge_loss_graph = torch.zeros(batch_size).to(device)
 
+            org_node_loss_graph.scatter_add_(
+                dim=0, src=org_node_loss, index=org_node_batch
+            )
+            org_edge_loss_graph.scatter_add_(
+                dim=0, src=org_edge_loss, index=org_edge_batch
+            )
+
+            org_node_loss = org_node_loss_graph.mean()
+            org_edge_loss = org_edge_loss_graph.mean()
+        else:
+            org_node_loss = cross_entropy(
+                org_node_logits, graph.org_node_labels
+            )
+            org_edge_loss = cross_entropy(
+                org_edge_logits, graph.org_edge_labels
+            )
+
+        
