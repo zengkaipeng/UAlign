@@ -175,6 +175,34 @@ class OverallDataset(torch.utils.data.Dataset):
 
 def overall_col_fn(selfloop, pad_num):
     # use zero as empty type
+
+    def dfs(x, graph, blocks, vis):
+        blocks.append(x)
+        vis.add(x)
+        for neighbor in graph[x]:
+            if neighbor not in vis:
+                dfs(neighbor, graph, blocks, vis)
+
+    def make_block(edge_index, max_node, pad_idx):
+        attn_mask = torch.zeros(max_node, max_node)
+        graph, vis = {}, set()
+        for idx in range(edge_index.shape[1]):
+            row, col = edge_index[:, idx]
+            if row not in graph:
+                graph[row] = []
+            graph[row].append(col)
+
+        for node in graph.keys():
+            if node in vis:
+                continue
+            block = []
+            dfs(node, graph, block, vis)
+            x_mask = torch.zeros(max_node).bool()
+            x_mask[block] = True
+            x_mask[pad_idx] = True
+            attn_mask[x_mask, x_mask] = True
+        return attn_mask
+
     def col_fn(batch):
         encoder_fn = edit_col_fn(selfloop)
         use_class = len(batch[0]) == 6
@@ -188,6 +216,8 @@ def overall_col_fn(selfloop, pad_num):
         self_mask, org_mask, pad_mask, attn_mask = [], [], [], []
         node_org_mask, node_pad_mask = [], []
 
+        max_node = max(x[0]['num_nodes'] + pad_num for x in batch)
+
         for idx, data in enumerate(batch):
             graph, n_lb, e_lb = data[:3]
             node_cnt = gp['num_nodes'] + pad_num
@@ -200,8 +230,6 @@ def overall_col_fn(selfloop, pad_num):
             node_org_mask.append(torch.zeros(pad_num).bool())
             node_pad_mask.append(torch.ones(pad_num).bool())
 
-            # make blocked attn block
-
             # org edge feat
 
             reserve_e_mask = (e_lb == 0).numpy()
@@ -209,14 +237,21 @@ def overall_col_fn(selfloop, pad_num):
             all_edge_feat.append(graph['edge_feat'][reserve_e_mask])
             all_edg_idx.append(graph['edge_index'][:, reserve_e_mask])
             self_mask.append(torch.zeros(org_e_cnt).bool())
-            org_mask.append(torch.zeros(org_e_cnt).bool())
+            org_mask.append(torch.ones(org_e_cnt).bool())
             pad_mask.append(torch.zeros(org_e_cnt).bool())
+
+            # make blocked attn block
+
+            attn_mask.append(make_block(
+                edge_index=all_edg_idx[-1], max_node=max_node,
+                pad_idx=[x + graph['num_nodes'] for x in range(pad_num)]
+            ))
 
             # padded edge_idx
 
             prod_node_idx = np.arange(node_cnt)
             link_nodes = prod_node_idx[(n_lb == 1).numpy()]
-            link_nodes += [x + node_cnt for x in range(pad_num)]
+            link_nodes += [x + graph['num_nodes'] for x in range(pad_num)]
 
             # self_loop edges
             if selfloop:
