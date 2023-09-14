@@ -9,6 +9,7 @@ import numpy as np
 from torch.nn.functional import binary_cross_entropy_with_logits
 from torch.nn.functional import cross_entropy
 from decoder import batch_mask, graph2batch
+from scipy.optimize import linear_sum_assignment
 
 
 class BinaryGraphEditModel(torch.nn.Module):
@@ -215,6 +216,7 @@ class EncoderDecoder(torch.nn.Module):
     def forward(
         self, encoder_graph, decoder_graph, encoder_mode,
         reduction='mean', graph_level=True, ret_loss=True,
+        edge_types=None
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
@@ -248,9 +250,24 @@ class EncoderDecoder(torch.nn.Module):
             mem_pad_mask=mem_pad_mask
         )
 
+        if ret_loss:
+            decoder_losses = self.loss_calc(
+                graph=decoder_graph, node_logits=node_logits, reduction=reduction,
+                edge_logits=edge_logits, pad_node_label=graph.pad_node_label,
+                edge_type_dict=edge_types,  graph_level=graph_level
+            )
+            
+
+    def get_matching(self, node_logits, pad_node_label):
+        neg_node_log_prob = -torch.log_softmax(node_logits, dim=-1)
+        val_matrix = neg_node_log_prob[:, pad_node_label]
+        val_matrix = val_matrix.cpu().numpy()
+        row_id, col_id = linear_sum_assignment(val_matrix)
+        return row_id, col_id
+
     def loss_calc(
-        self, node_logits, edge_logits, pad_node_label, edge_type_dict,
-        graph, reduction='mean', graph_level=True, alpha=1
+        self, graph,  node_logits, edge_logits, pad_node_label,
+        edge_type_dict, reduction='mean', graph_level=True,
     ):
         """[summary]
 
@@ -313,3 +330,85 @@ class EncoderDecoder(torch.nn.Module):
             org_edge_loss = cross_entropy(
                 org_edge_logits, graph.org_edge_labels, reduction=reduction
             )
+
+        # get loss by matching
+
+        if graph_level:
+            total_x_loss = torch.zeros(batch_size).to(device)
+            total_e_loss = torch.zeros(batch_size).to(device)
+        else:
+            total_e_loss, total_x_loss = [], []
+
+        all_node_index = torch.arange(graph.num_nodes).to(device)
+        pad_index = all_node_index[graph.node_pad_mask].reshape(batch_size, -1)
+        pad_result = node_logits[graph.node_pad_mask]
+
+        for idx, n_lg in enumerate(pad_result):
+            this_node_label = pad_node_label[idx]
+            this_pad_idx = pad_index[idx]
+            with torch.no_grad():
+                row_id, col_id = self.get_matching(n_lg, this_node_label)
+
+            node_pad = row_id.shape[0]
+            node_reidx = torch.zeros(node_pad).long().to(device)
+            node_reidx[row_id.tolist()] = torch.from_numpy(col_id)
+
+            if graph_level:
+                x_loss = cross_entropy(
+                    n_lg, this_node_label[node_reidx],
+                    reduction='sum'
+                )
+                total_x_loss[idx] = x_loss
+            else:
+                x_loss = cross_entropy(
+                    n_lg, this_node_label[node_reidx],
+                    reduction='none'
+                )
+                total_x_loss.append(x_loss)
+
+            node_remap = {
+                this_pad_idx[row].item(): this_pad_idx[col_id[tx]].item()
+                for tx, row in enumerate(row_id)
+            }
+            this_pad_mask = torch.logical_and(
+                graph.e_batch == idx, graph.pad_mask
+            )
+
+            this_edge_idx = graph.edge_index[:, this_pad_mask]
+            this_edge_label = []
+
+            for ex in range(this_edge_idx.shape[0]):
+                idx_i = this_edge_idx[0][ex]
+                idx_j = this_edge_idx[1][ex]
+                idx_i = node_remap.get(idx_i, idx_i)
+                idx_j = node_remap.get(idx_j, idx_j)
+                this_edge_label.append(edge_type_dict[(idx_i, idx_j)])
+
+            this_edge_label = torch.LongTensor(this_edge_label).to(device)
+
+            if graph_level:
+                e_loss = cross_entropy(
+                    edge_logits[this_pad_mask], this_edge_label,
+                    reduction='sum'
+                )
+                total_e_loss[idx] = e_loss
+
+            else:
+                e_loss = cross_entropy(
+                    edge_logits[this_pad_mask], this_edge_label,
+                    reduction='none'
+                )
+                total_e_loss.append(e_loss)
+
+        if not graph_level:
+            total_x_loss = torch.cat(total_x_loss, dim=0)
+            total_e_loss = torch.cat(total_e_loss, dim=0)
+
+        if reduction == 'sum':
+            total_x_loss = total_x_loss.sum()
+            total_e_loss = total_e_loss.sum()
+        else:
+            total_e_loss = total_e_loss.mean()
+            total_x_loss = total_x_loss.mean()
+
+        return org_node_loss, org_edge_loss, total_x_loss, total_e_loss
