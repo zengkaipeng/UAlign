@@ -216,7 +216,7 @@ class EncoderDecoder(torch.nn.Module):
     def forward(
         self, encoder_graph, decoder_graph, encoder_mode,
         reduction='mean', graph_level=True, ret_loss=True,
-        edge_types=None
+        edge_types=None, alpha=1
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
@@ -252,11 +252,14 @@ class EncoderDecoder(torch.nn.Module):
 
         if ret_loss:
             decoder_losses = self.loss_calc(
-                graph=decoder_graph, node_logits=node_logits, reduction=reduction,
-                edge_logits=edge_logits, pad_node_label=graph.pad_node_label,
-                edge_type_dict=edge_types,  graph_level=graph_level
+                graph=decoder_graph, node_logits=node_logits,
+                reduction=reduction, edge_logits=edge_logits,
+                edge_type_dict=edge_types, graph_level=graph_level
             )
-            
+            org_node_loss, org_edge_loss, x_loss, c_loss = decoder_losses
+
+        return n_loss + e_loss + x_loss + c_loss \
+            + (org_node_loss + org_edge_loss) * alpha
 
     def get_matching(self, node_logits, pad_node_label):
         neg_node_log_prob = -torch.log_softmax(node_logits, dim=-1)
@@ -266,7 +269,7 @@ class EncoderDecoder(torch.nn.Module):
         return row_id, col_id
 
     def loss_calc(
-        self, graph,  node_logits, edge_logits, pad_node_label,
+        self, graph, node_logits, edge_logits,
         edge_type_dict, reduction='mean', graph_level=True,
     ):
         """[summary]
@@ -291,15 +294,18 @@ class EncoderDecoder(torch.nn.Module):
                 then to the other, (default: `True`)
             alpha (number): the weight of org part, as aux loss (default: `1`)
         """
-        batch_size = pad_node_label.shape[0]
+        batch_size = graph.batch.max().item() + 1
         device = node_logits.device
         org_node_logits = node_logits[graph.node_org_mask]
 
         org_edge_logits = edge_logits[graph.org_mask]
+        org_node_labels = graph.node_labels[graph.node_org_mask]
+        pad_node_labels = graph.node_labels[graph.node_pad_mask]
+        pad_node_labels = pad_node_labels.reshape(batch_size, -1)
 
         if self.graph_level:
             org_node_loss = cross_entropy(
-                org_node_logits, graph.org_node_labels, reduction='none'
+                org_node_logits, org_node_labels, reduction='none'
             )
             org_edge_loss = cross_entropy(
                 org_edge_logits, graph.org_edge_labels, reduction='none'
@@ -344,7 +350,7 @@ class EncoderDecoder(torch.nn.Module):
         pad_result = node_logits[graph.node_pad_mask]
 
         for idx, n_lg in enumerate(pad_result):
-            this_node_label = pad_node_label[idx]
+            this_node_label = pad_node_labels[idx]
             this_pad_idx = pad_index[idx]
             with torch.no_grad():
                 row_id, col_id = self.get_matching(n_lg, this_node_label)
