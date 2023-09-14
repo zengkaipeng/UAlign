@@ -209,7 +209,7 @@ def overall_col_fn(selfloop, pad_num):
         encoder_graph = encoder_fn([x[:3] for x in batch])\
             if use_class else encoder_fn([x[:2] for x in batch])
 
-        all_edge_type, all_node = {}, []
+        all_edge_type, all_node, org_edge = {}, [], []
         all_edg_idx, all_node_feat, all_edge_feat = [], [], []
         node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
         node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
@@ -220,8 +220,8 @@ def overall_col_fn(selfloop, pad_num):
 
         for idx, data in enumerate(batch):
             graph, n_lb, e_lb = data[:3]
+            node_cls, edge_cls = data[-2:]
             node_cnt = gp['num_nodes'] + pad_num
-            edge_cnt = gp['edge_index'].shape[1]
 
             # node_feats
             all_node_feat.append(graph['node_feat'])
@@ -229,16 +229,34 @@ def overall_col_fn(selfloop, pad_num):
             node_pad_mask.append(torch.zeros(graph['num_nodes']).bool())
             node_org_mask.append(torch.zeros(pad_num).bool())
             node_pad_mask.append(torch.ones(pad_num).bool())
+            node_cls_x = np.zeros(node_cnt, dtype=np.int64)
+            for k, v in node_cls.items():
+                node_cls_x[k] = v
+            all_node.append(node_cls_x)
 
             # org edge feat
 
             reserve_e_mask = (e_lb == 0).numpy()
-            org_e_cnt = int(reserve_e_mask.sum())
+            edge_cnt = int(reserve_e_mask.sum())
             all_edge_feat.append(graph['edge_feat'][reserve_e_mask])
             all_edg_idx.append(graph['edge_index'][:, reserve_e_mask])
-            self_mask.append(torch.zeros(org_e_cnt).bool())
-            org_mask.append(torch.ones(org_e_cnt).bool())
-            pad_mask.append(torch.zeros(org_e_cnt).bool())
+            self_mask.append(torch.zeros(edge_cnt).bool())
+            org_mask.append(torch.ones(edge_cnt).bool())
+            pad_mask.append(torch.zeros(edge_cnt).bool())
+
+            org_edge_cls = np.zeros(edge_cnt, dtype=np.int64)
+
+            for idx in range(edge_cnt):
+                row, col = all_edg_idx[-1][:, idx]
+                org_edge_cls[idx] = edge_cls[(row, col)]
+
+            org_edge.append(org_edge_cls)
+
+            # update_edge_types
+            all_edge_type.update({
+                (x + lstnode, y + lstnode): v
+                for (x, y), v in edge_cls.items()
+            })
 
             # make blocked attn block
 
@@ -250,8 +268,15 @@ def overall_col_fn(selfloop, pad_num):
             # padded edge_idx
 
             prod_node_idx = np.arange(node_cnt)
-            link_nodes = prod_node_idx[(n_lb == 1).numpy()]
-            link_nodes += [x + graph['num_nodes'] for x in range(pad_num)]
+            link_nds = prod_node_idx[(n_lb == 1).numpy()]
+            link_nds += [x + graph['num_nodes'] for x in range(pad_num)]
+            pad_edges = [(x, y) for x in link_nds for y in link_nds if x != y]
+            pad_len = len(pad_edges)
+            self_mask.append(torch.zeros(pad_len).bool())
+            org_mask.append(torch.zeros(pad_len).bool())
+            pad_mask.append(torch.ones(pad_len).bool())
+            edge_cnt += pad_len
+            all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T)
 
             # self_loop edges
             if selfloop:
@@ -262,3 +287,6 @@ def overall_col_fn(selfloop, pad_num):
                 self_mask.append(torch.ones(node_cnt).bool())
                 org_mask.append(torch.zeros(node_cnt).bool())
                 pad_mask.append(torch.zeros(node_cnt).bool())
+
+            lstnode += node_cnt
+            lstedge += edge_cnt
