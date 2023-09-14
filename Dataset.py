@@ -185,11 +185,45 @@ def overall_col_fn(selfloop, pad_num):
         all_edg_idx, all_node_feat, all_edge_feat = [], [], []
         node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
         node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
+        self_mask, org_mask, pad_mask, attn_mask = [], [], [], []
+        node_org_mask, node_pad_mask = [], []
 
         for idx, data in enumerate(batch):
             graph, n_lb, e_lb = data[:3]
-            prod_node_idx = np.arange(graph['num_nodes'])
-            link_nodes = prod_node_idx[(n_lb == 1).numpy()]
-            link_nodes += [x + graph['num_nodes'] for x in range(pad_num)]
+            node_cnt = gp['num_nodes'] + pad_num
+            edge_cnt = gp['edge_index'].shape[1]
 
-            
+            # node_feats
+            all_node_feat.append(graph['node_feat'])
+            node_org_mask.append(torch.ones(graph['num_nodes']).bool())
+            node_pad_mask.append(torch.zeros(graph['num_nodes']).bool())
+            node_org_mask.append(torch.zeros(pad_num).bool())
+            node_pad_mask.append(torch.ones(pad_num).bool())
+
+            # make blocked attn block
+
+            # org edge feat
+
+            reserve_e_mask = (e_lb == 0).numpy()
+            org_e_cnt = int(reserve_e_mask.sum())
+            all_edge_feat.append(graph['edge_feat'][reserve_e_mask])
+            all_edg_idx.append(graph['edge_index'][:, reserve_e_mask])
+            self_mask.append(torch.zeros(org_e_cnt).bool())
+            org_mask.append(torch.zeros(org_e_cnt).bool())
+            pad_mask.append(torch.zeros(org_e_cnt).bool())
+
+            # padded edge_idx
+
+            prod_node_idx = np.arange(node_cnt)
+            link_nodes = prod_node_idx[(n_lb == 1).numpy()]
+            link_nodes += [x + node_cnt for x in range(pad_num)]
+
+            # self_loop edges
+            if selfloop:
+                edge_idx.append(torch.LongTensor([
+                    list(range(node_cnt)), list(range(node_cnt))
+                ]) + lstnode)
+                edge_cnt += node_cnt
+                self_mask.append(torch.ones(node_cnt).bool())
+                org_mask.append(torch.zeros(node_cnt).bool())
+                pad_mask.append(torch.zeros(node_cnt).bool())
