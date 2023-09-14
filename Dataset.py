@@ -10,6 +10,7 @@ class BinaryEditDataset(torch.utils.data.Dataset):
         changed_edges: List[List[Union[List[int], Tuple[int]]]],
         rxn_class: Optional[List[int]] = None
     ):
+        super(BinaryEditDataset, self).__init__()
         self.graphs = graphs
         self.activate_nodes = activate_nodes
         self.changed_edges = changed_edges
@@ -35,6 +36,57 @@ class BinaryEditDataset(torch.utils.data.Dataset):
         else:
             return self.graphs[index], node_labels, \
                 edge_labels, self.rxn_class[index]
+
+
+class OverallDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, graphs, activate_nodes, changed_edges,
+        decoder_node_type, decoder_edge_type, rxn_class=None
+    ):
+        super(OverallDataset, self).__init__()
+        self.graphs = graphs
+        self.activate_nodes = activate_nodes
+        self.changed_edges = changed_edges
+        self.rxn_class = rxn_class
+        self.pad_num = pad_num
+        self.decoder_node_class = decoder_node_type
+        self.decoder_edge_class = decoder_edge_type
+
+    def __init__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, index):
+        this_graph = self.graphs[index]
+        node_labels = torch.zeros(this_graph['num_nodes'])
+        node_labels[self.activate_nodes[index]] = 1
+        edges = this_graph['edge_index']
+        edge_labels = torch.zeros(edges.shape[1])
+        for idx, src in enumerate(edges[0]):
+            src, dst = src.item(), edges[1][idx].item()
+            if (src, dst) in self.changed_edges[index]:
+                edge_labels[idx] = 1
+            if (dst, src) in self.changed_edges[index]:
+                edge_labels[idx] = 1
+
+        decoder_graph = {}
+
+        decoder_graph['node_feat'] = this_graph['node_feat']
+        decoder_graph['num_nodes'] = this_graph['num_nodes'] + self.pad_num
+
+        remain_edge_mask = (edge_labels == 0).numpy()
+        d_edges = this_graph['edge_index'][:, remain_edge_mask]
+        d_edge_feat = this_graph['edg_feat'][remain_edge_mask]
+
+        if self.rxn_class is None:
+            return self.graphs[index], node_labels, edge_labels,\
+                decoder_graph, self.decoder_node_class[index],\
+                self.decoder_edge_class[index]
+
+        else:
+            return self.graphs[index], node_labels, edge_labels,\
+                self.rxn_class[index], decoder_graph, \
+                self.decoder_node_class[index],\
+                self.decoder_edge_class[index]
 
 
 def edit_col_fn(selfloop):
@@ -130,3 +182,11 @@ def edit_col_fn(selfloop):
         return torch_geometric.data.Data(**result)
 
     return real_fn
+
+
+def overall_col_fn(selfloop):
+    def col_fn(batch):
+        encoder_fn = edit_col_fn(selfloop)
+        use_class = len(batch[0]) == 7
+        encoder_graph = encoder_fn([x[:3] for x in batch])\
+            if use_class else encoder_fn([x[:2] for x in batch])
