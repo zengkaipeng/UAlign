@@ -222,6 +222,10 @@ def overall_col_fn(selfloop, pad_num):
             graph, n_lb, e_lb = data[:3]
             node_cls, edge_cls = data[-2:]
             node_cnt = gp['num_nodes'] + pad_num
+            rxn = data[3] if use_class else None
+
+            if rxn is not None:
+                graph_rxn.append(rxn)
 
             # node_feats
             all_node_feat.append(graph['node_feat'])
@@ -233,6 +237,10 @@ def overall_col_fn(selfloop, pad_num):
             for k, v in node_cls.items():
                 node_cls_x[k] = v
             all_node.append(node_cls_x)
+
+            if rxn is not None:
+                node_rxn.append(
+                    np.ones(graph['num_nodes'], dtype=np.int64) * rxn)
 
             # org edge feat
 
@@ -251,6 +259,19 @@ def overall_col_fn(selfloop, pad_num):
                 org_edge_cls[idx] = edge_cls[(row, col)]
 
             org_edge.append(org_edge_cls)
+
+            # self_loop edges
+            if selfloop:
+                edge_idx.append(torch.LongTensor([
+                    list(range(node_cnt)), list(range(node_cnt))
+                ]) + lstnode)
+                edge_cnt += node_cnt
+                self_mask.append(torch.ones(node_cnt).bool())
+                org_mask.append(torch.zeros(node_cnt).bool())
+                pad_mask.append(torch.zeros(node_cnt).bool())
+
+            if rxn is not None:
+                edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
 
             # update_edge_types
             all_edge_type.update({
@@ -278,15 +299,10 @@ def overall_col_fn(selfloop, pad_num):
             edge_cnt += pad_len
             all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T)
 
-            # self_loop edges
-            if selfloop:
-                edge_idx.append(torch.LongTensor([
-                    list(range(node_cnt)), list(range(node_cnt))
-                ]) + lstnode)
-                edge_cnt += node_cnt
-                self_mask.append(torch.ones(node_cnt).bool())
-                org_mask.append(torch.zeros(node_cnt).bool())
-                pad_mask.append(torch.zeros(node_cnt).bool())
-
             lstnode += node_cnt
             lstedge += edge_cnt
+
+            node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+            edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+            node_ptr.append(lstnode)
+            edge_ptr.append(lstedge)
