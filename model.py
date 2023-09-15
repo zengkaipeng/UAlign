@@ -216,7 +216,7 @@ class EncoderDecoder(torch.nn.Module):
     def forward(
         self, encoder_graph, decoder_graph, encoder_mode,
         reduction='mean', graph_level=True, ret_loss=True,
-        edge_types=None, alpha=1
+        edge_types, alpha=1
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
@@ -250,13 +250,12 @@ class EncoderDecoder(torch.nn.Module):
             mem_pad_mask=mem_pad_mask
         )
 
-        if ret_loss:
-            decoder_losses = self.loss_calc(
-                graph=decoder_graph, node_logits=node_logits,
-                reduction=reduction, edge_logits=edge_logits,
-                edge_type_dict=edge_types, graph_level=graph_level
-            )
-            org_node_loss, org_edge_loss, x_loss, c_loss = decoder_losses
+        decoder_losses = self.loss_calc(
+            graph=decoder_graph, node_logits=node_logits,
+            reduction=reduction, edge_logits=edge_logits,
+            edge_type_dict=edge_types, graph_level=graph_level
+        )
+        org_node_loss, org_edge_loss, x_loss, c_loss = decoder_losses
 
         return n_loss + e_loss + x_loss + c_loss \
             + (org_node_loss + org_edge_loss) * alpha
@@ -388,7 +387,7 @@ class EncoderDecoder(torch.nn.Module):
                 idx_j = this_edge_idx[1][ex]
                 idx_i = node_remap.get(idx_i, idx_i)
                 idx_j = node_remap.get(idx_j, idx_j)
-                this_edge_label.append(edge_type_dict[(idx_i, idx_j)])
+                this_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
 
             this_edge_label = torch.LongTensor(this_edge_label).to(device)
 

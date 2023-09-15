@@ -2,6 +2,7 @@ import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 import torch_geometric
+from numpy import concatenate as npcat
 
 
 class BinaryEditDataset(torch.utils.data.Dataset):
@@ -100,13 +101,13 @@ def edit_col_fn(selfloop):
                 edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
 
         result = {
-            'x': torch.from_numpy(np.concatenate(node_feat, axis=0)),
-            "edge_attr": torch.from_numpy(np.concatenate(edge_feat, axis=0)),
+            'x': torch.from_numpy(npcat(node_feat, axis=0)),
+            "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
             'ptr': torch.LongTensor(node_ptr),
             'e_ptr': torch.LongTensor(edge_ptr),
-            'batch': torch.from_numpy(np.concatenate(node_batch, axis=0)),
-            'e_batch': torch.from_numpy(np.concatenate(edge_batch, axis=0)),
-            'edge_index': torch.from_numpy(np.concatenate(edge_idx, axis=-1)),
+            'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+            'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+            'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
             "self_mask": torch.cat(self_mask, dim=0),
             'org_mask': torch.cat(org_mask, dim=0),
             'node_label': torch.cat(all_node, dim=0),
@@ -117,14 +118,14 @@ def edit_col_fn(selfloop):
         }
 
         for k, v in all_pos_enc.items():
-            v = torch.from_numpy(np.concatenate(v, axis=0))
+            v = torch.from_numpy(npcat(v, axis=0))
             all_pos_enc[k] = v
 
         result.update(all_pos_enc)
 
         if len(node_rxn) > 0:
-            node_rxn = np.concatenate(node_rxn, axis=0)
-            edge_rxn = np.concatenate(edge_rxn, axis=0)
+            node_rxn = npcat(node_rxn, axis=0)
+            edge_rxn = npcat(edge_rxn, axis=0)
             result['node_rxn'] = torch.from_numpy(node_rxn)
             result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
@@ -239,8 +240,8 @@ def overall_col_fn(selfloop, pad_num):
             all_node.append(node_cls_x)
 
             if rxn is not None:
-                node_rxn.append(
-                    np.ones(graph['num_nodes'], dtype=np.int64) * rxn)
+                n_rxn = np.ones(graph['num_nodes'], dtype=np.int64) * rxn
+                node_rxn.append(n_rxn)
 
             # org edge feat
 
@@ -306,3 +307,32 @@ def overall_col_fn(selfloop, pad_num):
             edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
             node_ptr.append(lstnode)
             edge_ptr.append(lstedge)
+
+        result = {
+            'x': torch.from_numpy(npcat(all_node_feat, axis=0)),
+            'edge_attr': torch.from_numpy(npcat(all_edge_feat, axis=0)),
+            'edge_index': torch.from_numpy(npcat(all_edg_idx, axis=1)),
+            'attn_mask': torch.stack(attn_mask, dim=0),
+            'node_class': torch.from_numpy(npcat(all_node, axis=0)),
+            'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+            'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+            "num_nodes": lstnode,
+            "num_edges": lstedge,
+            'org_edge_class': torch.from_numpy(npcat(org_edge, axis=0)),
+            "ptr": torch.LongTensor(node_ptr),
+            'e_ptr': torch.LongTensor(edge_ptr),
+            "self_mask": torch.cat(self_mask, dim=0),
+            'org_mask': torch.cat(org_mask, dim=0),
+            'pad_mask': torch.cat(pad_mask, dim=0),
+            'node_org_mask': torch.cat(node_org_mask, dim=0),
+            "node_pad_mask": torch.cat(node_pad_mask, dim=0)
+        }
+        if len(graph_rxn) > 0:
+            result['node_rxn'] = torch.from_numpy(npcat(node_rxn, axis=0))
+            result['edge_rxn'] = torch.from_numpy(npcat(edge_rxn, axis=0))
+            result['graph_rxn'] = torch.LongTensor(graph_rxn)
+
+        decoder_graph = torch_geometric.data.Data(**result)
+
+        return encoder_graph, decoder_graph, all_edge_type
+    return col_fn
