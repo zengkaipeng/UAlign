@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch.nn import Parameter
+import torch_geometric
 
 
 class MyGATConv(MessagePassing):
@@ -37,21 +38,17 @@ class MyGATConv(MessagePassing):
         self.bias = Parameter(torch.zeros(heads * out_channels))
         self.lin_edge = Linear(
             edge_dim, out_channels * heads,
-            bias=False, weight_initializer='glorot'
-        )
-        self.lin_message = Linear(
-            edge_dim, out_channels * heads,
             bias=True, weight_initializer='glorot'
         )
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        super(MyGATConv, self).reset_parameters()
+        if torch_geometric.__version__.startswith('2.3'):
+            super(MyGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()
-        self.lin_message.reset_parameters()
         glorot(self.att_src)
         glorot(self.att_dst)
         glorot(self.att_edge)
@@ -68,7 +65,7 @@ class MyGATConv(MessagePassing):
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)
         x_dst = self.lin_dst(x).view(-1, H, C)
-        e_message = self.lin_message(edge_attr).view(-1, H, C)
+        edge_attr = self.lin_edge(edge_attr)
 
         x = (x_src, x_dst)
         alpha_src = (x_src * self.att_src).sum(dim=-1)
@@ -78,14 +75,13 @@ class MyGATConv(MessagePassing):
         alpha = self.edge_updater(edge_index, alpha=alpha, edge_attr=edge_attr)
 
         out = self.propagate(
-            edge_index, x=x, alpha=alpha,
-            size=size, edge_attr=e_message
+            edge_index, x=x, alpha=alpha, size=size,
+            edge_attr=edge_attr.view(-1, H, C)
         )
         out = out.view(-1, H * C) + self.bias
         return out
 
     def edge_update(self, alpha_j, alpha_i, edge_attr, index, ptr, size_i):
-        edge_attr = self.lin_edge(edge_attr)
         edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
         alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
         alpha = alpha_i + alpha_j + alpha_edge
