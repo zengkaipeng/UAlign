@@ -180,14 +180,6 @@ class Graph2Seq(torch.nn.Module):
             torch.nn.Linear(d_model, token_size)
         )
 
-    def batch_mask(
-        self, ptr: torch.Tensor, max_node: int, batch_size: int
-    ) -> torch.Tensor:
-        num_nodes = ptr[1:] - ptr[:-1]
-        mask = torch.arange(max_node).repeat(batch_size, 1)
-        mask = mask.to(num_nodes.device)
-        return mask < num_nodes.reshape(-1, 1)
-
     def graph2batch(
         self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
         batch_size: int, max_node: int
@@ -197,25 +189,16 @@ class Graph2Seq(torch.nn.Module):
         answer[batch_mask] = node_feat
         return answer
 
-    def max_node_ptr(self, ptr):
-        num_nodes = ptr[1:] - ptr[:-1]
-        return num_nodes.max()
-
     def encode(self, graphs):
-        node_feat, edge_feat = self.encoder(
-            node_feats=self.atom_encoder(graphs.x, rxn_class=n_rxn),
-            edge_feats=self.bond_encoder(graphs.edge_attr, rxn_class=e_rxn),
-            edge_index=graphs.edge_index
-        )
+        node_feat, edge_feat = self.encoder(graphs)
 
-        batch_size = len(graphs.ptr) - 1
-        max_mem_len = self.max_node_ptr(graphs.ptr)
-        batch_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
+        batch_size = graphs.batch.max().item() + 1
+        max_mem_len = graphs.node_per_graph.max().item() + 1
         memory = self.graph2batch(
-            node_feat=node_feat, batch_mask=batch_mask,
+            node_feat=node_feat, batch_mask=graphs.batch_mask,
             batch_size=batch_size, max_node=max_mem_len
         )
-        return memory, torch.logical_not(batch_mask)
+        return memory, torch.logical_not(graphs.batch_mask)
 
     def decode(
         self, tgt, memory, memory_padding_mask=None,
@@ -231,25 +214,18 @@ class Graph2Seq(torch.nn.Module):
 
     def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask, pred_core=False):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
-        n_rxn = getattr(graphs, 'node_rxn', None)
-        e_rxn = getattr(graphs, 'edge_rxn', None)
-        node_feat, edge_feat = self.encoder(
-            node_feats=self.atom_encoder(graphs.x, rxn_class=n_rxn),
-            edge_feats=self.bond_encoder(graphs.edge_attr, rxn_class=e_rxn),
-            edge_index=graphs.edge_index
-        )
+        node_feat, edge_feat = self.encoder(graphs)
 
-        batch_size = len(graphs.ptr) - 1
-        max_mem_len = self.max_node_ptr(graphs.ptr)
-        batch_mask = self.batch_mask(graphs.ptr, max_mem_len, batch_size)
+        batch_size = graphs.batch.max().item() + 1
+        max_mem_len = graphs.node_per_graph.max().item() + 1
         memory = self.graph2batch(
-            node_feat=node_feat, batch_mask=batch_mask,
+            node_feat=node_feat, batch_mask=graphs.batch_mask,
             batch_size=batch_size, max_node=max_mem_len
         )
 
         result = self.output_layer(self.decoder(
             tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
-            memory_key_padding_mask=torch.logical_not(batch_mask),
+            memory_key_padding_mask=torch.logical_not(graphs.batch_mask),
             tgt_key_padding_mask=tgt_pad_mask
         ))
 
