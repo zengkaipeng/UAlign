@@ -32,13 +32,9 @@ def create_log_model(args):
         f'accu_{args.accu}', f'gamma_{args.gamma}',
         f'lrstep_{args.step_start}', f'aug_prob_{args.aug_prob}'
     ]
-    if args.kekulize:
-        log_dir.append('kekulize')
 
     detail_log_folder = os.path.join(
-        args.base_log,
-        'with_class' if args.use_class else 'wo_class',
-        args.backbone, '-'.join(log_dir)
+        args.base_log, args.backbone, '-'.join(log_dir)
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
@@ -73,18 +69,15 @@ def main_worker(
 
     train_set = OnFlyDataset(
         prod_sm=train_prod, reat_sm=train_rec, target=train_target,
-        kekulize=args.kekulize, aug_prob=args.aug_prob, randomize=True,
-        rxn_class=train_rxn if args.use_class else None,
+        aug_prob=args.aug_prob, randomize=True,
     )
     valid_set = OnFlyDataset(
         prod_sm=val_prod, reat_sm=val_rec, target=val_target,
-        rxn_class=val_rxn if args.use_class else None,
-        kekulize=args.kekulize, aug_prob=0, randomize=False
+        aug_prob=0, randomize=False
     )
     test_set = OnFlyDataset(
         prod_sm=test_prod, reat_sm=test_rec, target=test_target,
-        rxn_class=test_rxn if args.use_class else None,
-        kekulize=args.kekulize, aug_prob=0, randomize=False
+        aug_prob=0, randomize=False
     )
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
@@ -265,10 +258,6 @@ if __name__ == '__main__':
         help='the number of used gpus'
     )
     parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
-    )
-    parser.add_argument(
         '--aug_prob', default=0.5, type=float,
         help='the probability of performing data augumentation '
         "should be between 0 and 1"
@@ -316,10 +305,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--data_path', required=True, type=str,
         help='the path containing dataset'
-    )
-    parser.add_argument(
-        '--use_class', action='store_true',
-        help='use rxn_class for training or not'
     )
     parser.add_argument(
         '--seed', type=int, default=2023,

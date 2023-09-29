@@ -22,7 +22,6 @@ class MyGINConv(torch.nn.Module):
         dim = message.shape[-1]
 
         message_reduce = torch.zeros(num_nodes, dim).to(message)
-        index = edge_index[0].unsqueeze(-1).repeat(1, dim)
         message_reduce.index_add_(dim=0, index=row, source=message)
 
         return self.mlp((1 + self.eps) * x + torch.relu(message_reduce))

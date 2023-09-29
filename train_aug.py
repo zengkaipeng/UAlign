@@ -9,7 +9,7 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, fc_collect_fn, PositionalEncoding, Acc_fn
+from model import Graph2Seq, get_col_fc PositionalEncoding, Acc_fn
 from training import train_trans, eval_trans
 from data_utils import create_sparse_dataset, load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
@@ -26,13 +26,9 @@ def create_log_model(args):
         f'accu_{args.accu}', f'gamma_{args.gamma}',
         f'lrstep_{args.step_start}', f'aug_prob_{args.aug_prob}'
     ]
-    if args.kekulize:
-        log_dir.append('kekulize')
 
     detail_log_folder = os.path.join(
-        args.base_log,
-        'with_class' if args.use_class else 'wo_class',
-        args.backbone, '-'.join(log_dir)
+        args.base_log,  args.backbone, '-'.join(log_dir)
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
@@ -48,10 +44,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
         '--aug_prob', default=0.5, type=float,
@@ -97,10 +89,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--data_path', required=True, type=str,
         help='the path containing dataset'
-    )
-    parser.add_argument(
-        '--use_class', action='store_true',
-        help='use rxn_class for training or not'
     )
     parser.add_argument(
         '--seed', type=int, default=2023,
@@ -166,45 +154,44 @@ if __name__ == '__main__':
     with open(args.token_path) as Fin:
         ALL_TOKEN = json.load(Fin)
 
-    if args.use_class:
-        SP_TOKEN = DEFAULT_SP | {f'<RXN_{i}>' for i in range(10)}
-    else:
-        SP_TOKEN = DEFAULT_SP
+    tokenizer = Tokenizer(ALL_TOKEN, DEFAULT_SP)
 
-    tokenizer = Tokenizer(ALL_TOKEN, SP_TOKEN)
-
-    train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
-    val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
-    test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
+    train_rec, train_prod, train_rxn, train_target =\
+        load_ext_data(args.data_path, 'train')
+    val_rec, val_prod, val_rxn, val_target =\
+        load_ext_data(args.data_path, 'valid')
+    test_rec, test_prod, test_rxn, test_target =\
+        load_ext_data(args.data_path, 'test')
 
     print('[INFO] Data Loaded')
 
-    train_set = create_sparse_dataset(
-        train_rec, train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None,
-        randomize=True, aug_prob=args.aug_prob
+    train_set = OnFlyDataset(
+        prod_sm=train_prod, reat_sm=train_rec, target=train_target,
+        aug_prob=args.aug_prob, randomize=True,
     )
-    valid_set = create_sparse_dataset(
-        val_rec, val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None,
-        randomize=False
+    valid_set = OnFlyDataset(
+        prod_sm=val_prod, reat_sm=val_rec, target=val_target,
+        aug_prob=0, randomize=False
     )
-    test_set = create_sparse_dataset(
-        test_rec, test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None,
-        randomize=False
+    test_set = OnFlyDataset(
+        prod_sm=test_prod, reat_sm=test_rec, target=test_target,
+        aug_prob=0, randomize=False
     )
 
+    if args.backbone in ['GAT', 'MIX']:
+        col_fn = get_col_fc(self_loop=True)
+    else:
+        col_fn = get_col_fc(self_loop=False)
     train_loader = DataLoader(
-        train_set, collate_fn=fc_collect_fn,
+        train_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=True,
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=fc_collect_fn,
+        valid_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=fc_collect_fn,
+        test_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -218,7 +205,7 @@ if __name__ == '__main__':
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, edge_last=True,
             residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads, add_self_loop=True
+            num_heads=args.heads, add_self_loop=False
         )
 
     decode_layer = TransformerDecoderLayer(

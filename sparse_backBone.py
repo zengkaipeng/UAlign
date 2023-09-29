@@ -1,6 +1,6 @@
 import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
-from ogb.graphproppred.mol_encoder import BondEncoder
+from ogb.graphproppred.mol_encoder import BondEncoder, AtomEncoder
 from torch_geometric.data import Data
 from GATconv import MyGATConv
 from GINConv import MyGINConv
@@ -53,21 +53,22 @@ class GINBase(torch.nn.Module):
             self.edge_update.append(SparseEdgeUpdateLayer(
                 embedding_dim, embedding_dim
             ))
+        self.atom_encoder = AtomEncoder(embedding_dim)
+        self.bond_encoder = SparseBondEncoder(embedding_dim)
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        num_nodes = node_feats.shape[0]
+    def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
+        node_feats = self.atom_encoder(graph.x)
+        edge_feats = self.bond_encoder(
+            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
+            self_mask=graph.self_mask
+        )
+
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                node_feats=node_feats, edge_feats=edge_feats,
-                edge_index=edge_index, num_nodes=num_nodes
+                x=node_feats, edge_attr=edge_feats, edge_index=edge_index,
             ))
 
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
-
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=edge_index
@@ -103,12 +104,15 @@ class GATBase(torch.nn.Module):
                 embedding_dim, embedding_dim
             ))
         self.add_self_loop = add_self_loop
+        self.atom_encoder = AtomEncoder(embedding_dim)
+        self.bond_encoder = SparseBondEncoder(embedding_dim)
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
+        node_feats = self.atom_encoder(graph.x)
+        edge_feats = self.bond_encoder(
+            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
+            self_mask=graph.self_mask
+        )
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=edge_index

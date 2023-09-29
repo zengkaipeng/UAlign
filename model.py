@@ -81,10 +81,11 @@ def get_col_fc(self_loop):
         batch_size, node_label, max_node = len(data_batch), [], 0
         edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
         edge_label, batch, ptr, reats = [], [], [0], []
-        node_per_graph = []
+        node_per_graph, org_mask, self_mask = [], [], []
         for idx, data in enumerate(data_batch):
             graph, n_lb, e_lb, ret = data
             num_nodes = graph['num_nodes']
+            num_edges = graph['edge_index'].shape[1]
 
             node_label.append(n_lb)
             edge_label.append(e_lb)
@@ -93,11 +94,17 @@ def get_col_fc(self_loop):
             edge_idxes.append(graph['edge_index'] + lstnode)
             edge_feats.append(graph['edge_feat'])
             node_feats.append(graph['node_feat'])
+            org_mask.append(torch.ones(num_edges).bool())
+            self_mask.append(torch.zeros(num_edges).bool())
+
             if self_loop:
                 self_edges = [(x, x) for x in range(num_nodes)]
                 self_edges = np.array(self_edges, dtype=np.int64).T
                 edge_idxes.append(self_edges + lstnode)
                 edge_label.append(torch.zeros(num_nodes).long())
+
+                org_mask.append(torch.zeros(num_nodes).bool())
+                self_mask.append(torch.ones(num_nodes).bool())
 
             lstnode += num_nodes
             max_node = max(max_node, num_nodes)
@@ -123,6 +130,8 @@ def get_col_fc(self_loop):
             all_batch_mask[idx, :mk] = 1
         result['node_per_graph'] = torch.LongTensor(node_per_graph)
         result['batch_mask'] = all_batch_mask.bool()
+        result['org_mask'] = torch.cat(org_mask, dim=0)
+        result['self_mask'] = torch.cat(self_mask, dim=0)
 
         return GData(**result), reats
     return fc_collect_fn
