@@ -199,13 +199,12 @@ if __name__ == '__main__':
     if args.backbone == 'GIN':
         GNN = GINBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True, residual=True
+            embedding_dim=args.dim,
         )
     else:
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True,
-            residual=True, negative_slope=args.negative_slope,
+            embedding_dim=args.dim, negative_slope=args.negative_slope,
             num_heads=args.heads, add_self_loop=False
         )
 

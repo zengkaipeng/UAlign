@@ -217,7 +217,7 @@ class Graph2Seq(torch.nn.Module):
         node_feat, edge_feat = self.encoder(graphs)
 
         batch_size = graphs.batch.max().item() + 1
-        max_mem_len = graphs.node_per_graph.max().item() + 1
+        max_mem_len = graphs.node_per_graph.max().item()
         memory = self.graph2batch(
             node_feat=node_feat, batch_mask=graphs.batch_mask,
             batch_size=batch_size, max_node=max_mem_len

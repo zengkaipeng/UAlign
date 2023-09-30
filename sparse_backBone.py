@@ -65,13 +65,14 @@ class GINBase(torch.nn.Module):
 
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=edge_index,
+                x=node_feats, edge_attr=edge_feats, 
+                edge_index=graph.edge_index,
             ))
 
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=edge_index
+                edge_index=graph.edge_index
             )
         return node_feats, edge_feats
 
@@ -115,12 +116,13 @@ class GATBase(torch.nn.Module):
         )
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=edge_index
+                x=node_feats, edge_attr=edge_feats, 
+                edge_index=graph.edge_index
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=edge_index
+                edge_index=graph.edge_index
             )
 
         return node_feats, edge_feats
@@ -131,7 +133,6 @@ class SparseBondEncoder(torch.nn.Module):
         super(SparseBondEncoder, self).__init__()
         self.bond_encoder = BondEncoder(dim)
         self.self_embedding = torch.nn.Parameter(torch.randn(dim))
-        self.n_class = n_class
         self.dim = dim
 
     def forward(self, edge_feat, org_mask, self_mask):

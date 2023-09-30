@@ -1,0 +1,62 @@
+{
+    "args": {
+        "dim": 64,
+        "aug_prob": 0.5,
+        "layer_encoder": 2,
+        "layer_decoder": 2,
+        "token_path": ".\\All_token_ord.json",
+        "heads": 2,
+        "warmup": 1,
+        "backbone": "GIN",
+        "gamma": 0.998,
+        "dropout": 0.3,
+        "negative_slope": 0.2,
+        "data_path": "..\\data\\UTPSO-50K\\",
+        "seed": 2023,
+        "bs": 512,
+        "epoch": 2,
+        "early_stop": 0,
+        "device": -1,
+        "lr": 0.001,
+        "base_log": "log_exp",
+        "label_smooth": 0.0,
+        "accu": 1,
+        "step_start": 50,
+        "checkpoint": "",
+        "token_ckpt": ""
+    },
+    "train_loss": [
+        {
+            "node": 4465.084747700752,
+            "edge": 5731.764688612539,
+            "trans": 102750.61930132516,
+            "acc": 0.1982803986203114
+        },
+        {
+            "node": 2600.7371903431567,
+            "edge": 2965.5584743837767,
+            "trans": 49188.23577185522,
+            "acc": 0.39861101571541524
+        }
+    ],
+    "valid_metric": [
+        {
+            "trans": 55815.040234375,
+            "acc": 0.3231567320699455
+        },
+        {
+            "trans": 41782.9111328125,
+            "acc": 0.4692943809441073
+        }
+    ],
+    "test_metric": [
+        {
+            "trans": 55708.537109375,
+            "acc": 0.3223358764090061
+        },
+        {
+            "trans": 41670.687890625,
+            "acc": 0.46977079202387706
+        }
+    ]
+}
