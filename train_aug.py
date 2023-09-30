@@ -9,11 +9,12 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, get_col_fc PositionalEncoding, Acc_fn
+from model import Graph2Seq, get_col_fc, PositionalEncoding, Acc_fn
 from training import train_trans, eval_trans
-from data_utils import create_sparse_dataset, load_data, fix_seed
+from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
+from model import OnFlyDataset
 
 
 def create_log_model(args):
@@ -159,7 +160,7 @@ if __name__ == '__main__':
     train_rec, train_prod, train_rxn, train_target =\
         load_ext_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn, val_target =\
-        load_ext_data(args.data_path, 'valid')
+        load_ext_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn, test_target =\
         load_ext_data(args.data_path, 'test')
 
