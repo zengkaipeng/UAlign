@@ -15,6 +15,7 @@ from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 from model import OnFlyDataset
+from MixConv import MixFormer
 
 
 def create_log_model(args):
@@ -72,7 +73,7 @@ if __name__ == '__main__':
         help='the epoch of warmup'
     )
     parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN'],
+        '--backbone', type=str, choices=['GAT', 'GIN', 'MIX'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -206,6 +207,12 @@ if __name__ == '__main__':
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, negative_slope=args.negative_slope,
             num_heads=args.heads, add_self_loop=False
+        )
+    else:
+        GNN = MixFormer(
+            emb_dim=args.dim, num_layer=args.layer_encoder,
+            heads=args.heads, dropout=args.dropout,
+            negative_slope=args.negative_slope,  add_self_loop=True,
         )
 
     decode_layer = TransformerDecoderLayer(

@@ -22,8 +22,6 @@ class MhAttnBlock(torch.nn.Module):
         self.LinearV = torch.nn.Linear(Vdim, heads * Odim, bias=False)
         self.dropout_fun = torch.nn.Dropout(dropout)
 
-        torch.nn.init.xavier_uniform_(self.alphaK)
-        torch.nn.init.xavier_uniform_(self.alphaQ)
         torch.nn.init.xavier_uniform_(self.bias)
 
     def forward(
@@ -56,7 +54,7 @@ class MhAttnBlock(torch.nn.Module):
             mask_shape = (batch_size, max_len, max_len, self.heads)
             all_mask = torch.zeros(mask_shape).to(key_padding_mask)
             all_mask[key_padding_mask] = True
-            all_mask = all_mask.transpose(0, 1)
+            all_mask = all_mask.transpose(1, 2)
             all_mask[key_padding_mask] = True
             if attn_mask is not None:
                 all_mask = torch.logical_and(all_mask, attn_mask)
@@ -113,10 +111,10 @@ class MixConv(torch.nn.Module):
             all_x, attn_mask=attn_mask, key_padding_mask=key_padding_mask
         )
 
-        return torch.cat([conv_res, all_x[~key_padding_mask]], dim=-1)
+        return torch.cat([conv_res, attn_res[~key_padding_mask]], dim=-1)
 
 
-def MixFormer(torch.nn.Module):
+class MixFormer(torch.nn.Module):
     def __init__(
         self, emb_dim, num_layer, heads=2, dropout=0.1,
         negative_slope=0.2,  add_self_loop=True,
@@ -125,7 +123,7 @@ def MixFormer(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.batch_norms = torch.nn.ModuleList()
         self.edge_update = torch.nn.ModuleList()
-        self.num_layers, self.num_heads = num_layers, num_heads
+        self.num_layers, self.num_heads = num_layer, heads
         assert emb_dim % (heads * 2) == 0, \
             'The embedding dim should be evenly divided by num_heads'
         self.drop_fun = torch.nn.Dropout(dropout)
@@ -156,7 +154,7 @@ def MixFormer(torch.nn.Module):
                 key_padding_mask=torch.logical_not(graph.batch_mask)
             ))
 
-            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
+            node_feats = self.drop_fun(torch.relu(conv_res)) + node_feats
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=graph.edge_index

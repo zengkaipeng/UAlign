@@ -110,11 +110,17 @@ def main_worker(
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim,
         )
-    else:
+    elif args.backbone == 'GAT':
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, negative_slope=args.negative_slope,
             num_heads=args.heads, add_self_loop=False
+        )
+    else:
+        GNN = MixFormer(
+            emb_dim=args.dim, num_layer=args.layer_encoder,
+            heads=args.heads, dropout=args.dropout,
+            negative_slope=args.negative_slope,  add_self_loop=True,
         )
 
     decode_layer = TransformerDecoderLayer(
@@ -290,7 +296,7 @@ if __name__ == '__main__':
         help='the epoch of warmup'
     )
     parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN'],
+        '--backbone', type=str, choices=['GAT', 'GIN', 'MIX'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -364,12 +370,7 @@ if __name__ == '__main__':
     with open(args.token_path) as Fin:
         ALL_TOKEN = json.load(Fin)
 
-    if args.use_class:
-        SP_TOKEN = DEFAULT_SP | {f'<RXN_{i}>' for i in range(10)}
-    else:
-        SP_TOKEN = DEFAULT_SP
-
-    tokenizer = Tokenizer(ALL_TOKEN, SP_TOKEN)
+    tokenizer = Tokenizer(ALL_TOKEN, DEFAULT_SP)
     print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
     if args.token_ckpt != '':
