@@ -269,8 +269,6 @@ class Graph2Seq(torch.nn.Module):
         super(Graph2Seq, self).__init__()
         self.word_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
-        self.atom_encoder = AtomEncoder(d_model)
-        self.bond_encoder = SparseBondEncoder(d_model)
         self.node_cls = torch.nn.Sequential(
             torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
