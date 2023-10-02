@@ -201,7 +201,7 @@ if __name__ == '__main__':
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim,
         )
-    else:
+    elif args.backbone == 'GAT':
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, negative_slope=args.negative_slope,

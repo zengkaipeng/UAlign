@@ -61,7 +61,7 @@ def main_worker(
     train_rec, train_prod, train_rxn, train_target =\
         load_ext_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn, val_target =\
-        load_ext_data(args.data_path, 'valid')
+        load_ext_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn, test_target =\
         load_ext_data(args.data_path, 'test')
 
@@ -83,19 +83,23 @@ def main_worker(
     train_sampler = DistributedSampler(train_set, shuffle=True)
     valid_sampler = DistributedSampler(valid_set, shuffle=False)
     test_sampler = DistributedSampler(test_set, shuffle=False)
+    if args.backbone in ['GAT', 'MIX']:
+        col_fn = get_col_fc(self_loop=True)
+    else:
+        col_fn = get_col_fc(self_loop=False)
 
     train_loader = DataLoader(
-        train_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        train_set, collate_fn=col_fn, batch_size=args.bs,
         shuffle=False, sampler=train_sampler, pin_memory=True,
         num_workers=args.num_workers
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        valid_set, collate_fn=col_fn, batch_size=args.bs,
         shuffle=False, sampler=valid_sampler, pin_memory=True,
         num_workers=args.num_workers
     )
     test_loader = DataLoader(
-        test_set, collate_fn=fc_collect_fn, batch_size=args.bs,
+        test_set, collate_fn=col_fn, batch_size=args.bs,
         shuffle=False, sampler=test_sampler, pin_memory=True,
         num_workers=args.num_workers
     )
@@ -104,14 +108,13 @@ def main_worker(
     if args.backbone == 'GIN':
         GNN = GINBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True, residual=True
+            embedding_dim=args.dim,
         )
     else:
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True,
-            residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads, add_self_loop=True
+            embedding_dim=args.dim, negative_slope=args.negative_slope,
+            num_heads=args.heads, add_self_loop=False
         )
 
     decode_layer = TransformerDecoderLayer(
