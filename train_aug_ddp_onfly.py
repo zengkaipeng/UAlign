@@ -10,8 +10,10 @@ from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import (
-    Graph2Seq, fc_collect_fn, PositionalEncoding, Acc_fn, OnFlyDataset
+    Graph2Seq, PositionalEncoding, Acc_fn, OnFlyDataset,
+    col_fn_selfloop, col_fn_unloop
 )
+from MixConv import MixFormer
 from training import train_trans, eval_trans
 from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
@@ -84,9 +86,9 @@ def main_worker(
     valid_sampler = DistributedSampler(valid_set, shuffle=False)
     test_sampler = DistributedSampler(test_set, shuffle=False)
     if args.backbone in ['GAT', 'MIX']:
-        col_fn = get_col_fc(self_loop=True)
+        col_fn = col_fn_selfloop
     else:
-        col_fn = get_col_fc(self_loop=False)
+        col_fn = col_fn_unloop
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn, batch_size=args.bs,
