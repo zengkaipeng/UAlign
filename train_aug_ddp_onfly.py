@@ -373,12 +373,13 @@ if __name__ == '__main__':
         ALL_TOKEN = json.load(Fin)
 
     tokenizer = Tokenizer(ALL_TOKEN, DEFAULT_SP)
-    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
     if args.token_ckpt != '':
         print(f'[INFO] Loading tokenizer from {args.token_ckpt}')
         with open(args.token_ckpt, 'rb') as Fin:
             tokenizer = pickle.load(Fin)
+
+    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
     torch_mp.spawn(
         main_worker, nprocs=args.num_gpus,
