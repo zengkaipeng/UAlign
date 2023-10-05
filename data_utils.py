@@ -2,7 +2,8 @@ import pandas
 import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
-    BOND_FLOAT_TO_IDX, get_modified_atoms_bonds
+    BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
+    get_node_types, get_edge_types
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset
