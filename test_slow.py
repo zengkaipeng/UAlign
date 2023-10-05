@@ -2,16 +2,17 @@ import torch
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, fc_collect_fn, PositionalEncoding
-from inference_tools import greedy_inference_one
+from model import Graph2Seq, get_col_fc, PositionalEncoding
+from model import OnFlyDataset
 from inference_tools import beam_search_one, check_valid
 import pickle
-from data_utils import create_sparse_dataset, load_data, fix_seed
+from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from tqdm import tqdm
 from utils.chemistry_parse import canonical_smiles
 import argparse
 import numpy as np
+from MixConv import MixFormer
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
@@ -40,7 +41,7 @@ if __name__ == '__main__':
         help='the number of heads for attention, only useful for gat'
     )
     parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN'],
+        '--backbone', type=str, choices=['GAT', 'GIN', 'MIX'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -86,28 +87,37 @@ if __name__ == '__main__':
     else:
         device = torch.device(f'cuda:{args.device}')
     fix_seed(args.seed)
-    test_rec, test_prod, test_rxn = load_data(args.data_path)
-    test_set = create_sparse_dataset(
-        test_rec, test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None,
-        randomize=False
+    test_rec, test_prod, test_rxn, test_target =\
+        load_ext_data(args.data_path)
+    if args.backbone in ['GAT', 'MIX']:
+        col_fn = get_col_fc(self_loop=True)
+    else:
+        col_fn = get_col_fc(self_loop=False)
+    test_set = OnFlyDataset(
+        prod_sm=test_prod, reat_sm=test_rec, target=test_target,
+        aug_prob=0, randomize=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=fc_collect_fn,
+        test_set, collate_fn=col_fn,
         batch_size=1, shuffle=False
     )
 
     if args.backbone == 'GIN':
         GNN = GINBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True, residual=True
+            embedding_dim=args.dim,
         )
-    else:
+    elif args.backbone == 'GAT':
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, edge_last=True,
-            residual=True, negative_slope=args.negative_slope,
-            num_heads=args.heads, add_self_loop=True
+            embedding_dim=args.dim, negative_slope=args.negative_slope,
+            num_heads=args.heads, add_self_loop=False
+        )
+    else:
+        GNN = MixFormer(
+            emb_dim=args.dim, num_layer=args.layer_encoder,
+            heads=args.heads, dropout=args.dropout,
+            negative_slope=args.negative_slope,  add_self_loop=True,
         )
 
     decode_layer = TransformerDecoderLayer(
