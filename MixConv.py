@@ -148,13 +148,13 @@ class MixFormer(torch.nn.Module):
             self_mask=graph.self_mask
         )
         for layer in range(self.num_layers):
-            conv_res = self.batch_norms[layer](self.convs[layer](
+            conv_res = torch.relu(self.drop_fun(self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index,
                 key_padding_mask=torch.logical_not(graph.batch_mask)
-            ))
+            )))
 
-            node_feats = self.drop_fun(torch.relu(conv_res)) + node_feats
+            node_feats = self.batch_norms[layer](conv_res + node_feats)
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=graph.edge_index

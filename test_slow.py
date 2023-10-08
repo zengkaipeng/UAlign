@@ -21,10 +21,6 @@ if __name__ == '__main__':
         help='the hidden dim of model'
     )
     parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
-    )
-    parser.add_argument(
         '--layer_encoder', default=10, type=int,
         help='the layer of encoder gnn'
     )
@@ -55,10 +51,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--data_path', required=True, type=str,
         help='the path containing dataset'
-    )
-    parser.add_argument(
-        '--use_class', action='store_true',
-        help='use rxn_class for training or not'
     )
     parser.add_argument(
         '--model_path', required=True, type=str,
@@ -147,8 +139,7 @@ if __name__ == '__main__':
 
         result, prob = beam_search_one(
             model, tokenizer, graphs, device, args.max_len, size=10,
-            begin_token=f'<RXN_{rxn_class}>' if args.use_class else '<CLS>',
-            validate=False, end_token='<END>'
+            begin_token='<CLS>', validate=False, end_token='<END>'
         )
 
         accs, gts = np.zeros(10), ''.join(gt[0][1: -1])
