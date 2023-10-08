@@ -252,6 +252,10 @@ def get_modified_atoms_bonds(
     return atom_edit, edge_edit
 
 
+def get_node_types(smiles):
+    mol = get_mol(smiles)
+    
+
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
         content = Fin.readlines()

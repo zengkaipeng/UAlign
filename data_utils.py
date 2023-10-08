@@ -90,9 +90,9 @@ def create_overall_dataset(
         nodes.append([amap[t] for t in x])
         edges.append([(amap[i], amap[j]) for i, j in y])
 
-        node_type = get_node_types(reacts)
+        node_type = get_node_types(reacts[idx])
         extend_amap = extend_amap(prod_amap, node_type.keys())
-        edge_type = get_edge_types(reacts, kekulize=kekulize)
+        edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
 
         real_n_types = {extend_amap[k]: v for k, v in node_type.items()}
         real_e_types = {
