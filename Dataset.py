@@ -136,8 +136,10 @@ def edit_col_fn(selfloop):
 
 class OverallDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs, activate_nodes, changed_edges,
-        decoder_node_type, decoder_edge_type, rxn_class=None
+        self, graphs: List[Dict], activate_nodes: List[List[int]],
+        changed_edges: List[List[Union[List[int], Tuple[int]]]],
+        decoder_node_type: List[Dict], decoder_edge_type: List[Dict],
+        pad_num: int = 35, rxn_class: Optional[List[int]] = None
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
@@ -148,7 +150,7 @@ class OverallDataset(torch.utils.data.Dataset):
         self.decoder_node_class = decoder_node_type
         self.decoder_edge_class = decoder_edge_type
 
-    def __init__(self):
+    def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):

@@ -74,7 +74,7 @@ def extend_amap(amap, node_list):
 
 
 def create_overall_dataset(
-    reacts, prods, rxn_class=None, kekulize=False,
+    reacts, prods, pad_num, rxn_class=None, kekulize=False,
     verbose=True, pos_enc='none', **kwargs
 ):
     graphs, nodes, edges = [], [], []
@@ -86,26 +86,26 @@ def create_overall_dataset(
             prod, with_amap=True, kekulize=kekulize
         )
         encoder_graph = add_pos_enc(encoder_graph, method=pos_enc, **kwargs)
-        graphs.append(graph)
-        nodes.append([amap[t] for t in x])
-        edges.append([(amap[i], amap[j]) for i, j in y])
+        graphs.append(encoder_graph)
+        nodes.append([prod_amap[t] for t in x])
+        edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
         node_type = get_node_types(reacts[idx])
-        extend_amap = extend_amap(prod_amap, node_type.keys())
+        extended_amap = extend_amap(prod_amap, node_type.keys())
         edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
 
-        real_n_types = {extend_amap[k]: v for k, v in node_type.items()}
+        real_n_types = {extended_amap[k]: v for k, v in node_type.items()}
         real_e_types = {
-            (extend_amap[x], extend_amap[y]): v
-            for (x, y), v in edge_types.items()
+            (extended_amap[x], extended_amap[y]): v
+            for (x, y), v in edge_type.items()
         }
         node_types.append(real_n_types)
         edge_types.append(real_e_types)
-        return OverallDataset(
-            graphs=graphs, activate_nodes=nodes, changed_edges=edges,
-            decoder_node_type=real_n_types, decoder_edge_type=real_e_types,
-            rxn_class=rxn_class
-        )
+    return OverallDataset(
+        graphs=graphs, activate_nodes=nodes, changed_edges=edges,
+        decoder_node_type=real_n_types, decoder_edge_type=real_e_types,
+        rxn_class=rxn_class
+    )
 
 
 def load_data(data_dir, part):

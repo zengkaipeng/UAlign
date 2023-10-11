@@ -254,7 +254,26 @@ def get_modified_atoms_bonds(
 
 def get_node_types(smiles):
     mol = get_mol(smiles)
-    
+    result = {}
+    for atom in mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        hyb = atom.GetHybridization()
+        sym = atom.GetSymbol()
+        result[amap_num] = f'{sym}_{hyb}'
+    return result
+
+
+def get_edge_types(smiles, kekulize=False):
+    mol = get_mol(smiles, kekulize=kekulize)
+    result = {}
+    for bond in mol.GetBonds():
+        a_start = bond.GetBeginAtom().GetAtomMapNum()
+        a_end = bond.GetEndAtom().GetAtomMapNum()
+        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
+        result[(a_start, a_end)] = bond_type
+        result[(a_end, a_start)] = bond_type
+    return result
+
 
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
