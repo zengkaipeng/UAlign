@@ -139,14 +139,13 @@ class OverallDataset(torch.utils.data.Dataset):
         self, graphs: List[Dict], activate_nodes: List[List[int]],
         changed_edges: List[List[Union[List[int], Tuple[int]]]],
         decoder_node_type: List[Dict], decoder_edge_type: List[Dict],
-        pad_num: int = 35, rxn_class: Optional[List[int]] = None
+        rxn_class: Optional[List[int]] = None
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
         self.activate_nodes = activate_nodes
         self.changed_edges = changed_edges
         self.rxn_class = rxn_class
-        self.pad_num = pad_num
         self.decoder_node_class = decoder_node_type
         self.decoder_edge_class = decoder_edge_type
 

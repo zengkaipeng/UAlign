@@ -259,7 +259,8 @@ def get_node_types(smiles):
         amap_num = atom.GetAtomMapNum()
         hyb = atom.GetHybridization()
         sym = atom.GetSymbol()
-        result[amap_num] = f'{sym}_{hyb}'
+        chg = atom.GetFormalCharge()
+        result[amap_num] = f'{sym}_{chg}_{hyb}'
     return result
 
 

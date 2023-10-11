@@ -74,7 +74,7 @@ def extend_amap(amap, node_list):
 
 
 def create_overall_dataset(
-    reacts, prods, pad_num, rxn_class=None, kekulize=False,
+    reacts, prods, rxn_class=None, kekulize=False,
     verbose=True, pos_enc='none', **kwargs
 ):
     graphs, nodes, edges = [], [], []
