@@ -26,3 +26,6 @@ if __name__ == '__main__':
 
     for idx, rxn in enumerate(rxns):
         rxn2svg(rxn, output_path=f'tmp_figs/rxn_{idx}.svg')
+
+
+    

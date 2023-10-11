@@ -148,6 +148,8 @@ class OverallDataset(torch.utils.data.Dataset):
         self.rxn_class = rxn_class
         self.decoder_node_class = decoder_node_type
         self.decoder_edge_class = decoder_edge_type
+        print(decoder_edge_type)
+        print(decoder_node_type)
 
     def __len__(self):
         return len(self.graphs)

@@ -103,7 +103,7 @@ def create_overall_dataset(
         edge_types.append(real_e_types)
     return OverallDataset(
         graphs=graphs, activate_nodes=nodes, changed_edges=edges,
-        decoder_node_type=real_n_types, decoder_edge_type=real_e_types,
+        decoder_node_type=node_types, decoder_edge_type=edge_types,
         rxn_class=rxn_class
     )
 
