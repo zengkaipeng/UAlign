@@ -17,6 +17,17 @@ BOND_FLOAT_TO_TYPE = {
 }
 
 BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
+ATOM_TPYE_TO_IDX = {
+    'S_1_SP3': 1, 'O_0_SP3': 2, 'S_0_SP3D2': 3, 'Cu_0_SP3D2': 4, 'N_1_SP3': 5,
+    'S_0_SP3D': 6, 'Br_0_SP3': 7, 'C_0_SP': 8, 'N_0_SP2': 9, 'S_0_SP3': 10,
+    'P_0_SP3': 11, 'Sn_0_SP3': 12, 'I_0_SP3': 13, 'S_0_SP2': 14, 'C_0_SP3': 15,
+    'P_0_SP2': 16, 'C_0_SP2': 17, 'S_-1_SP2': 18, 'C_-1_SP': 19, 'F_0_SP3': 20,
+    'O_-1_SP3': 21, 'Mg_1_S': 22, 'Mg_0_SP': 23, 'N_-1_SP2': 24, 'O_-1_SP2': 25,
+    'S_1_SP2': 26, 'Zn_0_SP': 27, 'Se_0_SP2': 28, 'Zn_1_S': 29, 'Si_0_SP3': 30,
+    'N_0_SP': 31, 'N_1_SP2': 32, 'P_1_SP3': 33, 'P_0_SP3D': 34, 'O_0_SP2': 35,
+    'N_1_SP': 36, 'S_-1_SP3': 37, 'Se_0_SP3': 38, 'Cl_0_SP3': 39, 'P_1_SP2': 40,
+    'B_0_SP2': 41, 'N_0_SP3': 42
+}
 
 
 def get_bond_info(mol: Chem.Mol) -> Dict:
@@ -252,7 +263,7 @@ def get_modified_atoms_bonds(
     return atom_edit, edge_edit
 
 
-def get_node_types(smiles):
+def get_node_types(smiles, return_idx=True):
     mol = get_mol(smiles)
     result = {}
     for atom in mol.GetAtoms():
@@ -261,6 +272,13 @@ def get_node_types(smiles):
         sym = atom.GetSymbol()
         chg = atom.GetFormalCharge()
         result[amap_num] = f'{sym}_{chg}_{hyb}'
+
+    if return_idx:
+        result = {
+            k: ATOM_TPYE_TO_IDX[v]
+            for k, v in result.items()
+        }
+
     return result
 
 

@@ -210,8 +210,8 @@ def overall_col_fn(selfloop, pad_num):
     def col_fn(batch):
         encoder_fn = edit_col_fn(selfloop)
         use_class = len(batch[0]) == 6
-        encoder_graph = encoder_fn([x[:3] for x in batch])\
-            if use_class else encoder_fn([x[:2] for x in batch])
+        encoder_graph = encoder_fn([x[:4] for x in batch])\
+            if use_class else encoder_fn([x[:3] for x in batch])
 
         all_edge_type, all_node, org_edge = {}, [], []
         all_edg_idx, all_node_feat, all_edge_feat = [], [], []
@@ -225,7 +225,7 @@ def overall_col_fn(selfloop, pad_num):
         for idx, data in enumerate(batch):
             graph, n_lb, e_lb = data[:3]
             node_cls, edge_cls = data[-2:]
-            node_cnt = gp['num_nodes'] + pad_num
+            node_cnt = graph['num_nodes'] + pad_num
             rxn = data[3] if use_class else None
 
             if rxn is not None:
