@@ -25,6 +25,8 @@ if __name__ == '__main__':
         dataset, collate_fn=col_fn, shuffle=False, batch_size=2
     )
 
+    print('Loader Done')
+    
     for data in loader:
         print(data)
 

@@ -1,5 +1,6 @@
 from rdkit import Chem
 from rdkit.Chem import Draw
+from rdkit.Chem.Draw import rdMolDraw2D
 
 
 def rxn2svg(rxn, output_path=None):
@@ -16,6 +17,19 @@ def rxn2svg(rxn, output_path=None):
             Fout.write(img)
 
 
+def mol2svg(mol, output_path=None):
+    mol = Chem.MolFromSmiles(mol)
+    d2d = rdMolDraw2D.MolDraw2DSVG(400, 300)
+    d2d.DrawMolecule(mol)
+    d2d.FinishDrawing()
+
+    if output_path is None:
+        return d2d.GetDrawingText()
+    else:
+        with open(output_path, 'w') as Fout:
+            Fout.write(d2d.GetDrawingText())
+
+
 if __name__ == '__main__':
     rxns = [
         '[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]=[O:7])[cH:11][cH:12]1.[CH2:8]([CH2:9][OH:10])[OH:13]>>[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]2[O:7][CH2:8][CH2:9][O:10]2)[cH:11][cH:12]1',
@@ -26,6 +40,3 @@ if __name__ == '__main__':
 
     for idx, rxn in enumerate(rxns):
         rxn2svg(rxn, output_path=f'tmp_figs/rxn_{idx}.svg')
-
-
-    

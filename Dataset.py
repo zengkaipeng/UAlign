@@ -148,8 +148,8 @@ class OverallDataset(torch.utils.data.Dataset):
         self.rxn_class = rxn_class
         self.decoder_node_class = decoder_node_type
         self.decoder_edge_class = decoder_edge_type
-        print(decoder_edge_type)
-        print(decoder_node_type)
+        # print(decoder_edge_type)
+        # print(decoder_node_type)
 
     def __len__(self):
         return len(self.graphs)
@@ -177,6 +177,13 @@ class OverallDataset(torch.utils.data.Dataset):
                 self.decoder_edge_class[index]
 
 
+def make_diag_by_mask(max_node, mask):
+    x = torch.zeros(max_node, max_node)
+    x[mask] = 1
+    x[:, ~mask] = 0
+    return x.bool()
+
+
 def overall_col_fn(selfloop, pad_num):
     # use zero as empty type
 
@@ -188,10 +195,11 @@ def overall_col_fn(selfloop, pad_num):
                 dfs(neighbor, graph, blocks, vis)
 
     def make_block(edge_index, max_node, pad_idx):
-        attn_mask = torch.zeros(max_node, max_node)
+        print(max_node, pad_idx)
+        attn_mask = torch.zeros(max_node, max_node).bool()
         graph, vis = {}, set()
         for idx in range(edge_index.shape[1]):
-            row, col = edge_index[:, idx]
+            row, col = edge_index[:, idx].tolist()
             if row not in graph:
                 graph[row] = []
             graph[row].append(col)
@@ -202,9 +210,11 @@ def overall_col_fn(selfloop, pad_num):
             block = []
             dfs(node, graph, block, vis)
             x_mask = torch.zeros(max_node).bool()
+            print(block)
             x_mask[block] = True
             x_mask[pad_idx] = True
-            attn_mask[x_mask, x_mask] = True
+            block_attn = make_diag_by_mask(max_node, x_mask)
+            attn_mask |= block_attn
         return attn_mask
 
     def col_fn(batch):
@@ -212,6 +222,8 @@ def overall_col_fn(selfloop, pad_num):
         use_class = len(batch[0]) == 6
         encoder_graph = encoder_fn([x[:4] for x in batch])\
             if use_class else encoder_fn([x[:3] for x in batch])
+
+        # print('encoder done')
 
         all_edge_type, all_node, org_edge = {}, [], []
         all_edg_idx, all_node_feat, all_edge_feat = [], [], []
@@ -221,6 +233,7 @@ def overall_col_fn(selfloop, pad_num):
         node_org_mask, node_pad_mask = [], []
 
         max_node = max(x[0]['num_nodes'] + pad_num for x in batch)
+        # print('shape', [x[0]['num_nodes'] for x in batch])
 
         for idx, data in enumerate(batch):
             graph, n_lb, e_lb = data[:3]
@@ -266,7 +279,7 @@ def overall_col_fn(selfloop, pad_num):
 
             # self_loop edges
             if selfloop:
-                edge_idx.append(torch.LongTensor([
+                all_edg_idx.append(torch.LongTensor([
                     list(range(node_cnt)), list(range(node_cnt))
                 ]) + lstnode)
                 edge_cnt += node_cnt
@@ -286,14 +299,15 @@ def overall_col_fn(selfloop, pad_num):
             # make blocked attn block
 
             attn_mask.append(make_block(
-                edge_index=all_edg_idx[-1], max_node=max_node,
+                edge_index=graph['edge_index'][:, reserve_e_mask],
+                max_node=max_node,
                 pad_idx=[x + graph['num_nodes'] for x in range(pad_num)]
             ))
 
             # padded edge_idx
 
-            prod_node_idx = np.arange(node_cnt)
-            link_nds = prod_node_idx[(n_lb == 1).numpy()]
+            prod_node_idx = np.arange(graph['num_nodes'], dtype=np.int64)
+            link_nds = prod_node_idx[(n_lb == 1).numpy()].tolist()
             link_nds += [x + graph['num_nodes'] for x in range(pad_num)]
             pad_edges = [(x, y) for x in link_nds for y in link_nds if x != y]
             pad_len = len(pad_edges)
