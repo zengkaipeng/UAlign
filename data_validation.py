@@ -26,9 +26,11 @@ if __name__ == '__main__':
     )
 
     print('Loader Done')
-    
+
     for data in loader:
         print(data)
+        decoder_graph = data[1]
+        print(decoder_graph.attn_mask)
 
         
 
