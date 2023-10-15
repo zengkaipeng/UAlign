@@ -1,6 +1,14 @@
+import re
 import json
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem import Draw
 
 DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
+
+
+SMI_REGEX_PATTERN = r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""
+SMI_REGEX_PATTERN_EXT = r"""(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|<-?|->?|-|\+|\\|\/|:|~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"""
 
 
 class Tokenizer:
@@ -40,3 +48,27 @@ class Tokenizer:
 
     def decode2d(self, seq):
         return [self.decode1d(x) for x in seq]
+
+
+def smi_tokenizer(smi, use_ext=True):
+    """
+    Tokenize a SMILES molecule or reaction
+    """
+    if use_ext:
+        regex = re.compile(SMI_REGEX_PATTERN_EXT)
+    else:
+        regex = re.compile(SMI_REGEX_PATTERN)
+    tokens = [token for token in regex.findall(smi)]
+    # assert smi == ''.join(tokens), f"smi is {smi}"
+    if smi != ''.join(tokens):
+        print('[WARNING] Unseen Tokens Found')
+        print('[ORG SMILES]', smi)
+        print('[NEW SMILES]', ''.join(tokens))
+    return tokens
+
+
+if __name__ == '__main__':
+    print(smi_tokenizer('CC(=O)OC%11=CC=CC=C%11C(=O)O'))
+    print(smi_tokenizer('O=C1CCC(=O)N1Br.C/C=C/C(=O)O[Si](C)(C)C'))
+    print(smi_tokenizer('[OH-]'))
+    print(smi_tokenizer('[Ti++++]'))

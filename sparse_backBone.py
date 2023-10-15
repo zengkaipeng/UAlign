@@ -1,6 +1,6 @@
 import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
-from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+from ogb.graphproppred.mol_encoder import BondEncoder, AtomEncoder
 from torch_geometric.data import Data
 from GATconv import MyGATConv
 from GINConv import MyGINConv
@@ -12,7 +12,6 @@ class SparseEdgeUpdateLayer(torch.nn.Module):
         self,
         edge_dim: int = 64,
         node_dim: int = 64,
-        residual: bool = False
     ):
         super(SparseEdgeUpdateLayer, self).__init__()
         input_dim = node_dim * 2 + edge_dim
@@ -22,22 +21,16 @@ class SparseEdgeUpdateLayer(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(input_dim, edge_dim)
         )
-        self.residual = residual
 
     def forward(
         self,
         node_feats: torch.Tensor, edge_feats: torch.Tensor,
         edge_index: torch.Tensor,
     ) -> torch.Tensor:
-        node_i = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[0]
-        )
-        node_j = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[1]
-        )
-
+        row, col = edge_index
+        node_i, node_j = node_feats[row], node_feats[col]
         x = torch.cat([node_i, node_j, edge_feats], dim=-1)
-        return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
+        return self.mlp(x) + edge_feats
 
 
 class GINBase(torch.nn.Module):
@@ -45,8 +38,6 @@ class GINBase(torch.nn.Module):
         self,  num_layers: int = 4,
         embedding_dim: int = 64,
         dropout: float = 0.7,
-        residual: bool = True,
-        edge_last: bool = True,
     ):
         super(GINBase, self).__init__()
         if num_layers < 2:
@@ -59,35 +50,30 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             self.convs.append(MyGINConv(embedding_dim))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
-            if edge_last or layer < self.num_layers - 1:
-                self.edge_update.append(SparseEdgeUpdateLayer(
-                    embedding_dim, embedding_dim, residual=residual
-                ))
-        self.residual = residual
-        self.edge_last = edge_last
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim
+            ))
+        self.atom_encoder = AtomEncoder(embedding_dim)
+        self.bond_encoder = SparseBondEncoder(embedding_dim)
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        num_nodes = node_feats.shape[0]
+    def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
+        node_feats = self.atom_encoder(graph.x)
+        edge_feats = self.bond_encoder(
+            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
+            self_mask=graph.self_mask
+        )
+
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                node_feats=node_feats, edge_feats=edge_feats,
-                edge_index=edge_index, num_nodes=num_nodes
+                x=node_feats, edge_attr=edge_feats, 
+                edge_index=graph.edge_index,
             ))
 
-            node_feats = self.dropout_fun(
-                conv_res if layer == self.num_layers - 1
-                else torch.relu(conv_res)
-            ) + (node_feats if self.residual else 0)
-
-            if self.edge_last or layer < self.num_layers - 1:
-                edge_feats = self.edge_update[layer](
-                    edge_feats=edge_feats, node_feats=node_feats,
-                    edge_index=edge_index
-                )
+            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
+            edge_feats = self.edge_update[layer](
+                edge_feats=edge_feats, node_feats=node_feats,
+                edge_index=graph.edge_index
+            )
         return node_feats, edge_feats
 
 
@@ -95,8 +81,7 @@ class GATBase(torch.nn.Module):
     def __init__(
         self, num_layers: int = 4, num_heads: int = 4,
         embedding_dim: int = 64, dropout: float = 0.7,
-        residual: bool = True, negative_slope: float = 0.2,
-        edge_last: bool = True, add_self_loop: bool = True
+        negative_slope: float = 0.2, add_self_loop: bool = True
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -116,73 +101,47 @@ class GATBase(torch.nn.Module):
                 edge_dim=embedding_dim, add_self_loop=add_self_loop
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
-            if edge_last or layer < self.num_layers - 1:
-                self.edge_update.append(SparseEdgeUpdateLayer(
-                    embedding_dim, embedding_dim, residual=residual
-                ))
-        self.residual = residual
-        self.edge_last = edge_last
+            self.edge_update.append(SparseEdgeUpdateLayer(
+                embedding_dim, embedding_dim
+            ))
         self.add_self_loop = add_self_loop
+        self.atom_encoder = AtomEncoder(embedding_dim)
+        self.bond_encoder = SparseBondEncoder(embedding_dim)
 
-    def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
+        node_feats = self.atom_encoder(graph.x)
+        edge_feats = self.bond_encoder(
+            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
+            self_mask=graph.self_mask
+        )
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=edge_index
+                x=node_feats, edge_attr=edge_feats, 
+                edge_index=graph.edge_index
             ))
-            node_feats = self.dropout_fun(
-                conv_res if layer == self.num_layers - 1
-                else torch.relu(conv_res)
-            ) + (node_feats if self.residual else 0)
-            if self.edge_last or layer < self.num_layers - 1:
-                edge_feats = self.edge_update[layer](
-                    edge_feats=edge_feats, node_feats=node_feats,
-                    edge_index=edge_index
-                )
+            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
+            edge_feats = self.edge_update[layer](
+                edge_feats=edge_feats, node_feats=node_feats,
+                edge_index=graph.edge_index
+            )
 
         return node_feats, edge_feats
 
 
-class SparseAtomEncoder(torch.nn.Module):
-    def __init__(self, dim, n_class=None):
-        super(SparseAtomEncoder, self).__init__()
-        self.atom_encoder = AtomEncoder(dim)
-        self.n_class = n_class
-        if n_class is not None:
-            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
-            self.lin = torch.nn.Linear(dim + dim, dim)
-
-    def forward(self, node_feat, rxn_class=None):
-        result = self.atom_encoder(node_feat)
-        if self.n_class is not None:
-            if rxn_class is None:
-                raise ValueError('missing reaction class information')
-            else:
-                rxn_class_emb = self.rxn_class_emb(rxn_class)
-                result = torch.cat([rxn_class_emb, result], dim=-1)
-                result = self.lin(result)
-        return result
-
-
 class SparseBondEncoder(torch.nn.Module):
-    def __init__(self, dim, n_class=None):
+    def __init__(self, dim):
         super(SparseBondEncoder, self).__init__()
         self.bond_encoder = BondEncoder(dim)
-        self.n_class = n_class
-        if n_class is not None:
-            self.rxn_class_emb = torch.nn.Embedding(n_class, dim)
-            self.lin = torch.nn.Linear(dim + dim, dim)
+        self.self_embedding = torch.nn.Parameter(torch.randn(dim))
+        self.dim = dim
 
-    def forward(self, edge_feat, rxn_class=None):
-        result = self.bond_encoder(edge_feat)
-        if self.n_class is not None:
-            if rxn_class is None:
-                raise ValueError('missing reaction class information')
-            else:
-                rxn_class_emb = self.rxn_class_emb(rxn_class)
-                result = torch.cat([rxn_class_emb, result], dim=-1)
-                result = self.lin(result)
+    def forward(self, edge_feat, org_mask, self_mask):
+        assert org_mask.shape == self_mask.shape, \
+            'org mask and self mask should share the same shape'
+
+        num_edges = org_mask.shape[0]
+        result = torch.zeros(num_edges, self.dim).to(edge_feat.device)
+        result[org_mask] = self.bond_encoder(edge_feat)
+        result[self_mask] = self.self_embedding
+
         return result

@@ -16,10 +16,12 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_trans(
     loader, model, optimizer, device, tokenizer, node_fn,
-    edge_fn, trans_fn, verbose=True, warmup=False, pad='<PAD>'
+    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False,
+    pad='<PAD>', unk='<UNK>', accu=1
 ):
-    model = model.train()
+    model, ele_acc, ele_total = model.train(), 0, 0
     node_loss, edge_loss, tran_loss = [], [], []
+    its, total_len = 1, len(loader)
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
@@ -27,6 +29,9 @@ def train_trans(
         graphs, tgt = data
         graphs = graphs.to(device)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        UNK_IDX = tokenizer.token2idx[unk]
+        assert torch.all(tgt_idx != UNK_IDX).item(), \
+            'Unseen tokens found, update tokenizer'
 
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
@@ -34,11 +39,6 @@ def train_trans(
         pad_mask, sub_mask = generate_tgt_mask(
             tgt_input, tokenizer, pad, device
         )
-
-        # print(tgt)
-        # print(tgt_idx.tolist())
-        # print(tokenizer.decode2d(tgt_idx.tolist()))
-        # exit()
 
         result, node_res, edge_res = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
@@ -52,17 +52,28 @@ def train_trans(
             tgt_output.reshape(-1)
         )
 
-        optimizer.zero_grad()
-        (loss_node + loss_edge + loss_tran).backward()
-        optimizer.step()
+        loss = loss_node + loss_edge + loss_tran
+        if not warmup and accu > 1:
+            loss = loss / accu
+        loss.backward()
+
+        if its % accu == 0 or its == total_len or warmup:
+            optimizer.step()
+            optimizer.zero_grad()
+        its += 1
 
         node_loss.append(loss_node.item())
         edge_loss.append(loss_edge.item())
         tran_loss.append(loss_tran.item())
 
+        with torch.no_grad():
+            A, B = acc_fn(result, tgt_output)
+            ele_acc, ele_total = ele_acc + A, ele_total + B
+
         if warmup:
             warmup_sher.step()
-    return np.mean(node_loss), np.mean(edge_loss), np.mean(tran_loss)
+    return np.mean(node_loss), np.mean(edge_loss), \
+        np.mean(tran_loss), ele_acc / ele_total
 
 
 def eval_trans(
@@ -95,14 +106,3 @@ def eval_trans(
             ele_acc, ele_total = ele_acc + A, ele_total + B
         tran_loss.append(loss_tran.item())
     return np.mean(tran_loss), ele_acc / ele_total
-
-
-def evaluate_result(gt, results, tokenizer, tops):
-    res, tpos = tokenizer.decode2d(results), max(top) + 1
-    ax, gt = np.array(tops), ''.join(gt[1: -1])
-    for idx, t in enumerate(res):
-        if t == gt:
-            tpos = idx + 1
-            break
-
-    return (ax >= tpos)
