@@ -1,14 +1,11 @@
 import torch
 from data_utils import generate_square_subsequent_mask
-<<<<<<< HEAD
-=======
 from rdkit import Chem
 
 
 def check_valid(smi):
     mol = Chem.MolFromSmiles(smi)
     return mol is not None
->>>>>>> newtoken
 
 
 def greedy_inference_one(
@@ -40,9 +37,6 @@ def greedy_inference_one(
     answer = answer.replace(end_token, "").replace(begin_token, "")
     return answer
 
-
-<<<<<<< HEAD
-=======
 
 def beam_search_one(
     model, tokenizer, graph, device, max_len, size=2, pen_para=0,
@@ -122,4 +116,3 @@ def beam_search_one(
         real_answer.append(r_smiles)
         real_prob.append(y)
     return real_answer, real_prob
->>>>>>> newtoken
