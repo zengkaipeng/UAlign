@@ -22,7 +22,7 @@ if __name__ == '__main__':
     col_fn = overall_col_fn(selfloop=True, pad_num=10)
 
     loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, batch_size=1
+        dataset, collate_fn=col_fn, shuffle=False, batch_size=2
     )
 
     print('Loader Done')
@@ -30,8 +30,9 @@ if __name__ == '__main__':
     for data in loader:
         # print(data)
         decoder_graph = data[1]
-        print(decoder_graph.attn_mask.long())
-        exit()
+        # print(decoder_graph.attn_mask.long())
+        # exit()
+        print(decoder_graph.ptr, '\n', decoder_graph.edge_index)
 
         
 

@@ -267,19 +267,19 @@ def overall_col_fn(selfloop, pad_num):
 
             # org edge feat
 
-            reserve_e_mask = (e_lb == 0).numpy()
-            edge_cnt = int(reserve_e_mask.sum())
-            all_edge_feat.append(graph['edge_feat'][reserve_e_mask])
-            all_edg_idx.append(graph['edge_index'][:, reserve_e_mask])
+            res_e_mask = (e_lb == 0).numpy()
+            edge_cnt = int(res_e_mask.sum())
+            all_edge_feat.append(graph['edge_feat'][res_e_mask])
+            all_edg_idx.append(graph['edge_index'][:, res_e_mask] + lstnode)
             self_mask.append(torch.zeros(edge_cnt).bool())
             org_mask.append(torch.ones(edge_cnt).bool())
             pad_mask.append(torch.zeros(edge_cnt).bool())
 
             org_edge_cls = np.zeros(edge_cnt, dtype=np.int64)
 
-            for idx in range(edge_cnt):
-                row, col = all_edg_idx[-1][:, idx]
-                org_edge_cls[idx] = edge_cls[(row, col)]
+            for edx in range(edge_cnt):
+                row, col = graph['edge_index'][:, res_e_mask][:, edx]
+                org_edge_cls[edx] = edge_cls[(row, col)]
 
             org_edge.append(org_edge_cls)
 
@@ -305,7 +305,7 @@ def overall_col_fn(selfloop, pad_num):
             # make blocked attn block
 
             attn_mask.append(make_block(
-                edge_index=graph['edge_index'][:, reserve_e_mask],
+                edge_index=graph['edge_index'][:, res_e_mask],
                 max_node=max_node,
                 pad_idx=[x + graph['num_nodes'] for x in range(pad_num)]
             ))
@@ -321,7 +321,7 @@ def overall_col_fn(selfloop, pad_num):
             org_mask.append(torch.zeros(pad_len).bool())
             pad_mask.append(torch.ones(pad_len).bool())
             edge_cnt += pad_len
-            all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T)
+            all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T + lstnode)
 
             lstnode += node_cnt
             lstedge += edge_cnt
