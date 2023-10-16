@@ -1,9 +1,10 @@
 from Dataset import OverallDataset, overall_col_fn
 from data_utils import load_data, create_overall_dataset
 from torch.utils.data import DataLoader
-from Mix_backbone import MixFormer
 from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from decoder import MixDecoder
+from Mix_backbone import MixFormer
+
 
 
 if __name__ == '__main__':
@@ -77,6 +78,6 @@ if __name__ == '__main__':
     decoder = DecoderOnly(GNN_dec, 64, 64, 12, 4)
 
     model = EncoderDecoder(encoder, decoder)
-    
+
 
 

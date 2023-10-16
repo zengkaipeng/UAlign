@@ -4,8 +4,9 @@ from sparse_backBone import (
 )
 from Mix_backbone import MhAttnBlock
 from GINConv import MyGINConv
-from GATconv import NyGATConv
+from GATconv import MyGATConv
 from GCNConv import MyGCNConv
+from typing import Any, Dict, List, Tuple, Optional, Union
 
 
 def batch_mask(

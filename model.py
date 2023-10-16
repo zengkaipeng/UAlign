@@ -216,7 +216,7 @@ class EncoderDecoder(torch.nn.Module):
     def forward(
         self, encoder_graph, decoder_graph, encoder_mode,
         reduction='mean', graph_level=True, ret_loss=True,
-        edge_types, alpha=1
+        edge_types=None, alpha=1
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
@@ -398,7 +398,7 @@ class EncoderDecoder(torch.nn.Module):
                 idx_j = this_edge_idx[1][ex].item()
                 idx_i = node_remap.get(idx_i, idx_i)
                 idx_j = node_remap.get(idx_j, idx_j)
-                if idx_i not in used_node_set and idx_j not int used_node_set:
+                if idx_i not in used_node_set and idx_j not in used_node_set:
                     continue
                 this_edge_log.append(edge_logits[ex])
                 this_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
