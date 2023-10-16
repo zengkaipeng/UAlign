@@ -19,7 +19,7 @@ if __name__ == '__main__':
     ]
 
     dataset = create_overall_dataset(rec, prod, rxn_class=None, kekulize=False)
-    col_fn = overall_col_fn(selfloop=True, pad_num=10)
+    col_fn = overall_col_fn(selfloop=False, pad_num=10)
 
     loader = DataLoader(
         dataset, collate_fn=col_fn, shuffle=False, batch_size=2
@@ -33,8 +33,8 @@ if __name__ == '__main__':
         # print(decoder_graph.attn_mask.long())
         # exit()
         print(decoder_graph.ptr, '\n', decoder_graph.edge_index)
-
-        
+        print(decoder_graph.node_class.shape)
+        print(decoder_graph.node_org_mask)
 
     # run all
     rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'val')
@@ -44,4 +44,11 @@ if __name__ == '__main__':
 
     print(dataset)
 
-    col_fn = overall_col_fn(selfloop=True, pad_num=10)
+    col_fn = overall_col_fn(selfloop=True, pad_num=35)
+
+    loader = DataLoader(
+        dataset, collate_fn=col_fn, shuffle=False, batch_size=5
+    )
+
+    for data in loader:
+        pass
