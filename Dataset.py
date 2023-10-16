@@ -195,7 +195,7 @@ def overall_col_fn(selfloop, pad_num):
                 dfs(neighbor, graph, blocks, vis)
 
     def make_block(edge_index, max_node, pad_idx):
-        print(max_node, pad_idx)
+        # print('pad_idx', max_node, pad_idx)
         attn_mask = torch.zeros(max_node, max_node).bool()
         graph, vis = {}, set()
         for idx in range(edge_index.shape[1]):
@@ -204,16 +204,22 @@ def overall_col_fn(selfloop, pad_num):
                 graph[row] = []
             graph[row].append(col)
 
+        for idx in range(max_node):
+            if idx not in graph and idx not in pad_idx:
+                graph[idx] = [idx]
+
         for node in graph.keys():
             if node in vis:
                 continue
             block = []
             dfs(node, graph, block, vis)
             x_mask = torch.zeros(max_node).bool()
-            print(block)
+            # print('block', block)
             x_mask[block] = True
             x_mask[pad_idx] = True
+            # print('x_mask', x_mask)
             block_attn = make_diag_by_mask(max_node, x_mask)
+            # print('block_attn', block_attn.long())
             attn_mask |= block_attn
         return attn_mask
 

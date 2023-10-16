@@ -22,15 +22,16 @@ if __name__ == '__main__':
     col_fn = overall_col_fn(selfloop=True, pad_num=10)
 
     loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, batch_size=2
+        dataset, collate_fn=col_fn, shuffle=False, batch_size=1
     )
 
     print('Loader Done')
 
     for data in loader:
-        print(data)
+        # print(data)
         decoder_graph = data[1]
-        print(decoder_graph.attn_mask)
+        print(decoder_graph.attn_mask.long())
+        exit()
 
         
 
