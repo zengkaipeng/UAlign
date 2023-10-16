@@ -1,11 +1,11 @@
-from Dataset import OverallDataset, overall_col_fn
-from data_utils import load_data, create_overall_dataset
-from torch.utils.data import DataLoader
 from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from decoder import MixDecoder
 from Mix_backbone import MixFormer
 
 
+from Dataset import OverallDataset, overall_col_fn
+from data_utils import load_data, create_overall_dataset
+from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
     # by case
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     GNN_enc = MixFormer(
         emb_dim=64, n_layers=2, gnn_args=gnn_args,
         dropout=0.1, heads=4, pos_enc='none',
-        negative_slope=0.2, pos_args={},n_class=None, edge_last=True,
+        negative_slope=0.2, pos_args={}, n_class=None, edge_last=True,
         residual=True, update_gate='cat', gnn_type='gin'
     )
 
@@ -78,6 +78,3 @@ if __name__ == '__main__':
     decoder = DecoderOnly(GNN_dec, 64, 64, 12, 4)
 
     model = EncoderDecoder(encoder, decoder)
-
-
-
