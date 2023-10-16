@@ -353,6 +353,7 @@ class EncoderDecoder(torch.nn.Module):
             this_pad_idx = pad_index[idx]
             with torch.no_grad():
                 row_id, col_id = self.get_matching(n_lg, this_node_label)
+                # row our col gt
 
             node_pad = row_id.shape[0]
             node_reidx = torch.zeros(node_pad).long().to(device)
@@ -375,32 +376,45 @@ class EncoderDecoder(torch.nn.Module):
                 this_pad_idx[row].item(): this_pad_idx[col_id[tx]].item()
                 for tx, row in enumerate(row_id)
             }
+            used_node_set = set(
+                this_pad_idx[idx] for idx, lb in
+                enumerate(this_node_label) if lb != 0
+            )
+            this_org_node_mask = torch.logical_and(
+                graph.batch == idx, graph.node_org_mask
+            )
+            used_node_set.update(all_node_index[this_org_node_mask].tolist())
+
             this_pad_mask = torch.logical_and(
                 graph.e_batch == idx, graph.pad_mask
             )
 
             this_edge_idx = graph.edge_index[:, this_pad_mask]
-            this_edge_label = []
+            used_edge_label, used_edge_log = [], []
+            this_edge_log = edge_logits[this_pad_mask]
 
             for ex in range(this_edge_idx.shape[0]):
-                idx_i = this_edge_idx[0][ex]
-                idx_j = this_edge_idx[1][ex]
+                idx_i = this_edge_idx[0][ex].item()
+                idx_j = this_edge_idx[1][ex].item()
                 idx_i = node_remap.get(idx_i, idx_i)
                 idx_j = node_remap.get(idx_j, idx_j)
+                if idx_i not in used_node_set and idx_j not int used_node_set:
+                    continue
+                this_edge_log.append(edge_logits[ex])
                 this_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
 
             this_edge_label = torch.LongTensor(this_edge_label).to(device)
 
             if graph_level:
                 e_loss = cross_entropy(
-                    edge_logits[this_pad_mask], this_edge_label,
+                    this_edge_log, this_edge_label,
                     reduction='sum'
                 )
                 total_e_loss[idx] = e_loss
 
             else:
                 e_loss = cross_entropy(
-                    edge_logits[this_pad_mask], this_edge_label,
+                    this_edge_log, this_edge_label
                     reduction='none'
                 )
                 total_e_loss.append(e_loss)
