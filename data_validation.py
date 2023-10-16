@@ -1,6 +1,10 @@
 from Dataset import OverallDataset, overall_col_fn
 from data_utils import load_data, create_overall_dataset
 from torch.utils.data import DataLoader
+from Mix_backbone import MixFormer
+from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
+from decoder import MixDecoder
+
 
 if __name__ == '__main__':
     # by case
@@ -35,8 +39,12 @@ if __name__ == '__main__':
         # print(decoder_graph.ptr, '\n', decoder_graph.edge_index)
         # print(decoder_graph.node_class.shape)
         # print(decoder_graph.node_org_mask)
-        print(decoder_graph.edge_index.T)
-        exit()
+        # print(decoder_graph.edge_index.T)
+        # print(decoder_graph.node_class)
+        # print(decoder_graph.org_edge_class)
+        # print(data[2])
+        # exit()
+        pass
 
     # run all
     rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'val')
@@ -54,3 +62,21 @@ if __name__ == '__main__':
 
     for data in loader:
         pass
+
+    gnn_args = {'embedding_dim': 64}
+    GNN_enc = MixFormer(
+        emb_dim=64, n_layers=2, gnn_args=gnn_args,
+        dropout=0.1, heads=4, pos_enc='none',
+        negative_slope=0.2, pos_args={},n_class=None, edge_last=True,
+        residual=True, update_gate='cat', gnn_type='gin'
+    )
+
+    encoder = BinaryGraphEditModel(GNN_enc, 64, 64)
+
+    GNN_dec = MixDecoder(64, 2, gnn_args, 10)
+    decoder = DecoderOnly(GNN_dec, 64, 64, 12, 4)
+
+    model = EncoderDecoder(encoder, decoder)
+    
+
+

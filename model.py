@@ -407,15 +407,13 @@ class EncoderDecoder(torch.nn.Module):
 
             if graph_level:
                 e_loss = cross_entropy(
-                    this_edge_log, this_edge_label,
-                    reduction='sum'
+                    this_edge_log, this_edge_label, reduction='sum'
                 )
                 total_e_loss[idx] = e_loss
 
             else:
                 e_loss = cross_entropy(
-                    this_edge_log, this_edge_label
-                    reduction='none'
+                    this_edge_log, this_edge_label, reduction='none'
                 )
                 total_e_loss.append(e_loss)
 

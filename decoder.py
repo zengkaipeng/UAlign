@@ -331,14 +331,14 @@ class GCNDecoder(torch.nn.Module):
         return node_feats, edge_feats
 
 
-class GINBase(torch.nn.Module):
+class GINDecoder(torch.nn.Module):
     def __init__(
         self,  num_layers: int = 4,
         embedding_dim: int = 64,
         dropout: float = 0.7,
         n_class: Optional[int] = None
     ):
-        super(GINBase, self).__init__()
+        super(GINDecoder, self).__init__()
         if num_layers < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
         self.convs = torch.nn.ModuleList()
