@@ -146,6 +146,76 @@ class BinaryGraphEditModel(torch.nn.Module):
             answer += (node_feat, edge_feat)
         return answer
 
+    def seperate_a_graph(self, G):
+        batch_size = G.batch.max().item() + 1
+        graphs = []
+        padded_edge_feat = torch.zeros(
+            G.edge_index.shape[1], G.edge_attr.shape[-1]
+        )
+        padded_edge_feat[G.org_mask] = G.edge_attr
+
+        for idx in range(batch_size):
+            this_graph = {}
+            this_node_mask = G.batch == idx
+            this_edge_mask = G.batch[G.edge_index[0]] == idx
+            this_org_edge = G.edge_index[:, this_edge_mask & G.org_mask]
+            this_self_edge = G.edge_index[:, this_edge_mask & G.self_mask]
+
+            graphs.append({
+                'x': G.x[this_node_mask], 'edge_index': this_org_edge,
+                'edge_attr': padded_edge_feat[this_edge_mask & G.org_mask],
+                'self_edge': this_self_edge, 'offset': G.ptr[idx].item()
+            })
+
+    def predict_in_graphs(self, graph):
+        node_feat, edge_feat = self.base_model(graph)
+        node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
+        node_pred = node_logits.detach().clone()
+        node_pred[node_pred > 0] = 1
+        node_pred[node_pred <= 0] = 0
+        useful_mask = self.make_useful_mask(
+            graph.edge_index, mode='inference',
+            pred_label=node_pred
+        )
+        edge_logits = self.edge_predictor(edge_feat[useful_mask])
+        edge_logits = edge_logits.squeeze(-1).sigmoid().tolist()
+        used_edges = graph.edge_index[:, useful_mask]
+
+        edge_res = {}
+        for idx, res in enumerate(edge_logits):
+            src, dst = used_edges[idx]
+            src, dst = src.item(), dst.item()
+            if src == dst:
+                continue
+            if (src, dst) not in edge_res:
+                edge_res[(src, dst)] = edge_res[(dst, src)] = res
+            else:
+                real_log = (edge_res[(src, dst)] + res) / 2
+                edge_res[(src, dst)] = edge_res[(dst, src)] = real_log
+
+        for idx in range(batch_size):
+            this_graph = {}
+            this_node_mask = graph.batch == idx
+            this_edge_mask = graph.batch[graph.edge_index[0]] == idx
+            this_x = graph.x[this_node_mask]
+
+            this_edge_logits = self.edge_predictor(edge_feat[
+                useful_mask & this_edge_mask
+            ]).squeeze(dim=-1).sigmoid()
+
+            this_pd_edge = graph.graph_index[:, useful_mask & this_edge_mask]
+
+            pred_result = {}
+            for idx, log in enumerate(this_edge_logits):
+                src = this_pd_edge[0, idx].item()
+                dst = this_pd_edge[0, idx].item()
+                if src == dst:
+                    continue
+
+            # activate nodes
+            activate_nodes = all_node_index[(node_logits > 0) & this_node_mask]
+            activate_nodes = activate_nodes.tolist()
+
 
 def make_ptr_from_batch(batch, batch_size=None):
     if batch_size is None:
