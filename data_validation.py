@@ -76,7 +76,7 @@ if __name__ == '__main__':
     encoder = BinaryGraphEditModel(GNN_enc, 64, 64)
 
     GNN_dec = MixDecoder(64, 2, gnn_args, 10)
-    decoder = DecoderOnly(GNN_dec, 64, 64, 12, 4)
+    decoder = DecoderOnly(GNN_dec, 64, 64, 43, 5)
 
     model = EncoderDecoder(encoder, decoder)
 
@@ -84,6 +84,5 @@ if __name__ == '__main__':
         encoder_graph, decoder_graph, edge_types = data
         output = model(
             encoder_graph, decoder_graph, encoder_mode='all',
-            edge_types=edge_types, 
+            edge_types=edge_types,
         )
-        

@@ -261,7 +261,9 @@ class EncoderDecoder(torch.nn.Module):
             + (org_node_loss + org_edge_loss) * alpha
 
     def get_matching(self, node_logits, pad_node_label):
+        print(node_logits.shape)
         neg_node_log_prob = -torch.log_softmax(node_logits, dim=-1)
+        print(neg_node_log_prob.shape)
         val_matrix = neg_node_log_prob[:, pad_node_label]
         val_matrix = val_matrix.cpu().numpy()
         row_id, col_id = linear_sum_assignment(val_matrix)
@@ -302,7 +304,7 @@ class EncoderDecoder(torch.nn.Module):
         pad_node_labels = graph.node_class[graph.node_pad_mask]
         pad_node_labels = pad_node_labels.reshape(batch_size, -1)
 
-        if self.graph_level:
+        if graph_level:
             org_node_loss = cross_entropy(
                 org_node_logits, org_node_labels, reduction='none'
             )
@@ -346,7 +348,9 @@ class EncoderDecoder(torch.nn.Module):
 
         all_node_index = torch.arange(graph.num_nodes).to(device)
         pad_index = all_node_index[graph.node_pad_mask].reshape(batch_size, -1)
-        pad_result = node_logits[graph.node_pad_mask]
+        pad_result = node_logits[graph.node_pad_mask].reshape(
+            batch_size, pad_index.shape[1], -1
+        )
 
         for idx, n_lg in enumerate(pad_result):
             this_node_label = pad_node_labels[idx]
@@ -377,7 +381,7 @@ class EncoderDecoder(torch.nn.Module):
                 for tx, row in enumerate(row_id)
             }
             used_node_set = set(
-                this_pad_idx[idx] for idx, lb in
+                this_pad_idx[idx].item() for idx, lb in
                 enumerate(this_node_label) if lb != 0
             )
             this_org_node_mask = torch.logical_and(
@@ -388,6 +392,8 @@ class EncoderDecoder(torch.nn.Module):
             this_pad_mask = torch.logical_and(
                 graph.e_batch == idx, graph.pad_mask
             )
+
+            print(used_node_set)
 
             this_edge_idx = graph.edge_index[:, this_pad_mask]
             used_edge_label, used_edge_log = [], []
@@ -400,20 +406,21 @@ class EncoderDecoder(torch.nn.Module):
                 idx_j = node_remap.get(idx_j, idx_j)
                 if idx_i not in used_node_set and idx_j not in used_node_set:
                     continue
-                this_edge_log.append(edge_logits[ex])
-                this_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
+                used_edge_log.append(this_edge_log[ex])
+                used_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
+                print(idx_i, idx_j)
 
-            this_edge_label = torch.LongTensor(this_edge_label).to(device)
+            used_edge_label = torch.LongTensor(used_edge_label).to(device)
 
             if graph_level:
                 e_loss = cross_entropy(
-                    this_edge_log, this_edge_label, reduction='sum'
+                    used_edge_log, used_edge_label, reduction='sum'
                 )
                 total_e_loss[idx] = e_loss
 
             else:
                 e_loss = cross_entropy(
-                    this_edge_log, this_edge_label, reduction='none'
+                    used_edge_log, used_edge_label, reduction='none'
                 )
                 total_e_loss.append(e_loss)
 
