@@ -86,3 +86,4 @@ if __name__ == '__main__':
             encoder_graph, decoder_graph, encoder_mode='all',
             edge_types=edge_types,
         )
+        exit()

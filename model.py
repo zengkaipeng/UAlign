@@ -399,18 +399,19 @@ class EncoderDecoder(torch.nn.Module):
             used_edge_label, used_edge_log = [], []
             this_edge_log = edge_logits[this_pad_mask]
 
-            for ex in range(this_edge_idx.shape[0]):
+            for ex in range(this_edge_idx.shape[1]):
                 idx_i = this_edge_idx[0][ex].item()
                 idx_j = this_edge_idx[1][ex].item()
                 idx_i = node_remap.get(idx_i, idx_i)
                 idx_j = node_remap.get(idx_j, idx_j)
-                if idx_i not in used_node_set and idx_j not in used_node_set:
+                if idx_i not in used_node_set or idx_j not in used_node_set:
                     continue
                 used_edge_log.append(this_edge_log[ex])
                 used_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
                 print(idx_i, idx_j)
 
             used_edge_label = torch.LongTensor(used_edge_label).to(device)
+            used_edge_log = torch.stack(used_edge_log, dim=0)
 
             if graph_level:
                 e_loss = cross_entropy(
