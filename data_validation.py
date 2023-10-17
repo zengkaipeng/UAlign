@@ -8,6 +8,24 @@ from data_utils import load_data, create_overall_dataset
 from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
+
+    # run all
+    rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'val')
+    dataset = create_overall_dataset(
+        rec[:100], prod[:100], rxn_class=None, kekulize=False
+    )
+
+    print(dataset)
+
+    col_fn = overall_col_fn(selfloop=True, pad_num=35)
+
+    loader = DataLoader(
+        dataset, collate_fn=col_fn, shuffle=False, batch_size=5
+    )
+
+    for data in loader:
+        pass
+
     # by case
 
     rec = [
@@ -47,23 +65,6 @@ if __name__ == '__main__':
         # exit()
         pass
 
-    # run all
-    rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'val')
-    dataset = create_overall_dataset(
-        rec[:100], prod[:100], rxn_class=None, kekulize=False
-    )
-
-    print(dataset)
-
-    col_fn = overall_col_fn(selfloop=True, pad_num=35)
-
-    loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, batch_size=5
-    )
-
-    for data in loader:
-        pass
-
     gnn_args = {'embedding_dim': 64}
     GNN_enc = MixFormer(
         emb_dim=64, n_layers=2, gnn_args=gnn_args,
@@ -78,3 +79,11 @@ if __name__ == '__main__':
     decoder = DecoderOnly(GNN_dec, 64, 64, 12, 4)
 
     model = EncoderDecoder(encoder, decoder)
+
+    for data in loader:
+        encoder_graph, decoder_graph, edge_types = data
+        output = model(
+            encoder_graph, decoder_graph, encoder_mode='all',
+            edge_types=edge_types, 
+        )
+        

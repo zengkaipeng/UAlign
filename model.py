@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 from torch.nn.functional import binary_cross_entropy_with_logits
 from torch.nn.functional import cross_entropy
-from decoder import batch_mask, graph2batch
+from decoder import make_batch_mask, graph2batch
 from scipy.optimize import linear_sum_assignment
 
 
@@ -220,8 +220,8 @@ class EncoderDecoder(torch.nn.Module):
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
-            ret_loss=ret_loss, ret_feat=True, mode=encoder_mode,
-            reduce_mode=reduction,
+            mask_mode=encoder_mode, ret_loss=ret_loss,
+            ret_feat=True, reduce_mode=reduction,
         )
 
         if ret_loss:
@@ -239,7 +239,7 @@ class EncoderDecoder(torch.nn.Module):
             dim=0, index=encoder_graph.batch
         )
         max_node = n_nodes.max().item() + 1
-        mem_pad_mask = batch_mask(encoder_graph.ptr, max_node, batch_size)
+        mem_pad_mask = make_batch_mask(encoder_graph.ptr, max_node, batch_size)
 
         memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
         memory = memory.to(device)

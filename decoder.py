@@ -6,10 +6,11 @@ from Mix_backbone import MhAttnBlock
 from GINConv import MyGINConv
 from GATconv import MyGATConv
 from GCNConv import MyGCNConv
+from Mix_backbone import MixConv
 from typing import Any, Dict, List, Tuple, Optional, Union
 
 
-def batch_mask(
+def make_batch_mask(
     ptr: torch.Tensor, max_node: int, batch_size: int
 ) -> torch.Tensor:
     num_nodes = ptr[1:] - ptr[:-1]
@@ -131,15 +132,15 @@ class MixDecoder(torch.nn.Module):
                 emb_dim, emb_dim, residual=True
             ))
             self.cross_attns.append(MhAttnBlock(
-                Qdim=dim, Kdim=dim, Vdim=dim, Odim=dim // heads,
-                heads=heads, dropout=dropout
+                Qdim=emb_dim, Kdim=emb_dim, Vdim=emb_dim, 
+                Odim=emb_dim // heads, heads=heads, dropout=dropout
             ))
 
     def forward(self, graph, memory, mem_pad_mask=None):
         node_feats, edge_feats = self.feat_init(graph, memory, mem_pad_mask)
 
         batch_size, max_node = graph.attn_mask.shape[:2]
-        batch_mask = batch_mask(graph.ptr, max_node, batch_size)
+        batch_mask = make_batch_mask(graph.ptr, max_node, batch_size)
         if mem_pad_mask is not None:
             cross_mask = torch.zeros_like(mem_pad_mask)
             cross_mask[mem_pad_mask] = True
