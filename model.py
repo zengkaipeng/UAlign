@@ -261,9 +261,9 @@ class EncoderDecoder(torch.nn.Module):
             + (org_node_loss + org_edge_loss) * alpha
 
     def get_matching(self, node_logits, pad_node_label):
-        print(node_logits.shape)
+        # print(node_logits.shape)
         neg_node_log_prob = -torch.log_softmax(node_logits, dim=-1)
-        print(neg_node_log_prob.shape)
+        # print(neg_node_log_prob.shape)
         val_matrix = neg_node_log_prob[:, pad_node_label]
         val_matrix = val_matrix.cpu().numpy()
         row_id, col_id = linear_sum_assignment(val_matrix)
@@ -393,7 +393,7 @@ class EncoderDecoder(torch.nn.Module):
                 graph.e_batch == idx, graph.pad_mask
             )
 
-            print(used_node_set)
+            # print(used_node_set)
 
             this_edge_idx = graph.edge_index[:, this_pad_mask]
             used_edge_label, used_edge_log = [], []
@@ -408,7 +408,7 @@ class EncoderDecoder(torch.nn.Module):
                     continue
                 used_edge_log.append(this_edge_log[ex])
                 used_edge_label.append(edge_type_dict.get((idx_i, idx_j), 0))
-                print(idx_i, idx_j)
+                # print(idx_i, idx_j)
 
             used_edge_label = torch.LongTensor(used_edge_label).to(device)
             used_edge_log = torch.stack(used_edge_log, dim=0)

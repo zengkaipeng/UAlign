@@ -45,7 +45,7 @@ if __name__ == '__main__':
     col_fn = overall_col_fn(selfloop=True, pad_num=10)
 
     loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, batch_size=1
+        dataset, collate_fn=col_fn, shuffle=False, batch_size=2
     )
 
     print('Loader Done')
