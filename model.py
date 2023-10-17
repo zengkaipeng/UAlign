@@ -164,10 +164,15 @@ class BinaryGraphEditModel(torch.nn.Module):
             graphs.append({
                 'x': G.x[this_node_mask], 'edge_index': this_org_edge,
                 'edge_attr': padded_edge_feat[this_edge_mask & G.org_mask],
-                'self_edge': this_self_edge, 'offset': G.ptr[idx].item()
+                'self_edge': this_self_edge, 'offset': G.ptr[idx].item(),
+                'num_nodes': G.x[this_node_mask].shape[0]
             })
 
-    def predict_in_graphs(self, graph):
+            if G.get('node_rxn', None) is not None:
+                graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]]
+        return graphs
+
+    def predict_into_graphs(self, graph):
         node_feat, edge_feat = self.base_model(graph)
         node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
         node_pred = node_logits.detach().clone()
@@ -177,44 +182,119 @@ class BinaryGraphEditModel(torch.nn.Module):
             graph.edge_index, mode='inference',
             pred_label=node_pred
         )
-        edge_logits = self.edge_predictor(edge_feat[useful_mask])
-        edge_logits = edge_logits.squeeze(-1).sigmoid().tolist()
-        used_edges = graph.edge_index[:, useful_mask]
 
         edge_res = {}
-        for idx, res in enumerate(edge_logits):
-            src, dst = used_edges[idx]
-            src, dst = src.item(), dst.item()
-            if src == dst:
-                continue
-            if (src, dst) not in edge_res:
-                edge_res[(src, dst)] = edge_res[(dst, src)] = res
-            else:
-                real_log = (edge_res[(src, dst)] + res) / 2
-                edge_res[(src, dst)] = edge_res[(dst, src)] = real_log
+        if torch.any(useful_mask):
+            edge_logits = self.edge_predictor(edge_feat[useful_mask])
+            edge_logits = edge_logits.squeeze(-1).sigmoid().tolist()
+            used_edges = graph.edge_index[:, useful_mask]
 
-        for idx in range(batch_size):
-            this_graph = {}
-            this_node_mask = graph.batch == idx
-            this_edge_mask = graph.batch[graph.edge_index[0]] == idx
-            this_x = graph.x[this_node_mask]
-
-            this_edge_logits = self.edge_predictor(edge_feat[
-                useful_mask & this_edge_mask
-            ]).squeeze(dim=-1).sigmoid()
-
-            this_pd_edge = graph.graph_index[:, useful_mask & this_edge_mask]
-
-            pred_result = {}
-            for idx, log in enumerate(this_edge_logits):
-                src = this_pd_edge[0, idx].item()
-                dst = this_pd_edge[0, idx].item()
+            for idx, res in enumerate(edge_logits):
+                src, dst = used_edges[idx]
+                src, dst = src.item(), dst.item()
                 if src == dst:
                     continue
+                if (src, dst) not in edge_res:
+                    edge_res[(src, dst)] = edge_res[(dst, src)] = res
+                else:
+                    real_log = (edge_res[(src, dst)] + res) / 2
+                    edge_res[(src, dst)] = edge_res[(dst, src)] = real_log
+
+        splited_graph = self.seperate_a_graph(graph)
+
+        meta_graphs = []
+        for idx, org_graph in enumerate(splited_graph):
+            this_node_mask = graph.batch == idx
+
+            res_edge, res_feat, offset = [], [], org_graph['offset']
+            for edx, eattr in enumerate(org_graph['edge_attr']):
+                src = org_graph['edge_index'][0, edx].item()
+                dst = org_graph['edge_index'][1, edx].item()
+                if edge_res.get((src, dst), 0) < 0.5:
+                    res_edge.append((src - offset, dst - offset))
+                    res_feat.append(eattr)
 
             # activate nodes
             activate_nodes = all_node_index[(node_logits > 0) & this_node_mask]
-            activate_nodes = activate_nodes.tolist()
+            activate_nodes = (activate_nodes - offset).tolist()
+
+            meta_graph = {
+                'x': org_graph['x'], 'act_node': activate_nodes
+                'self_edge': org_graph['self_graph'] - offset,
+                'res_edge': torch.LongTensor(res_edge).T,
+                'edge_attr': torch.stack(res_feat, dim=0)
+            }
+
+
+def make_diag_by_mask(max_node, mask):
+    x = torch.zeros(max_node, max_node)
+    x[mask] = 1
+    x[:, ~mask] = 0
+    return x.bool()
+
+
+def convert_graphs_into_decoder(graphs, pad_num):
+
+    def dfs(x, graph, blocks, vis):
+        blocks.append(x)
+        vis.add(x)
+        for neighbor in graph[x]:
+            if neighbor not in vis:
+                dfs(neighbor, graph, blocks, vis)
+
+    def make_block(edge_index, max_node, pad_idx):
+        # print('pad_idx', max_node, pad_idx)
+        attn_mask = torch.zeros(max_node, max_node).bool()
+        graph, vis = {}, set()
+        for idx in range(edge_index.shape[1]):
+            row, col = edge_index[:, idx].tolist()
+            if row not in graph:
+                graph[row] = []
+            graph[row].append(col)
+
+        for idx in range(max_node):
+            if idx not in graph and idx not in pad_idx:
+                graph[idx] = [idx]
+
+        for node in graph.keys():
+            if node in vis:
+                continue
+            block = []
+            dfs(node, graph, block, vis)
+            x_mask = torch.zeros(max_node).bool()
+            # print('block', block)
+            x_mask[block] = True
+            x_mask[pad_idx] = True
+            # print('x_mask', x_mask)
+            block_attn = make_diag_by_mask(max_node, x_mask)
+            # print('block_attn', block_attn.long())
+            attn_mask |= block_attn
+        return attn_mask
+
+    node_feat, edge_feat, edge_index = [], [], []
+    self_mask, org_mask, pad_mask = [], [], []
+    node_org_mask, node_pad_mask, attn_mask = [], [], []
+    node_rxn, edge_rxn, graph_rxn = [], [], []
+    node_batch, node_ptr, edge_batch, edge_ptr = [], [], [0], [0]
+    lst_node, lst_edge = 0, 0
+
+    for idx, graph in enumerate(graphs):
+        node_feat.append(graph['x'])
+        edge_feat.append(graph['edge_attr'])
+
+        # org_edge
+        edge_index.append(graph['res_edge'] + lst_node)
+        res_num = graph['res_edge'].shape[1]
+        self_mask.append(torch.zeros(res_num).bool())
+        org_mask.append(torch.ones(res_num).bool())
+        pad_mask.append(torch.zeros(res_num).bool())
+
+        # self_edge
+        
+        edge_index.append(graph['self_edge'] + lst_node)
+        self_num = graph['self_edge'].shape[1]
+
+        
 
 
 def make_ptr_from_batch(batch, batch_size=None):
@@ -450,6 +530,7 @@ class EncoderDecoder(torch.nn.Module):
                 this_pad_idx[row].item(): this_pad_idx[col_id[tx]].item()
                 for tx, row in enumerate(row_id)
             }
+            print(node_remap)
             used_node_set = set(
                 this_pad_idx[idx].item() for idx, lb in
                 enumerate(this_node_label) if lb != 0
