@@ -222,8 +222,13 @@ class BinaryGraphEditModel(torch.nn.Module):
                 'x': org_graph['x'], 'act_node': activate_nodes
                 'self_edge': org_graph['self_graph'] - offset,
                 'res_edge': torch.LongTensor(res_edge).T,
-                'edge_attr': torch.stack(res_feat, dim=0)
+                'edge_attr': torch.stack(res_feat, dim=0),
+                'num_nodes': org_graph['num_nodes']
             }
+            if 'rxn' in org_graph:
+                meta_graph['rxn'] = org_graph['rxn']
+            meta_graphs.append(meta_graph)
+        return meta_graphs
 
 
 def make_diag_by_mask(max_node, mask):
@@ -278,9 +283,20 @@ def convert_graphs_into_decoder(graphs, pad_num):
     node_batch, node_ptr, edge_batch, edge_ptr = [], [], [0], [0]
     lst_node, lst_edge = 0, 0
 
+    max_node = max(x['num_nodes'] + pad_num for x in graphs)
+
     for idx, graph in enumerate(graphs):
         node_feat.append(graph['x'])
+        node_pad_mask.append(torch.zeros(graph['num_nodes']).bool())
+        node_org_mask.append(torch.ones(graph['num_nodes']).bool())
+        node_org_mask.append(torch.ones(pad_num).bool())
+        node_pad_mask.append(torch.zeros(pad_num).bool())
+
         edge_feat.append(graph['edge_attr'])
+        attn_mask.append(make_block(
+            edge_index=graph['res_edge'], max_node=max_node,
+            pad_idx=[x + graph['num_nodes'] for x in range(pad_num)]
+        ))
 
         # org_edge
         edge_index.append(graph['res_edge'] + lst_node)
@@ -290,11 +306,64 @@ def convert_graphs_into_decoder(graphs, pad_num):
         pad_mask.append(torch.zeros(res_num).bool())
 
         # self_edge
-        
+
         edge_index.append(graph['self_edge'] + lst_node)
         self_num = graph['self_edge'].shape[1]
+        self_mask.append(torch.ones(self_num).bool())
+        org_mask.append(torch.zeros(self_num).bool())
+        pad_mask.append(torch.zeros(self_num).bool())
 
-        
+        link_idx = [x + graph['num_nodes'] for x in range(pad_num)]
+        link_idx.extend(graph['activate_nodes'])
+
+        pad_edges = [(x, y) for x in link_idx for y in link_idx if x != y]
+        pad_e_num = len(pad_edges)
+        pad_edges = torch.LongTensor(pad_edges).T + lst_node
+
+        self_mask.append(torch.zeros(pad_e_num).bool())
+        org_mask.append(torch.zeros(pad_e_num).bool())
+        pad_mask.append(torch.ones(pad_e_num).bool())
+
+        node_batch.append(
+            torch.ones(graph['num_nodes'] + pad_num).long() * idx
+        )
+        edge_batch.append(
+            torch.ones(self_num + res_num + pad_e_num).long() * idx
+        )
+
+        lst_node += graph['num_nodes'] + pad_num
+        lst_edge += self_num + res_num + pad_e_num
+
+        node_ptr.append(lst_node)
+        edge_ptr.append(lst_edge)
+
+        if 'rxn' in graph:
+            rxn = graph['rxn']
+            node_rxn.append(torch.ones(graph['num_nodes']).long() * rxn)
+            edge_rxn.append(torch.ones(self_num + res_num).long() * rxn)
+            graph_rxn.append(rxn)
+
+    result = {
+        'x': torch.cat(node_feat, dim=0),
+        'edge_attr': torch.cat(edge_feat, dim=0),
+        'edge_index': torch.cat(edge_index, dim=1),
+        'num_nodes': lst_node, 'num_edges': lst_edge,
+        'batch': torch.cat(node_batch, dim=0),
+        'e_batch': torch.cat(edge_batch, dim=0),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'org_mask': torch.cat(org_mask, dim=0),
+        'self_mask': torch.cat(self_mask, dim=0),
+        "pad_mask": torch.cat(pad_mask, dim=0),
+        'node_org_mask': torch.cat(node_org_mask, dim=0),
+        'node_pad_mask': torch.cat(node_pad_mask, dim=0)
+        'attn_mask': torch.cat(attn_mask, dim=0)
+    }
+    if len(graph_rxn) > 0:
+        result['graph_rxn'] = torch.LongTensor(graph_rxn)
+        result['node_rxn'] = torch.cat(node_rxn, dim=0)
+        result['edge_rxn'] = torch.cat(edge_rxn, dim=0)
+    return Data(**result)
 
 
 def make_ptr_from_batch(batch, batch_size=None):
