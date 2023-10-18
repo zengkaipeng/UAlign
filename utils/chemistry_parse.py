@@ -29,6 +29,13 @@ ATOM_TPYE_TO_IDX = {
     'B_0_SP2': 41, 'N_0_SP3': 42
 }
 
+ATOM_IDX_TO_TYPE = {v: k for k, v in ATOM_TPYE_TO_IDX.items()}
+
+ATOM_REMAP = {
+    'B': 5, 'Br': 35, 'C': 6, 'Cl': 17, 'Cu': 29, 'F': 9, 'I': 53, 'Mg': 12,
+    'N': 7, 'O': 8, 'P': 15, 'S': 16, 'Si': 14, 'Se': 34, 'Sn': 50, 'Zn': 30
+}
+
 
 def get_bond_info(mol: Chem.Mol) -> Dict:
     """Get information on bonds in the molecule.
@@ -331,3 +338,37 @@ if __name__ == '__main__':
     print([x.GetSymbol() for x in p_mol.GetAtoms()])
     p_mol = Chem.AddHs(p_mol)
     print([x.GetSymbol() for x in p_mol.GetAtoms()])
+
+
+def convert_res_into_smiles(
+    org_node_types, org_edge_types, node_pred, edge_pred
+):
+    mol = Chem.RWMol()
+    atom_reidx = {}
+    for k, v in org_node_types.items():
+        symbol, charge, _ = ATOM_IDX_TO_TYPE[v].split('_')
+        new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
+        atom_reidx[k] = new_idx
+        this_atom = mol.GetAtomWithIdx(new_idx)
+        this_atom.SetFormalCharge(int(charge))
+
+    for k, v in node_pred.items():
+        symbol, charge, _ = ATOM_IDX_TO_TYPE[v].split('_')
+        new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
+        atom_reidx[k] = new_idx
+        this_atom = mol.GetAtomWithIdx(new_idx)
+        this_atom.SetFormalCharge(int(charge))
+
+    for (src, dst), v in org_edge_types.items():
+        mol.AddBond(atom_reidx[src], atom_reidx[dst], BOND_TYPES[v])
+
+    for (src, dst), v in edge_pred.items():
+        mol.AddBond(atom_reidx[src], atom_reidx[dst], BOND_TYPES[v])
+
+    mol = mol.GetMol()
+    t_str = Chem.MolToSmiles(mol)
+    can_mol = Chem.MolFromSmiles(t_str)
+    if can_mol is not None:
+        return Chem.MolToSmiles(can_mol)
+    else:
+        return None

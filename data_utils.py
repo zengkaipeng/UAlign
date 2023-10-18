@@ -135,5 +135,7 @@ def check_early_stop(*args):
     return answer
 
 
+
+
 if __name__ == '__main__':
     print(load_data('../data/USPTO-50K', 'train'))
