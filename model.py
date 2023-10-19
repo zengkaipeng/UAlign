@@ -151,7 +151,7 @@ class BinaryGraphEditModel(torch.nn.Module):
         graphs = []
         padded_edge_feat = torch.zeros(
             G.edge_index.shape[1], G.edge_attr.shape[-1]
-        )
+        ).to(G.edge_attr)
         padded_edge_feat[G.org_mask] = G.edge_attr
 
         for idx in range(batch_size):
@@ -172,6 +172,21 @@ class BinaryGraphEditModel(torch.nn.Module):
                 graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]]
         return graphs
 
+    def predict_logitis(self, graph):
+        node_feat, edge_feat = self.base_model(graph)
+        node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
+        node_pred = node_logits.detach().clone()
+        node_pred[node_pred > 0] = 1
+        node_pred[node_pred <= 0] = 0
+        useful_mask = self.make_useful_mask(
+            graph.edge_index, mode='inference', pred_label=node_pred
+        )
+
+        edge_logits = self.edge_predictor(edge_feat[useful_mask])
+        edge_logits = edge_logits.squeeze(-1)
+
+        return node_logits, useful_mask, edge_logits
+
     def predict_into_graphs(self, graph):
         node_feat, edge_feat = self.base_model(graph)
         node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
@@ -183,6 +198,8 @@ class BinaryGraphEditModel(torch.nn.Module):
             pred_label=node_pred
         )
 
+        device = node_feat.device
+
         edge_res = {}
         if torch.any(useful_mask):
             edge_logits = self.edge_predictor(edge_feat[useful_mask])
@@ -190,7 +207,7 @@ class BinaryGraphEditModel(torch.nn.Module):
             used_edges = graph.edge_index[:, useful_mask]
 
             for idx, res in enumerate(edge_logits):
-                src, dst = used_edges[idx]
+                src, dst = used_edges[:, idx]
                 src, dst = src.item(), dst.item()
                 if src == dst:
                     continue
@@ -201,6 +218,7 @@ class BinaryGraphEditModel(torch.nn.Module):
                     edge_res[(src, dst)] = edge_res[(dst, src)] = real_log
 
         splited_graph = self.seperate_a_graph(graph)
+        all_node_index = torch.arange(0, node_feat.shape[0]).to(device)
 
         meta_graphs = []
         for idx, org_graph in enumerate(splited_graph):
@@ -219,8 +237,8 @@ class BinaryGraphEditModel(torch.nn.Module):
             activate_nodes = (activate_nodes - offset).tolist()
 
             meta_graph = {
-                'x': org_graph['x'], 'act_node': activate_nodes
-                'self_edge': org_graph['self_graph'] - offset,
+                'x': org_graph['x'], 'act_node': activate_nodes,
+                'self_edge': org_graph['self_edge'] - offset,
                 'res_edge': torch.LongTensor(res_edge).T,
                 'edge_attr': torch.stack(res_feat, dim=0),
                 'num_nodes': org_graph['num_nodes']
@@ -356,7 +374,7 @@ def convert_graphs_into_decoder(graphs, pad_num):
         'self_mask': torch.cat(self_mask, dim=0),
         "pad_mask": torch.cat(pad_mask, dim=0),
         'node_org_mask': torch.cat(node_org_mask, dim=0),
-        'node_pad_mask': torch.cat(node_pad_mask, dim=0)
+        'node_pad_mask': torch.cat(node_pad_mask, dim=0),
         'attn_mask': torch.cat(attn_mask, dim=0)
     }
     if len(graph_rxn) > 0:
