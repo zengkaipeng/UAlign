@@ -19,41 +19,51 @@ class MhAttnBlock(torch.nn.Module):
         self.Qdim, self.Kdim, self.Vdim = Qdim, Kdim, Vdim
         self.heads, self.Odim = heads, Odim
         self.negative_slope = negative_slope
-        self.LinearK = torch.nn.Linear(Kdim, heads * Odim, bias=False)
-        self.LinearQ = torch.nn.Linear(Qdim, heads * Odim, bias=False)
-        self.alphaQ = torch.nn.Parameter(torch.zeros(1, 1, heads, Odim))
-        self.alphaK = torch.nn.Parameter(torch.zeros(1, 1, heads, Odim))
+        self.LinearK = torch.nn.Linear(Kdim, heads, bias=False)
+        self.LinearQ = torch.nn.Linear(Qdim, heads, bias=False)
         self.bias = torch.nn.Parameter(torch.zeros(heads, Odim))
         self.LinearV = torch.nn.Linear(Vdim, heads * Odim, bias=False)
         self.dropout_fun = torch.nn.Dropout(dropout)
 
-        torch.nn.init.xavier_uniform_(self.alphaK)
-        torch.nn.init.xavier_uniform_(self.alphaQ)
         torch.nn.init.xavier_uniform_(self.bias)
 
     def forward(
         self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None
+        attn_mask: Optional[torch.Tensor] = None,
+        key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         (batch_size, Qsize), Ksize = Q.shape[:2], K.shape[1]
-        Qproj = self.LinearQ(Q).reshape(batch_size, -1, self.heads, self.Odim)
-        Kproj = self.LinearK(K).reshape(batch_size, -1, self.heads, self.Odim)
         Vproj = self.LinearV(V).reshape(batch_size, -1, self.heads, self.Odim)
 
-        attn_Q = (self.alphaQ * Qproj).sum(dim=-1)
-        attn_K = (self.alphaK * Kproj).sum(dim=-1)
+        attn_K = self.LinearK(K)  # [B, L, H]
+        attn_Q = self.LinearQ(Q)  # [B, L, H]
 
         attn_K = attn_K.unsqueeze(dim=1).repeat(1, Qsize, 1, 1)
         attn_Q = attn_Q.unsqueeze(dim=2).repeat(1, 1, Ksize, 1)
         attn_w = F.leaky_relu(attn_K + attn_Q, self.negative_slope)
 
-        if attn_mask is not None:
-            attn_mask = torch.logical_not(attn_mask.unsqueeze(dim=-1))
-            INF = (1 << 32) - 1
-            attn_w = torch.masked_fill(attn_w, attn_mask, -INF)
+        over_all_mask = self.merge_mask(attn_mask, key_padding_mask)
+
+        if over_all_mask is not None:
+            attn_w = torch.masked_fill(attn_w, over_all_mask, 1 - (1 << 32))
+
         attn_w = self.dropout_fun(torch.softmax(attn_w, dim=2).unsqueeze(-1))
         x_out = (attn_w * Vproj.unsqueeze(dim=1)).sum(dim=2) + self.bias
         return x_out.reshape(batch_size, Qsize, -1)
+
+    def merge_mask(self, attn_mask, key_padding_mask):
+        if key_padding_mask is not None:
+            batch_size, max_len = key_padding_mask.shape
+            mask_shape = (batch_size, max_len, max_len, self.heads)
+            all_mask = torch.zeros(mask_shape).to(key_padding_mask)
+            all_mask[key_padding_mask] = True
+            all_mask = all_mask.transpose(1, 2)
+            all_mask[key_padding_mask] = True
+            if attn_mask is not None:
+                all_mask = torch.logical_or(all_mask, attn_mask)
+            return all_mask
+        else:
+            return attn_mask if attn_mask is not None else None
 
 
 class SelfAttnBlock(torch.nn.Module):
@@ -68,9 +78,13 @@ class SelfAttnBlock(torch.nn.Module):
         )
 
     def forward(
-        self, X: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
+        self, X: torch.Tensor, attn_mask: Optional[torch.Tensor] = None,
+        key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        return self.model(Q=X, K=X, V=X, attn_mask=attn_mask)
+        return self.model(
+            Q=X, K=X, V=X, attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask
+        )
 
 
 class MixConv(torch.nn.Module):
