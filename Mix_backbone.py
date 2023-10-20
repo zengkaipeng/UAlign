@@ -30,7 +30,6 @@ class MhAttnBlock(torch.nn.Module):
     def forward(
         self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
         attn_mask: Optional[torch.Tensor] = None,
-        key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         (batch_size, Qsize), Ksize = Q.shape[:2], K.shape[1]
         Vproj = self.LinearV(V).reshape(batch_size, -1, self.heads, self.Odim)
@@ -42,28 +41,13 @@ class MhAttnBlock(torch.nn.Module):
         attn_Q = attn_Q.unsqueeze(dim=2).repeat(1, 1, Ksize, 1)
         attn_w = F.leaky_relu(attn_K + attn_Q, self.negative_slope)
 
-        over_all_mask = self.merge_mask(attn_mask, key_padding_mask)
-
-        if over_all_mask is not None:
-            attn_w = torch.masked_fill(attn_w, over_all_mask, 1 - (1 << 32))
-
+        if attn_mask is not None:
+            attn_mask = torch.logical_not(attn_mask.unsqueeze(dim=-1))
+            INF = (1 << 32) - 1
+            attn_w = torch.masked_fill(attn_w, attn_mask, -INF)
         attn_w = self.dropout_fun(torch.softmax(attn_w, dim=2).unsqueeze(-1))
         x_out = (attn_w * Vproj.unsqueeze(dim=1)).sum(dim=2) + self.bias
         return x_out.reshape(batch_size, Qsize, -1)
-
-    def merge_mask(self, attn_mask, key_padding_mask):
-        if key_padding_mask is not None:
-            batch_size, max_len = key_padding_mask.shape
-            mask_shape = (batch_size, max_len, max_len, self.heads)
-            all_mask = torch.zeros(mask_shape).to(key_padding_mask)
-            all_mask[key_padding_mask] = True
-            all_mask = all_mask.transpose(1, 2)
-            all_mask[key_padding_mask] = True
-            if attn_mask is not None:
-                all_mask = torch.logical_or(all_mask, attn_mask)
-            return all_mask
-        else:
-            return attn_mask if attn_mask is not None else None
 
 
 class SelfAttnBlock(torch.nn.Module):
@@ -78,13 +62,9 @@ class SelfAttnBlock(torch.nn.Module):
         )
 
     def forward(
-        self, X: torch.Tensor, attn_mask: Optional[torch.Tensor] = None,
-        key_padding_mask: Optional[torch.Tensor] = None,
+        self, X: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        return self.model(
-            Q=X, K=X, V=X, attn_mask=attn_mask,
-            key_padding_mask=key_padding_mask
-        )
+        return self.model(Q=X, K=X, V=X, attn_mask=attn_mask)
 
 
 class MixConv(torch.nn.Module):
