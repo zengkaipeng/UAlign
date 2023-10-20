@@ -187,6 +187,12 @@ class BinaryGraphEditModel(torch.nn.Module):
 
         return node_logits, useful_mask, edge_logits
 
+    def predict_all_logits(self, graph):
+        node_feat, edge_feat = self.base_model(graph)
+        node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
+        edge_logits = self.edge_predictor(edge_feat).squeeze(dim=-1)
+        return node_logits, edge_logits
+
     def predict_into_graphs(self, graph):
         node_feat, edge_feat = self.base_model(graph)
         node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
@@ -394,37 +400,75 @@ def make_ptr_from_batch(batch, batch_size=None):
     return ptr
 
 
-def evaluate_sparse(
-    node_pred, edge_pred, node_batch, edge_batch,
-    node_label, edge_label, batch_size
+# def evaluate_sparse(
+#     node_pred, edge_pred, node_batch, edge_batch,
+#     node_label, edge_label, batch_size
+# ):
+#     node_cover, node_fit, edge_fit, edge_cover, all_fit, all_cover = [0] * 6
+#     node_ptr = make_ptr_from_batch(node_batch, batch_size)
+#     if edge_batch.numel() > 0:
+#         edge_ptr = make_ptr_from_batch(edge_batch, batch_size)
+#     for idx in range(batch_size):
+#         t_node_res = node_pred[node_ptr[idx]: node_ptr[idx + 1]] > 0
+#         real_nodes = node_label[node_ptr[idx]: node_ptr[idx + 1]] > 0
+#         inters = torch.logical_and(t_node_res, real_nodes)
+#         nf = torch.all(real_nodes == t_node_res).item()
+#         nc = torch.all(real_nodes == inters).item()
+
+#         if edge_batch.numel() > 0:
+#             t_edge_res = edge_pred[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
+#             real_edges = edge_label[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
+#             e_inters = torch.logical_and(t_edge_res, real_edges)
+#             ef = torch.all(t_edge_res == real_edges).item()
+#             ec = torch.all(real_edges == e_inters).item()
+#         else:
+#             ef = ec = True
+
+#         node_fit += nf
+#         node_cover += nc
+#         edge_fit += ef
+#         edge_cover += ec
+#         all_fit += (nf & ef)
+#         all_cover += (nc & ec)
+#     return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
+
+
+def eval_by_node(
+    node_pred, edge_pred, node_label, edge_label,
+    node_batch, edge_batch, edge_index
 ):
-    node_cover, node_fit, edge_fit, edge_cover, all_fit, all_cover = [0] * 6
-    node_ptr = make_ptr_from_batch(node_batch, batch_size)
-    if edge_batch.numel() > 0:
-        edge_ptr = make_ptr_from_batch(edge_batch, batch_size)
-    for idx in range(batch_size):
-        t_node_res = node_pred[node_ptr[idx]: node_ptr[idx + 1]] > 0
-        real_nodes = node_label[node_ptr[idx]: node_ptr[idx + 1]] > 0
-        inters = torch.logical_and(t_node_res, real_nodes)
-        nf = torch.all(real_nodes == t_node_res).item()
-        nc = torch.all(real_nodes == inters).item()
+    cover, fit = 0, 0
+    batch_size = node_batch.max().item() + 1
+    for i in range(batch_size):
+        this_node_mask = node_batch == i
+        this_edge_mask = edge_batch == i
+        this_edge_index = edge_index[:, this_edge_mask]
+        this_src, this_dst = this_edge_index
 
-        if edge_batch.numel() > 0:
-            t_edge_res = edge_pred[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
-            real_edges = edge_label[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
-            e_inters = torch.logical_and(t_edge_res, real_edges)
-            ef = torch.all(t_edge_res == real_edges).item()
-            ec = torch.all(real_edges == e_inters).item()
+        useful_mask = torch.logical_and(
+            node_pred[this_src] > 0, node_pred[this_dst] > 0
+        )
+        this_nlb = node_label[this_node_mask] > 0
+        this_npd = node_pred[this_node_mask] > 0
+
+        inters = torch.logical_and(this_nlb, this_pred)
+        nf = torch.all(this_nlb == this_npd).item()
+        nc = torch.all(this_nlb == inters).item()
+
+        if torch.any(useful_mask):
+            this_elb = edge_label[this_edge_mask][useful_mask] > 0
+            this_epd = edge_pred[this_edge_mask][useful_mask] > 0
+            e_inters = torch.logical_and(this_elb, this_epd)
+            ef = torch.all(this_elb == this_epd).item()
+            ec = torch.all(this_elb == e_inters).item()
         else:
-            ef = ec = True
+            ec = ef = True
 
-        node_fit += nf
-        node_cover += nc
-        edge_fit += ef
-        edge_cover += ec
-        all_fit += (nf & ef)
-        all_cover += (nc & ec)
-    return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
+        cover += (nc & ec)
+        fit += (nf & ef)
+    return cover, fit
+
+
 
 
 class DecoderOnly(torch.nn.Module):
