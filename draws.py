@@ -41,7 +41,10 @@ if __name__ == '__main__':
     # for idx, rxn in enumerate(rxns):
     #     rxn2svg(rxn, output_path=f'tmp_figs/rxn_{idx}.svg')
     
-    mol = '[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]2[O:7][CH2:8][CH2:9][O:10]2)[cH:11][cH:12]1'
-    mol2svg(mol, 'tmp_figs/example1.svg')
-    mol = 'OC(OCCCl)c1ccc(Br)cc1'
-    mol2svg(mol, 'tmp_figs/example2.svg')
+    # mol = '[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]2[O:7][CH2:8][CH2:9][O:10]2)[cH:11][cH:12]1'
+    # mol2svg(mol, 'tmp_figs/example1.svg')
+    # mol = 'OC(OCCCl)c1ccc(Br)cc1'
+    # mol2svg(mol, 'tmp_figs/example2.svg')
+    
+    rxn = '[CH:1]1=[CH:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[CH2:10]1>>[cH:1]1[cH:2][cH:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[cH:10]1'
+    rxn2svg(rxn, 'tmp_figs/example_rxn.svg')
