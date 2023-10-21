@@ -28,8 +28,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    fit_dir = os.path.join(detail_log_folder, f'fit-{timestamp}.pth')
+    detail_model_dir = os.path.join(detail_log_folder, f'node-{timestamp}.pth')
+    fit_dir = os.path.join(detail_log_folder, f'edge-{timestamp}.pth')
     return detail_log_dir, detail_model_dir, fit_dir
 
 
@@ -245,8 +245,7 @@ if __name__ == '__main__':
     model = model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    best_perf, best_ep = None, None
-    best_fit, best_ep2 = None, None
+    best_node, node_ep, best_edge, edge_ep = [None] * 4
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -263,50 +262,33 @@ if __name__ == '__main__':
             verbose=True, warmup=(ep == 0), reduction=args.reduction,
             graph_level=args.graph_level
         )
-        log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss
-        })
+        log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 
         print('[TRAIN]', log_info['train_loss'][-1])
-        valid_results = eval_sparse_edit(
-            valid_loader, model, device, verbose=True
-        )
-        log_info['valid_metric'].append({
-            'node_cover': valid_results[0], 'node_fit': valid_results[1],
-            'edge_cover': valid_results[2], 'edge_fit': valid_results[3],
-            'all_cover': valid_results[4], 'all_fit': valid_results[5]
-        })
+        valid_results = eval_sparse_edit(valid_loader, model, device, True)
+        log_info['valid_metric'].append(valid_results)
 
         print('[VALID]', log_info['valid_metric'][-1])
 
-        test_results = eval_sparse_edit(
-            test_loader, model, device, verbose=True
-        )
-
-        log_info['test_metric'].append({
-            'node_cover': test_results[0], 'node_fit': test_results[1],
-            'edge_cover': test_results[2], 'edge_fit': test_results[3],
-            'all_cover': test_results[4], 'all_fit': test_results[5]
-        })
+        test_results = eval_sparse_edit(test_loader, model, device, True)
+        log_info['test_metric'].append(test_results)
 
         print('[TEST]', log_info['test_metric'][-1])
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_perf is None or valid_results[4] > best_perf:
-            best_perf, best_ep = valid_results[4], ep
-            torch.save(model.state_dict(), model_dir)
-
-        if best_fit is None or valid_results[5] > best_fit:
-            best_fit, best_ep2 = valid_results[5], ep
-            torch.save(model.state_dict(), fit_dir)
+        if best_node is None or valid_results['node']['fit'] > best_node:
+            best_node, node_ep = valid_results['node']['fit'], ep
+            torch.save(model_dir, model.state_dict())
+        if best_edge is None or valid_results['edge']['fit'] > best_edge:
+            best_edge, edge_ep = valid_results['edge']['fit'], ep
+            torch.save(fit_dir, model.state_dict())
 
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['node_fit'] for x in val_his]
-            ef = [x['edge_fit'] for x in val_his]
-            af = [x['all_fit'] for x in val_his]
+            nf = [x['node']['fit'] for x in val_his]
+            ef = [x['edge']['fit'] for x in val_his]
 
-            if check_early_stop(nf, ef, af):
+            if check_early_stop(nf, ef):
                 break
