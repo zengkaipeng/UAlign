@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 
+from sklearn import metrics
+
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     def f(x):
@@ -48,28 +50,56 @@ def train_sparse_edit(
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
     node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
-    node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
+    # node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
+    node_pd, node_lb, edge_pd, edge_lb = [], [], [], []
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
         with torch.no_grad():
             node_logs, edge_logs = model.predict_all_logits(graph)
-            node_pred = node_logs.clone()
-            edge_pred = edge_logs.clone()
-            node_pred[node_pred >= 0] = 1
+            node_pred = convert_log_into_label(node_logs)
+            edge_pred = convert_log_into_label(edge_logs)
+
+        # comm_res = overall_acc(
+        #     node_pred, edge_pred, graph.node_label, graph.edge_label
+        # )
+
+        # node_acc += comm_res[0]
+        # edge_acc += comm_res[1]
+        # node_cnt += comm_res[2]
+        # edge_cnt += comm_res[3]
+
+        node_pd.append(node_logs.sigmoid().cpu().numpy())
+        node_lb.append(graph.node_label.cpu().numpy())
+        edge_pd.append(edge_logs.sigmoid().cpu().numpy())
+        edge_lb.append(graph.edge_label.cpu().numpy())
 
         batch_size = graph.batch.max().item() + 1
-
-        metrics = evaluate_sparse(
-            node_pred, edge_pred, graph.batch, graph.e_batch[useful_mask],
-            graph.node_label, graph.edge_label[useful_mask], batch_size
-        )
-
-        node_cov += metrics[0]
-        node_fit += metrics[1]
-        edge_cov += metrics[2]
-        edge_fit += metrics[3]
-        all_cov += metrics[4]
-        all_fit += metrics[5]
         tot += batch_size
-    return node_cov / tot, node_fit / tot, edge_cov / tot, \
-        edge_fit / tot, all_cov / tot, all_fit / tot
+
+        cover, fit = eval_by_node(
+            node_pred, edge_pred, graph.node_label, graph.edge_label,
+            graph.batch, graph.e_batch, graph.edge_index
+        )
+        node_cov += cover
+        node_fit += fit
+
+        cover, fit = eval_by_edge(
+            node_pred, edge_pred, graph.node_label, graph.edge_label,
+            graph.batch, graph.e_batch, graph.edge_index
+        )
+        edge_cov += cover
+        edge_fit += fit
+
+    node_pd = np.concatenate(node_pd, axis=0)
+    node_lb = np.concatenate(node_lb, axis=0)
+    edge_pd = np.concatenate(edge_pd, axis=0)
+    edge_lb = np.concatenate(edge_lb, axis=0)
+
+    result = {
+        'common': {
+            'node_roc': metrics.roc_auc_score(node_lb, node_pd),
+            'edge_roc': metrics.roc_auc_score(edge_lb, edge_pd)
+        },
+        'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
+        'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}
+    }

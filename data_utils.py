@@ -203,11 +203,11 @@ def eval_by_edge(
     return cover, fit
 
 
-def overall_acc(node_pred, edge_pred, node_label, edge_label):
-    node_num, edge_num = node_pred.shape[0], edge_pred.shape[0]
-    node_acc = ((node_pred > 0) == (node_label > 0)).sum().item()
-    edge_acc = ((edge_pred > 0) == (edge_label > 0)).sum().item()
-    return node_acc, edge_acc, node_num, edge_num
+# def overall_acc(node_pred, edge_pred, node_label, edge_label):
+#     node_num, edge_num = node_pred.shape[0], edge_pred.shape[0]
+#     node_acc = ((node_pred > 0) == (node_label > 0)).sum().item()
+#     edge_acc = ((edge_pred > 0) == (edge_label > 0)).sum().item()
+#     return node_acc, edge_acc, node_num, edge_num
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
