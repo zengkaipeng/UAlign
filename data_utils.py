@@ -153,7 +153,7 @@ def eval_by_node(
         this_nlb = node_label[this_node_mask] > 0
         this_npd = node_pred[this_node_mask] > 0
 
-        inters = torch.logical_and(this_nlb, this_pred)
+        inters = torch.logical_and(this_nlb, this_npd)
         nf = torch.all(this_nlb == this_npd).item()
         nc = torch.all(this_nlb == inters).item()
 
@@ -194,7 +194,7 @@ def eval_by_edge(
         this_npd = node_pred[this_node_mask] > 0
         this_npd[this_src[this_epd]] = True
         this_npd[this_dst[this_epd]] = True
-        inters = torch.logical_and(this_nlb, this_pred)
+        inters = torch.logical_and(this_nlb, this_npd)
         nf = torch.all(this_nlb == this_npd).item()
         nc = torch.all(this_nlb == inters).item()
 
@@ -213,7 +213,7 @@ def eval_by_edge(
 def convert_log_into_label(logits, mod='sigmoid'):
     if mod == 'sigmoid':
         pred = torch.zeros_like(logits)
-        pred[logits > 0] = 1
+        pred[logits >= 0] = 1
         pred[logits < 0] = 0
     else:
         pred = torch.argmax(logits, dim=-1)

@@ -278,17 +278,16 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_node is None or valid_results['node']['fit'] > best_node:
-            best_node, node_ep = valid_results['node']['fit'], ep
-            torch.save(model_dir, model.state_dict())
-        if best_edge is None or valid_results['edge']['fit'] > best_edge:
-            best_edge, edge_ep = valid_results['edge']['fit'], ep
-            torch.save(fit_dir, model.state_dict())
-
+        if best_node is None or valid_results['by_node']['fit'] > best_node:
+            best_node, node_ep = valid_results['by_node']['fit'], ep
+            torch.save(model.state_dict(), model_dir)
+        if best_edge is None or valid_results['by_edge']['fit'] > best_edge:
+            best_edge, edge_ep = valid_results['by_edge']['fit'], ep
+            torch.save(model.state_dict(), fit_dir)
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['node']['fit'] for x in val_his]
-            ef = [x['edge']['fit'] for x in val_his]
+            nf = [x['by_node']['fit'] for x in val_his]
+            ef = [x['by_edge']['fit'] for x in val_his]
 
             if check_early_stop(nf, ef):
                 break

@@ -1,6 +1,5 @@
 from data_utils import (
-    convert_log_into_label, eval_by_node,
-    eval_by_edge, overall_acc
+    convert_log_into_label, eval_by_node, eval_by_edge
 )
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -58,6 +57,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
             node_logs, edge_logs = model.predict_all_logits(graph)
             node_pred = convert_log_into_label(node_logs)
             edge_pred = convert_log_into_label(edge_logs)
+        
 
         # comm_res = overall_acc(
         #     node_pred, edge_pred, graph.node_label, graph.edge_label
@@ -103,3 +103,4 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
         'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}
     }
+    return result
