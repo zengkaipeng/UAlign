@@ -433,43 +433,6 @@ def make_ptr_from_batch(batch, batch_size=None):
 #     return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
 
 
-def eval_by_node(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index
-):
-    cover, fit = 0, 0
-    batch_size = node_batch.max().item() + 1
-    for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-        this_edge_index = edge_index[:, this_edge_mask]
-        this_src, this_dst = this_edge_index
-
-        useful_mask = torch.logical_and(
-            node_pred[this_src] > 0, node_pred[this_dst] > 0
-        )
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
-
-        inters = torch.logical_and(this_nlb, this_pred)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        if torch.any(useful_mask):
-            this_elb = edge_label[this_edge_mask][useful_mask] > 0
-            this_epd = edge_pred[this_edge_mask][useful_mask] > 0
-            e_inters = torch.logical_and(this_elb, this_epd)
-            ef = torch.all(this_elb == this_epd).item()
-            ec = torch.all(this_elb == e_inters).item()
-        else:
-            ec = ef = True
-
-        cover += (nc & ec)
-        fit += (nf & ef)
-    return cover, fit
-
-
-
 
 class DecoderOnly(torch.nn.Module):
     def __init__(

@@ -1,4 +1,7 @@
-from model import evaluate_sparse
+from data_utils import (
+    convert_log_into_label, eval_by_node,
+    eval_by_edge, overall_acc
+)
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
@@ -44,13 +47,16 @@ def train_sparse_edit(
 
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
-    node_cov, node_fit, edge_fit, edge_cov, all_cov, all_fit, tot = [0] * 7
+    node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
+    node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
         with torch.no_grad():
-            node_pred, edge_pred, useful_mask = model(
-                graph, mask_mode='inference', ret_loss=False
-            )
+            node_logs, edge_logs = model.predict_all_logits(graph)
+            node_pred = node_logs.clone()
+            edge_pred = edge_logs.clone()
+            node_pred[node_pred >= 0] = 1
+
         batch_size = graph.batch.max().item() + 1
 
         metrics = evaluate_sparse(
