@@ -57,7 +57,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
             node_logs, edge_logs = model.predict_all_logits(graph)
             node_pred = convert_log_into_label(node_logs)
             edge_pred = convert_log_into_label(edge_logs)
-        
+
 
         # comm_res = overall_acc(
         #     node_pred, edge_pred, graph.node_label, graph.edge_label
@@ -85,7 +85,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
 
         cover, fit = eval_by_edge(
             node_pred, edge_pred, graph.node_label, graph.edge_label,
-            graph.batch, graph.e_batch, graph.edge_index
+            graph.batch, graph.e_batch, graph.edge_index, graph.ptr
         )
         edge_cov += cover
         edge_fit += fit

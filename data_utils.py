@@ -173,7 +173,7 @@ def eval_by_node(
 
 def eval_by_edge(
     node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index
+    node_batch, edge_batch, edge_index, node_ptr
 ):
     cover, fit = 0, 0
     batch_size = node_batch.max().item() + 1
@@ -192,8 +192,9 @@ def eval_by_edge(
 
         this_nlb = node_label[this_node_mask] > 0
         this_npd = node_pred[this_node_mask] > 0
-        this_npd[this_src[this_epd]] = True
-        this_npd[this_dst[this_epd]] = True
+        if torch.any(this_epd).item():
+            this_npd[this_src[this_epd] - node_ptr[i]] = True
+            this_npd[this_dst[this_epd] - node_ptr[i]] = True
         inters = torch.logical_and(this_nlb, this_npd)
         nf = torch.all(this_nlb == this_npd).item()
         nc = torch.all(this_nlb == inters).item()
