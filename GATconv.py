@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch.nn import Parameter
+import torch_geometric
 
 
 class MyGATConv(MessagePassing):
@@ -43,7 +44,8 @@ class MyGATConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
-        super(MyGATConv, self).reset_parameters()
+        if torch_geometric.__version__.startswith('2.3'):
+            super(MyGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()
