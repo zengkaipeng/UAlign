@@ -40,7 +40,7 @@ if __name__ == '__main__':
             edge_val_fit = [x['by_edge']['fit'] for x in INFO['valid_metric']]
             edge_test_fit = [x['by_edge']['fit'] for x in INFO['test_metric']]
 
-            if len(valid_all_covers) == 0:
+            if len(node_val_fit) == 0:
                 continue
 
             best_idx = np.argmax(node_val_fit)

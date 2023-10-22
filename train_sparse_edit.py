@@ -136,6 +136,10 @@ if __name__ == '__main__':
         '--graph_level', action='store_true',
         help='calc loss in graph level'
     )
+    parser.add_argument(
+        '--pos_weight', default=1, type=float, 
+        help='the weight for positive samples'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -260,7 +264,7 @@ if __name__ == '__main__':
         node_loss, edge_loss = train_sparse_edit(
             train_loader, model, optimizer, device, mode=args.mode,
             verbose=True, warmup=(ep == 0), reduction=args.reduction,
-            graph_level=args.graph_level
+            graph_level=args.graph_level, pos_weight=args.pos_weight
         )
         log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 

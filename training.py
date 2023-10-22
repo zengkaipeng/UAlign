@@ -21,7 +21,7 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_sparse_edit(
     loader, model, optimizer, device, mode, verbose=True,
-    warmup=True, reduction='mean', graph_level=True
+    warmup=True, reduction='mean', graph_level=True, pos_weight=1
 ):
     model = model.train()
     node_loss, edge_loss = [], []
@@ -32,7 +32,10 @@ def train_sparse_edit(
         graph = graph.to(device)
 
         node_pred, edge_pred, useful_mask, loss_node, loss_edge = \
-            model(graph, mode, reduction, graph_level, ret_loss=True)
+            model(
+                graph, mode, reduction, graph_level,
+                ret_loss=True, pos_weight=pos_weight
+            )
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()
@@ -57,7 +60,6 @@ def eval_sparse_edit(loader, model, device, verbose=True):
             node_logs, edge_logs = model.predict_all_logits(graph)
             node_pred = convert_log_into_label(node_logs)
             edge_pred = convert_log_into_label(edge_logs)
-
 
         # comm_res = overall_acc(
         #     node_pred, edge_pred, graph.node_label, graph.edge_label

@@ -58,18 +58,21 @@ class BinaryGraphEditModel(torch.nn.Module):
 
     def calc_loss(
         self, node_logits, node_label, edge_logits, edge_label,
-        reduction, graph_level, node_batch=None, edge_batch=None
+        reduction, graph_level, node_batch=None, edge_batch=None,
+        pos_weight=1
     ):
         assert reduction in ['mean', 'sum'], \
             f'Invalid reduction method {reduction}'
 
         if not graph_level:
             node_loss = binary_cross_entropy_with_logits(
-                node_logits, node_label, reduction=reduction
+                node_logits, node_label, reduction=reduction,
+                pos_weight=torch.tensor(pos_weight)
             )
             if edge_logits.numel() > 0:
                 edge_loss = binary_cross_entropy_with_logits(
-                    edge_logits, edge_label, reduction=reduction
+                    edge_logits, edge_label, reduction=reduction,
+                    pos_weight=torch.tensor(pos_weight)
                 )
             else:
                 edge_loss = 0
@@ -80,7 +83,8 @@ class BinaryGraphEditModel(torch.nn.Module):
             max_node_batch = node_batch.max().item() + 1
             node_loss = torch.zeros(max_node_batch).to(node_logits)
             node_loss_src = binary_cross_entropy_with_logits(
-                node_logits, node_label, reduction='none'
+                node_logits, node_label, reduction='none',
+                pos_weight=torch.tensor(pos_weight)
             )
             node_loss.scatter_add_(0, node_batch, node_loss_src)
 
@@ -88,7 +92,8 @@ class BinaryGraphEditModel(torch.nn.Module):
                 max_edge_batch = edge_batch.max().item() + 1
                 edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
                 edge_loss_src = binary_cross_entropy_with_logits(
-                    edge_logits, edge_label, reduction='none'
+                    edge_logits, edge_label, reduction='none',
+                    pos_weight=torch.tensor(pos_weight)
                 )
                 edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
             else:
@@ -100,8 +105,8 @@ class BinaryGraphEditModel(torch.nn.Module):
                 return node_loss.sum(), edge_loss.sum()
 
     def forward(
-        self, graph, mask_mode, reduce_mode='mean',
-        graph_level=True, ret_loss=True, ret_feat=False
+        self, graph, mask_mode, reduce_mode='mean', graph_level=True,
+        ret_loss=True, ret_feat=False, pos_weight=1
     ):
         node_feat, edge_feat = self.base_model(graph)
 
@@ -136,7 +141,8 @@ class BinaryGraphEditModel(torch.nn.Module):
                 node_label=graph.node_label, node_batch=graph.batch,
                 edge_label=graph.edge_label[useful_mask],
                 edge_batch=graph.e_batch[useful_mask],
-                reduction=reduce_mode, graph_level=graph_level
+                reduction=reduce_mode, graph_level=graph_level,
+                pos_weight=pos_weight
             )
             answer = (node_pred, edge_pred, useful_mask, n_loss, e_loss)
         else:
@@ -398,40 +404,6 @@ def make_ptr_from_batch(batch, batch_size=None):
     ptr = torch.cat([torch.Tensor([0]).to(batch.device), ptr], dim=0)
     ptr = torch.cumsum(ptr, dim=0).long()
     return ptr
-
-
-# def evaluate_sparse(
-#     node_pred, edge_pred, node_batch, edge_batch,
-#     node_label, edge_label, batch_size
-# ):
-#     node_cover, node_fit, edge_fit, edge_cover, all_fit, all_cover = [0] * 6
-#     node_ptr = make_ptr_from_batch(node_batch, batch_size)
-#     if edge_batch.numel() > 0:
-#         edge_ptr = make_ptr_from_batch(edge_batch, batch_size)
-#     for idx in range(batch_size):
-#         t_node_res = node_pred[node_ptr[idx]: node_ptr[idx + 1]] > 0
-#         real_nodes = node_label[node_ptr[idx]: node_ptr[idx + 1]] > 0
-#         inters = torch.logical_and(t_node_res, real_nodes)
-#         nf = torch.all(real_nodes == t_node_res).item()
-#         nc = torch.all(real_nodes == inters).item()
-
-#         if edge_batch.numel() > 0:
-#             t_edge_res = edge_pred[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
-#             real_edges = edge_label[edge_ptr[idx]: edge_ptr[idx + 1]] > 0
-#             e_inters = torch.logical_and(t_edge_res, real_edges)
-#             ef = torch.all(t_edge_res == real_edges).item()
-#             ec = torch.all(real_edges == e_inters).item()
-#         else:
-#             ef = ec = True
-
-#         node_fit += nf
-#         node_cover += nc
-#         edge_fit += ef
-#         edge_cover += ec
-#         all_fit += (nf & ef)
-#         all_cover += (nc & ec)
-#     return node_cover, node_fit, edge_cover, edge_fit, all_cover, all_fit
-
 
 
 class DecoderOnly(torch.nn.Module):
