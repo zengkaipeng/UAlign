@@ -24,6 +24,7 @@ if __name__ == '__main__':
 
     bpref, btime, bargs, bep = None, None, None, None
     fpref, ftime, fargs, fep = None, None, None, None
+
     for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
             with open(os.path.join(args.dir, x)) as Fin:
@@ -33,36 +34,36 @@ if __name__ == '__main__':
             if not filter_args(INFO['args'], args_ft):
                 continue
 
-            valid_all_covers = [x['all_cover'] for x in INFO['valid_metric']]
-            test_all_covers = [x['all_cover'] for x in INFO['test_metric']]
+            node_val_fit = [x['by_node']['fit'] for x in INFO['valid_metric']]
+            node_test_fit = [x['by_node']['fit'] for x in INFO['test_metric']]
 
-            valid_all_hit = [x['all_fit'] for x in INFO['valid_metric']]
-            test_all_hit = [x['all_fit'] for x in INFO['test_metric']]
+            edge_val_fit = [x['by_edge']['fit'] for x in INFO['valid_metric']]
+            edge_test_fit = [x['by_edge']['fit'] for x in INFO['test_metric']]
+
             if len(valid_all_covers) == 0:
                 continue
 
-            best_idx = np.argmax(valid_all_covers)
-            best_all_cover = test_all_covers[best_idx]
+            best_idx = np.argmax(node_val_fit)
+            best_node_fit = node_test_fit[best_idx]
 
-            if bpref is None or best_all_cover > bpref['all_cover']:
+            if bpref is None or best_node_fit > bpref['by_node']['fit']:
                 bpref = INFO['test_metric'][best_idx]
                 btime, bargs, bep = timestamp, INFO['args'], best_idx
 
-            best_idx = np.argmax(valid_all_hit)
-            best_all_hit = test_all_hit[best_idx]
+            best_idx = np.argmax(edge_val_fit)
+            best_edge_fit = edge_test_fit[best_idx]
 
-            best_idx = np.argmax(valid_all_hit)
-            if fpref is None or best_all_hit > fpref['all_fit']:
+            if fpref is None or best_edge_fit > fpref['by_edge']['fit']:
                 fpref = INFO['test_metric'][best_idx]
                 ftime, fargs, fep = timestamp, INFO['args'], best_idx
 
-    print('[best_cover]')
+    print('[BEST BY NODE]')
     print('[args]\n', bargs)
     print('[TIME]', btime)
     print('[EPOCH]', bep)
     print('[pref]', bpref)
 
-    print('[best_fit]')
+    print('[BEST BY EDGE]')
     print('[args]\n', fargs)
     print('[TIME]', ftime)
     print('[EPOCH]', fep)
