@@ -162,14 +162,14 @@ class BinaryGraphEditModel(torch.nn.Module):
             this_self_edge = G.edge_index[:, this_edge_mask & G.self_mask]
 
             graphs.append({
-                'x': G.x[this_node_mask], 'edge_index': this_org_edge,
-                'edge_attr': padded_edge_feat[this_edge_mask & G.org_mask],
-                'self_edge': this_self_edge, 'offset': G.ptr[idx].item(),
+                'x': G.x[this_node_mask].cpu(), 'edge_index': this_org_edge.cpu(),
+                'edge_attr': padded_edge_feat[this_edge_mask & G.org_mask].cpu(),
+                'self_edge': this_self_edge.cpu(), 'offset': G.ptr[idx].item(),
                 'num_nodes': G.x[this_node_mask].shape[0]
             })
 
             if G.get('node_rxn', None) is not None:
-                graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]]
+                graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]].cpu()
         return graphs
 
     def predict_logitis(self, graph):
@@ -298,7 +298,7 @@ def convert_graphs_into_decoder(graphs, pad_num):
     self_mask, org_mask, pad_mask = [], [], []
     node_org_mask, node_pad_mask, attn_mask = [], [], []
     node_rxn, edge_rxn, graph_rxn = [], [], []
-    node_batch, node_ptr, edge_batch, edge_ptr = [], [], [0], [0]
+    node_batch, node_ptr, edge_batch, edge_ptr = [], [0], [], [0]
     lst_node, lst_edge = 0, 0
 
     max_node = max(x['num_nodes'] + pad_num for x in graphs)
@@ -332,7 +332,7 @@ def convert_graphs_into_decoder(graphs, pad_num):
         pad_mask.append(torch.zeros(self_num).bool())
 
         link_idx = [x + graph['num_nodes'] for x in range(pad_num)]
-        link_idx.extend(graph['activate_nodes'])
+        link_idx.extend(graph['act_node'])
 
         pad_edges = [(x, y) for x in link_idx for y in link_idx if x != y]
         pad_e_num = len(pad_edges)

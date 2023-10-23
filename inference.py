@@ -6,7 +6,7 @@ import os
 
 from Mix_backbone import MixFormer
 from Dataset import edit_col_fn
-from model import BinaryGraphEditModel
+from model import BinaryGraphEditModel, convert_graphs_into_decoder
 from data_utils import create_edit_dataset
 
 
@@ -96,3 +96,7 @@ if __name__ == '__main__':
 
             print(node_res, edge_res)
             print(out_graphs)
+
+            result = convert_graphs_into_decoder(out_graphs, 10)
+            print(result)
+        exit()
