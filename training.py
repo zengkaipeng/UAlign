@@ -1,5 +1,6 @@
 from data_utils import (
-    convert_log_into_label, eval_by_node, eval_by_edge
+    convert_log_into_label, eval_by_node,
+    eval_by_edge, eval_by_graph
 )
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -53,6 +54,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
     node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
     # node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
+    g_nfit, g_ncov, g_efit, g_ecov = [0] * 4
     node_pd, node_lb, edge_pd, edge_lb = [], [], [], []
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
@@ -60,15 +62,6 @@ def eval_sparse_edit(loader, model, device, verbose=True):
             node_logs, edge_logs = model.predict_all_logits(graph)
             node_pred = convert_log_into_label(node_logs)
             edge_pred = convert_log_into_label(edge_logs)
-
-        # comm_res = overall_acc(
-        #     node_pred, edge_pred, graph.node_label, graph.edge_label
-        # )
-
-        # node_acc += comm_res[0]
-        # edge_acc += comm_res[1]
-        # node_cnt += comm_res[2]
-        # edge_cnt += comm_res[3]
 
         node_pd.append(node_logs.sigmoid().cpu().numpy())
         node_lb.append(graph.node_label.cpu().numpy())
@@ -92,6 +85,16 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         edge_cov += cover
         edge_fit += fit
 
+        g_metric = eval_by_graph(
+            node_pred, edge_pred, graph.node_label,
+            graph.edge_label, graph.batch, graph.e_batch,
+        )
+
+        g_nfit += g_metric[0]
+        g_ncov += g_metric[1]
+        g_efit += g_metric[2]
+        g_ecov += g_metric[3]
+
     node_pd = np.concatenate(node_pd, axis=0)
     node_lb = np.concatenate(node_lb, axis=0)
     edge_pd = np.concatenate(edge_pd, axis=0)
@@ -101,6 +104,10 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         'common': {
             'node_roc': metrics.roc_auc_score(node_lb, node_pd),
             'edge_roc': metrics.roc_auc_score(edge_lb, edge_pd)
+        },
+        'by_graph': {
+            'node_cover': g_ncov / tot, 'node_fit': g_nfit / tot,
+            'edge_cover': g_ecov / tot, 'edge_fit': g_efit / tot
         },
         'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
         'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}

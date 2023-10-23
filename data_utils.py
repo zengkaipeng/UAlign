@@ -204,11 +204,36 @@ def eval_by_edge(
     return cover, fit
 
 
-# def overall_acc(node_pred, edge_pred, node_label, edge_label):
-#     node_num, edge_num = node_pred.shape[0], edge_pred.shape[0]
-#     node_acc = ((node_pred > 0) == (node_label > 0)).sum().item()
-#     edge_acc = ((edge_pred > 0) == (edge_label > 0)).sum().item()
-#     return node_acc, edge_acc, node_num, edge_num
+def eval_by_graph(
+    node_pred, edge_pred, node_label, edge_label,
+    node_batch, edge_batch,
+):
+    node_fit, node_cover, edge_fit, edge_cover = [0] * 4
+    batch_size = node_batch.max().item() + 1
+    for i in range(batch_size):
+        this_node_mask = node_batch == i
+        this_edge_mask = edge_batch == i
+
+        this_elb = edge_label[this_edge_mask] > 0
+        this_epd = edge_pred[this_edge_mask] > 0
+
+        e_inters = torch.logical_and(this_elb, this_epd)
+        ef = torch.all(this_elb == this_epd).item()
+        ec = torch.all(this_elb == e_inters).item()
+
+        edge_fit += ef
+        edge_cover += ec
+
+        this_nlb = node_label[this_node_mask] > 0
+        this_npd = node_pred[this_node_mask] > 0
+
+        inters = torch.logical_and(this_nlb, this_npd)
+        nf = torch.all(this_nlb == this_npd).item()
+        nc = torch.all(this_nlb == inters).item()
+
+        node_fit += nf
+        node_cover += nc
+    return node_fit, node_cover, edge_fit, edge_cover
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
