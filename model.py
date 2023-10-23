@@ -375,7 +375,7 @@ def convert_graphs_into_decoder(graphs, pad_num):
         "pad_mask": torch.cat(pad_mask, dim=0),
         'node_org_mask': torch.cat(node_org_mask, dim=0),
         'node_pad_mask': torch.cat(node_pad_mask, dim=0),
-        'attn_mask': torch.cat(attn_mask, dim=0)
+        'attn_mask': torch.stack(attn_mask, dim=0)
     }
     if len(graph_rxn) > 0:
         result['graph_rxn'] = torch.LongTensor(graph_rxn)

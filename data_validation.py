@@ -59,10 +59,11 @@ if __name__ == '__main__':
         # print(decoder_graph.node_class.shape)
         # print(decoder_graph.node_org_mask)
         # print(decoder_graph.edge_index.T)
-        # print(decoder_graph.node_class)
-        # print(decoder_graph.org_edge_class)
+        print(decoder_graph.node_class)
+        print(decoder_graph.org_edge_class)
         # print(data[2])
-        # exit()
+        exit()
+        # print(decoder_graph.node_class)
         pass
 
     gnn_args = {'embedding_dim': 64}
