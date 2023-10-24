@@ -13,6 +13,7 @@ from data_utils import (
     create_overall_dataset, load_data, fix_seed,
     check_early_stop
 )
+from utils.chemistry_parse import canonical_smiles
 
 
 def create_log_model(args):
@@ -148,5 +149,36 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
+    train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
+    val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
+    test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    
+    if args.pos_enc == 'none':
+        dataset_kwargs = {'pos_enc': args.pos_enc}
+    elif args.pos_enc == 'Lap':
+        dataset_kwargs = {'pos_enc': args.pos_enc, 'dim': args.lap_pos_dim}
+    else:
+        raise ValueError(f'Invalid pos_enc {args.pos_enc}')
+
+    train_set = create_overall_dataset(
+        reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
+        rxn_class=train_rxn if args.use_class else None, **dataset_kwargs
+    )
+
+    valid_set = create_overall_dataset(
+        reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
+        rxn_class=val_rxn if args.use_class else None, **dataset_kwargs
+    )
+    test_set = create_overall_dataset(
+        reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
+        rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
+    )
+
+    val_node_types = valid_set.decoder_node_class
+    test_node_types = test_set.decoder_node_class
+
+    val_edge_types = valid_set.decoder_edge_class
+    test_node_types = test_set.decoder_edge_class
+
+    val_rec_smi = [canonical_smiles(x) for x in val_rec]
+    test_rec_smi = [canonical_smiles(x) for x in test_rec]
