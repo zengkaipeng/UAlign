@@ -14,6 +14,8 @@ from data_utils import (
     check_early_stop
 )
 from utils.chemistry_parse import canonical_smiles
+from copy import deepcopy
+from decoder import MixDecoder, GINDecoder, GATDecoder, GCNDecoder
 
 
 def create_log_model(args):
@@ -136,6 +138,10 @@ if __name__ == '__main__':
         '--graph_level', action='store_true',
         help='calc loss in graph level'
     )
+    parser.add_argument(
+        '--pad_num', type=int, default=35, 
+        help='the number of padding'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -182,3 +188,66 @@ if __name__ == '__main__':
 
     val_rec_smi = [canonical_smiles(x) for x in val_rec]
     test_rec_smi = [canonical_smiles(x) for x in test_rec]
+
+
+    if args.transformer:
+        if args.pos_enc == 'Lap':
+            pos_args = {'dim': args.lap_pos_dim}
+        else:
+            pos_args = None
+
+        if args.gnn_type == 'gcn':
+            gnn_args = {'emb_dim': args.dim}
+        elif args.gnn_type == 'gin':
+            gnn_args = {'embedding_dim': args.dim}
+        elif args.gnn_type == 'gat':
+            assert args.dim % args.heads == 0, \
+                'The model dim should be evenly divided by num_heads'
+            gnn_args = {
+                'in_channels': args.dim,
+                'out_channels': args.dim // args.heads,
+                'negative_slope': args.negative_slope,
+                'dropout': args.dropout, 'add_self_loop': False,
+                'edge_dim': args.dim, 'heads': args.heads
+            }
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+        GNN = MixFormer(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            dropout=args.dropout, heads=args.heads, pos_enc=args.pos_enc,
+            negative_slope=args.negative_slope, pos_args=pos_args,
+            n_class=11 if args.use_class else None, edge_last=True,
+            residual=True, update_gate=args.update_gate, gnn_type=args.gnn_type
+        )
+        GNN_dec = MixDecoder(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args, 
+            n_pad=args.pad_num
+        )
+    else:
+        if args.gnn_type == 'gin':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=args.dropout, residual=True,
+                embedding_dim=args.dim, edge_last=True,
+                n_class=11 if args.use_class else None
+            )
+        elif args.gnn_type == 'gat':
+            GNN = GATBase(
+                num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
+                embedding_dim=args.dim, edge_last=True, residual=True,
+                negative_slope=args.negative_slope, num_heads=args.heads,
+                n_class=11 if args.use_class else None
+            )
+        elif args.gnn_type == 'gcn':
+            GNN = GCNBase(
+                num_layers=args.n_layer, dropout=args.dropout, residual=True,
+                embedding_dim=args.dim, edge_last=True,
+                n_class=11 if args.use_class else None
+            )
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+    encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+
+
+
