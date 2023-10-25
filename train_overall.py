@@ -7,7 +7,7 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
-from Dataset import edit_col_fn
+from Dataset import overall_col_fn
 from model import BinaryGraphEditModel
 from data_utils import (
     create_overall_dataset, load_data, fix_seed,
@@ -35,7 +35,6 @@ def create_log_model(args):
 
 
 if __name__ == '__main__':
-    if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     # public setting
     parser.add_argument(
@@ -139,7 +138,7 @@ if __name__ == '__main__':
         help='calc loss in graph level'
     )
     parser.add_argument(
-        '--pad_num', type=int, default=35, 
+        '--pad_num', type=int, default=35,
         help='the number of padding'
     )
 
@@ -189,6 +188,20 @@ if __name__ == '__main__':
     val_rec_smi = [canonical_smiles(x) for x in val_rec]
     test_rec_smi = [canonical_smiles(x) for x in test_rec]
 
+    col_fn = overall_col_fn(
+        selfloop=args.gnn_type == 'gat',
+        pad_num=args.pad_num
+    )
+
+    train_loader = DataLoader(
+        train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
+    )
+    valid_loader = DataLoader(
+        valid_set, collate_fn=col_fn, batch_size=args.bs, shuffle=False
+    )
+    test_loader = DataLoader(
+        test_set, collate_fn=col_fn, batch_size=args.bs, shuffle=False
+    )
 
     if args.transformer:
         if args.pos_enc == 'Lap':
@@ -221,14 +234,20 @@ if __name__ == '__main__':
             residual=True, update_gate=args.update_gate, gnn_type=args.gnn_type
         )
         GNN_dec = MixDecoder(
-            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args, 
-            n_pad=args.pad_num
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
+            gnn_type=args.gnn_type, negative_slope=args.negative_slope,
+            n_class=11 if args.use_class else None, update_gate=args.gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
                 embedding_dim=args.dim, edge_last=True,
+                n_class=11 if args.use_class else None
+            )
+            GNN_dec = GINDecoder(
+                n_layers=4, embedding_dim=args.dim, dropout=args.dropout,
                 n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
@@ -238,16 +257,23 @@ if __name__ == '__main__':
                 negative_slope=args.negative_slope, num_heads=args.heads,
                 n_class=11 if args.use_class else None
             )
+            GNN_dec = GATDecoder(
+                num_heads=args.heads, num_layers=args.n_layer,
+                embedding_dim=args.dim, selfloop=False, dropout=args.dropout,
+                negative_slope=args.negative_slope,
+                n_class=11 if args.use_class else None
+            )
         elif args.gnn_type == 'gcn':
             GNN = GCNBase(
                 num_layers=args.n_layer, dropout=args.dropout, residual=True,
                 embedding_dim=args.dim, edge_last=True,
                 n_class=11 if args.use_class else None
             )
+            GNN_dec = GCNDecoder(
+                n_layers=4, embedding_dim=args.dim, dropout=args.dropout,
+                n_class=11 if args.use_class else None
+            )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
     encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
-
-
-

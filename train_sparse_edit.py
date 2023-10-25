@@ -174,7 +174,7 @@ if __name__ == '__main__':
         rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
     )
 
-    col_fn = edit_col_fn(selfloop=args.gnn_type == 'GAT')
+    col_fn = edit_col_fn(selfloop=args.gnn_type == 'gat')
     train_loader = DataLoader(
         train_set, collate_fn=col_fn,
         batch_size=args.bs, shuffle=True
