@@ -146,6 +146,23 @@ class BinaryGraphEditModel(torch.nn.Module):
             answer += (node_feat, edge_feat)
         return answer
 
+    def make_memory(self, graph):
+        node_feat, edge_feat = self.base_model(graph)
+        batch_size = graph.batch.max().item() + 1
+        n_nodes = torch.zeros(batch_size).long().to(device)
+        n_nodes.scatter_add_(
+            src=torch.ones_like(graph.batch),
+            dim=0, index=graph.batch
+        )
+        max_node = n_nodes.max().item() + 1
+        mem_pad_mask = make_batch_mask(graph.ptr, max_node, batch_size)
+
+        memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        memory = memory.to(device)
+        memory[mem_pad_mask] = node_feat
+
+        return memory, mem_pad_mask
+
     def seperate_a_graph(self, G):
         batch_size = G.batch.max().item() + 1
         graphs = []
