@@ -67,3 +67,38 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         tot += batch_size
     return node_cov / tot, node_fit / tot, edge_cov / tot, \
         edge_fit / tot, all_cov / tot, all_fit / tot
+
+
+def train_overall(
+    model, loader, optimizer, device, mode, alpha=1,
+    warmup=True, reduction='mean', graph_level=True
+):
+    model = model.train()
+    overall_loss = []
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
+
+    for data in tqdm(loader, ascii=True):
+        encoder_graph, decoder_graph, real_edge_type = data
+        encoder_graph = encoder_graph.to(device)
+        decoder_graph = decoder_graph.to(device)
+
+        loss = model(
+            encoder_graph, decoder_graph, encoder_mode=mode,
+            edge_types=real_edge_type, reduction=reduction,
+            graph_level=graph_level, alpha=alpha
+        )
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        overall_loss.append(loss.item())
+        if warmup:
+            warmup_sher.step()
+
+    return np.mean(overall_loss)
+
+
+def eval_overall(model, loader, device):
+    model = model.eval()

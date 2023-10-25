@@ -8,13 +8,12 @@ from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
 from Dataset import overall_col_fn
-from model import BinaryGraphEditModel
+from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from data_utils import (
     create_overall_dataset, load_data, fix_seed,
     check_early_stop
 )
 from utils.chemistry_parse import canonical_smiles
-from copy import deepcopy
 from decoder import MixDecoder, GINDecoder, GATDecoder, GCNDecoder
 
 
@@ -140,6 +139,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--pad_num', type=int, default=35,
         help='the number of padding'
+    )
+    parser.add_argument(
+        '--alpha', type=float, default=1, 
+        help='the prop of known part for loss'
     )
 
     args = parser.parse_args()
@@ -277,3 +280,29 @@ if __name__ == '__main__':
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
     encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+
+    decoder = DecoderOnly(
+        GNN_dec, args.dim, args.dim, 43,
+        4 if args.kekulize else 5
+    )
+
+    model = EncoderDecoder(encoder, decoder).to(device)
+
+    print('[INFO] model built')
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    best_perf, best_epoch = None, None
+    log_info = {
+        'args': args.__dict__, 'train_loss': [],
+        'valid_metric': [], 'test_metric': []
+    }
+
+    with open(log_dir, 'w') as Fout:
+        json.dump(log_info, Fout, indent=4)
+
+    for ep in range(args.epoch):
+        print(f'[INFO] traning for ep {ep}')
+
+
+
+

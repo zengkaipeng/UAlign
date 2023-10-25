@@ -451,22 +451,17 @@ class EncoderDecoder(torch.nn.Module):
         self.decoder = decoder
 
     def forward(
-        self, encoder_graph, decoder_graph, encoder_mode,
-        reduction='mean', graph_level=True, ret_loss=True,
-        edge_types=None, alpha=1
+        self, encoder_graph, decoder_graph, encoder_mode, edge_types,
+        reduction='mean', graph_level=True, alpha=1
     ):
         encoder_answer = self.encoder(
             graph=encoder_graph, graph_level=graph_level,
-            mask_mode=encoder_mode, ret_loss=ret_loss,
+            mask_mode=encoder_mode, ret_loss=True,
             ret_feat=True, reduce_mode=reduction,
         )
 
-        if ret_loss:
-            node_pred, edge_pred, useful_mask, n_loss, e_loss, \
-                node_feat, edge_feat = encoder_answer
-        else:
-            node_pred, edge_pred, useful_mask, node_feat, edge_feat\
-                = encoder_answer
+        node_pred, edge_pred, useful_mask, n_loss, e_loss, \
+            node_feat, edge_feat = encoder_answer
 
         device = encoder_graph.x.device
         batch_size = encoder_graph.batch.max().item() + 1
@@ -617,7 +612,7 @@ class EncoderDecoder(torch.nn.Module):
                 this_pad_idx[row].item(): this_pad_idx[col_id[tx]].item()
                 for tx, row in enumerate(row_id)
             }
-            print(node_remap)
+            # print(node_remap)
             used_node_set = set(
                 this_pad_idx[idx].item() for idx, lb in
                 enumerate(this_node_label) if lb != 0
