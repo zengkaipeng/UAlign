@@ -15,6 +15,7 @@ from data_utils import (
 )
 from utils.chemistry_parse import canonical_smiles
 from decoder import MixDecoder, GINDecoder, GATDecoder, GCNDecoder
+from training import train_overall, eval_overall
 
 
 def create_log_model(args):
@@ -141,7 +142,7 @@ if __name__ == '__main__':
         help='the number of padding'
     )
     parser.add_argument(
-        '--alpha', type=float, default=1, 
+        '--alpha', type=float, default=1,
         help='the prop of known part for loss'
     )
 
@@ -186,7 +187,7 @@ if __name__ == '__main__':
     test_node_types = test_set.decoder_node_class
 
     val_edge_types = valid_set.decoder_edge_class
-    test_node_types = test_set.decoder_edge_class
+    test_edge_types = test_set.decoder_edge_class
 
     val_rec_smi = [canonical_smiles(x) for x in val_rec]
     test_rec_smi = [canonical_smiles(x) for x in test_rec]
@@ -302,7 +303,34 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traning for ep {ep}')
+        train_loss = train_overall(
+            model, train_loader, optimizer, device, mode=args.mode,
+            warmup=(ep < 2), alpha=args.alpha, reduction=args.reduction,
+            graph_level=args.graph_level
+        )
+        print('[INFO] train_loss:', train_loss)
 
+        valid_acc = eval_overall(
+            model, valid_loader, device, val_node_types, val_edge_types,
+            val_rec_smi, args.pad_num
+        )
+        test_acc = eval_overall(
+            model, test_loader, device, test_node_types, test_edge_types,
+            test_rec_smi, args.pad_num
+        )
 
+        print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
+        log_info['train'].append(train_loss)
+        log_info['valid_metric'].append(valid_acc)
+        log_info['test_metric'].append(test_acc)
+        with open(log_dir, 'w') as Fout:
+            json.dump(log_info, Fout, indent=4)
 
+        if best_perf is None or valid_acc > best_perf:
+            best_perf, best_epoch = valid_acc, ep
+            torch.save(model.state_dict(), model_dir)
 
+    print('[Overall]')
+    print('[bset_ep]', best_epoch)
+    print('[best valid]', best_perf)
+    print('[bset test]', log_info['test_metric'][best_epoch])

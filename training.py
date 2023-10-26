@@ -137,10 +137,12 @@ def eval_overall(
                 model.decoder.predict_paddings(decoder_graph)
 
         for i in range(batch_size):
+            print(synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i])
+            exit()
             result = convert_res_into_smiles(
                 synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i]
             )
             acc += can_smiles[curr + i]
 
         curr += batch_size
-    return acc
+    return acc / curr
