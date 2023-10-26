@@ -474,14 +474,44 @@ class DecoderOnly(torch.nn.Module):
         for i in range(batch_size):
             pad_n_mask = (graph.batch == i) & graph.node_pad_mask
             pad_e_mask = (graph.e_batch == i) & graph.pad_mask
+            used_n_mask = (graph.batch == i) & graph.node_org_mask
             offset = graph.ptr[i].item()
 
             this_node_pred = node_pred[pad_n_mask]
             this_node_idx = all_node_index[pad_n_mask]
 
+            useful_nodes = (all_node_index[used_n_mask] - offset).tolist()
+            useful_nodes = set(useful_nodes)
+
             node_res = {}
             for idx, p in enumerate(this_node_pred):
-                node_res[this_node_idx[idx].item()] = p.item()
+                if p.item() != 0:
+                    n_idx = this_node_idx[idx].item() - offset
+                    node_res[n_idx] = p.item()
+                    useful_nodes.add(n_idx)
+
+            edge_log = {}
+
+            this_edge_pred = edge_pred[pad_e_mask]
+            this_edge_idx = graph.edge_index[:, pad_e_mask]
+
+            for idx, logs in enumerate(this_edge_pred):
+                row, col = this_edge_idx[:, idx]
+                row, col = row.item(), col.item()
+                if row not in useful_nodes or col not in useful_nodes:
+                    continue
+                if (row, col) not in edge_log:
+                    edge_log[(row, col)] = edge_log[(col, row)] = logs
+                else:
+                    real_logs = (logs + edge_log[(row, col)]) / 2
+                    edge_log[(row, col)] = edge_log[(col, row)] = real_logs
+
+            edge_res = {}
+            for (x, y), v in edge_log.items():
+                if (x, y) not in edge_res and (y, x) not in edge_res:
+                    edge_res[(x, y)] = v.argmax().item()
+
+        return node_res, edge_res
 
 
 class EncoderDecoder(torch.nn.Module):
