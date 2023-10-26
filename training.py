@@ -3,7 +3,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
 import torch
-from decoder import convert_graphs_into_decoder
+from model import convert_graphs_into_decoder
 from utils.chemistry_parse import convert_res_into_smiles
 
 

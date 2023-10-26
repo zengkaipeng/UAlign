@@ -666,8 +666,9 @@ class EncoderDecoder(torch.nn.Module):
                 # row our col gt
 
             node_pad = row_id.shape[0]
-            node_reidx = torch.zeros(node_pad).long().to(device)
+            node_reidx = torch.zeros(node_pad).long()
             node_reidx[row_id.tolist()] = torch.from_numpy(col_id)
+            node_reidx = node_reidx.to(device)
 
             if graph_level:
                 x_loss = cross_entropy(
