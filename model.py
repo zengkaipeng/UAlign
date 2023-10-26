@@ -149,6 +149,7 @@ class BinaryGraphEditModel(torch.nn.Module):
     def make_memory(self, graph):
         node_feat, edge_feat = self.base_model(graph)
         batch_size = graph.batch.max().item() + 1
+        device = graph.x.device
         n_nodes = torch.zeros(batch_size).long().to(device)
         n_nodes.scatter_add_(
             src=torch.ones_like(graph.batch),

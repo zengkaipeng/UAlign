@@ -6,25 +6,28 @@ from Mix_backbone import MixFormer
 from Dataset import OverallDataset, overall_col_fn
 from data_utils import load_data, create_overall_dataset
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 if __name__ == '__main__':
 
     # run all
-    rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'val')
+    rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'train')
     dataset = create_overall_dataset(
-        rec[:100], prod[:100], rxn_class=None, kekulize=False
+        rec, prod, rxn_class=None, kekulize=False
     )
 
     print(dataset)
 
-    col_fn = overall_col_fn(selfloop=True, pad_num=35)
+    col_fn = overall_col_fn(selfloop=False, pad_num=35)
 
     loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, batch_size=5
+        dataset, collate_fn=col_fn, shuffle=True, batch_size=64
     )
 
-    for data in loader:
+    for data in tqdm(loader):
         pass
+
+    exit()
 
     # by case
 
@@ -59,10 +62,10 @@ if __name__ == '__main__':
         # print(decoder_graph.node_class.shape)
         # print(decoder_graph.node_org_mask)
         # print(decoder_graph.edge_index.T)
-        print(decoder_graph.node_class)
-        print(decoder_graph.org_edge_class)
+        # print(decoder_graph.node_class)
+        # print(decoder_graph.org_edge_class)
         # print(data[2])
-        exit()
+        # exit()
         # print(decoder_graph.node_class)
         pass
 
