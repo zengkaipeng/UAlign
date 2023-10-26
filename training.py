@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 from decoder import convert_graphs_into_decoder
+from utils.chemistry_parse import convert_res_into_smiles
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -105,10 +106,11 @@ def eval_overall(
     model, loader, device, real_node_types, real_edge_types,
     can_smiles, pad_num
 ):
-    model, curr = model.eval(), 0
+    model, curr, acc = model.eval(), 0, 0
     for data in tqdm(loader):
         encoder_graph, _, _ = data
         encoder_graph = encoder_graph.to(device)
+        batch_size = encoder_graph.batch.max().item() + 1
         with torch.no_grad():
             synthons = model.encoder.predict_into_graphs(encoder_graph)
             memory, mem_pad_mask = model.encoder.make_memory(encoder_graph)
@@ -129,9 +131,16 @@ def eval_overall(
             synt_edges.append({x: real_edge_types[x] for x in remain_edges})
 
         decoder_graph = convert_graphs_into_decoder(synthons, pad_num)
-        node_logits, edge_logits = model.decoder(
-            graph=decoder_graph, memory=memory,
-            mem_pad_mask=mem_pad_mask
-        )
 
-        
+        with torch.no_grad():
+            pad_nodes, pad_edges = \
+                model.decoder.predict_paddings(decoder_graph)
+
+        for i in range(batch_size):
+            result = convert_res_into_smiles(
+                synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i]
+            )
+            acc += can_smiles[curr + i]
+
+        curr += batch_size
+    return acc

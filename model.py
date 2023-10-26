@@ -471,6 +471,7 @@ class DecoderOnly(torch.nn.Module):
         batch_size = graph.batch.max().item() + 1
 
         all_node_index = torch.arange(0, graph.x.shape[0])
+        all_node_res, all_edge_res = [], []
         for i in range(batch_size):
             pad_n_mask = (graph.batch == i) & graph.node_pad_mask
             pad_e_mask = (graph.e_batch == i) & graph.pad_mask
@@ -511,7 +512,10 @@ class DecoderOnly(torch.nn.Module):
                 if (x, y) not in edge_res and (y, x) not in edge_res:
                     edge_res[(x, y)] = v.argmax().item()
 
-        return node_res, edge_res
+            all_node_res.append(node_res)
+            all_edge_res.append(edge_res)
+
+        return all_node_res, all_edge_res
 
 
 class EncoderDecoder(torch.nn.Module):
