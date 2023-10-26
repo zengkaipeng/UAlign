@@ -460,6 +460,29 @@ class DecoderOnly(torch.nn.Module):
         edge_pred = self.edge_predictor(edge_feat)
         return node_pred, edge_pred
 
+    def predcit_paddings(self, graph, memory, mem_pad_mask=None):
+        node_feat, edge_feat = self.backbond(graph, memory, mem_pad_mask)
+        node_pred = self.node_predictor(node_feat)
+        edge_pred = self.edge_predictor(edge_feat)
+
+        edge_pred = torch.softmax(edge_pred, dim=-1)
+        node_pred = node_pred.argmax(dim=-1)
+
+        batch_size = graph.batch.max().item() + 1
+
+        all_node_index = torch.arange(0, graph.x.shape[0])
+        for i in range(batch_size):
+            pad_n_mask = (graph.batch == i) & graph.node_pad_mask
+            pad_e_mask = (graph.e_batch == i) & graph.pad_mask
+            offset = graph.ptr[i].item()
+
+            this_node_pred = node_pred[pad_n_mask]
+            this_node_idx = all_node_index[pad_n_mask]
+
+            node_res = {}
+            for idx, p in enumerate(this_node_pred):
+                node_res[this_node_idx[idx].item()] = p.item()
+
 
 class EncoderDecoder(torch.nn.Module):
     def __init__(self, encoder, decoder):
