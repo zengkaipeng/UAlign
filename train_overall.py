@@ -303,14 +303,8 @@ if __name__ == '__main__':
         )
         print('[INFO] train_loss:', train_loss)
 
-        valid_acc = eval_overall(
-            model, valid_loader, device, val_node_types, val_edge_types,
-            val_rec_smi, args.pad_num
-        )
-        test_acc = eval_overall(
-            model, test_loader, device, test_node_types, test_edge_types,
-            test_rec_smi, args.pad_num
-        )
+        valid_acc = eval_overall(model, valid_loader, device, args.pad_num)
+        test_acc = eval_overall(model, test_loader, device, args.pad_num)
 
         print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
         log_info['train'].append(train_loss)

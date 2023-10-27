@@ -102,28 +102,25 @@ def train_overall(
     return np.mean(overall_loss)
 
 
-def eval_overall(
-    model, loader, device, real_node_types, real_edge_types,
-    can_smiles, pad_num
-):
-    model, curr, acc = model.eval(), 0, 0
-    for encoder_graph in tqdm(loader):
+def eval_overall(model, loader, device, pad_num):
+    model, acc, total = model.eval(), 0, 0
+    for data in tqdm(loader):
+        encoder_graph, node_types, edge_types, smi = data
         encoder_graph = encoder_graph.to(device)
         batch_size = encoder_graph.batch.max().item() + 1
+        total += batch_size
         with torch.no_grad():
             synthons = model.encoder.predict_into_graphs(encoder_graph)
             memory, mem_pad_mask = model.encoder.make_memory(encoder_graph)
 
         synt_nodes, synt_edges = [], []
         for idx, synt in enumerate(synthons):
-            this_node_types = real_node_types[curr + idx]
-            this_edge_types = real_edge_types[curr + idx]
+            this_node_types = node_types[idx]
+            this_edge_types = edge_types[idx]
             synt_nodes.append({
                 x: this_node_types[x]
                 for x in range(synt['x'].shape[0])
             })
-
-            print(this_edge_types, curr + idx)
 
             remain_edges = set({
                 (x.item(), y.item()) if x.item() < y.item() else
@@ -143,7 +140,6 @@ def eval_overall(
             result = convert_res_into_smiles(
                 synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i]
             )
-            acc += can_smiles[curr + i]
+            acc += (smi[i] == result)
 
-        curr += batch_size
     return acc / curr
