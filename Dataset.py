@@ -364,7 +364,7 @@ def overall_col_fn(selfloop, pad_num):
 class InferenceDataset(torch.utils.data.Dataset):
     def __init__(
         self, reac_graph, prod_smiles, reac_node_type,
-        reac_edge_types, rxn_class=None
+        reac_edge_type, rxn_class=None
     ):
         super(InferenceDataset, self).__init__()
 
@@ -386,8 +386,6 @@ class InferenceDataset(torch.utils.data.Dataset):
 
 
 def inference_col_fn(selfloop):
-    def edit_col_fn(selfloop):
-
     def add_list_to_dict(k, v, it):
         if k not in it:
             it[k] = [v]

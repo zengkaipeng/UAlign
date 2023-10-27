@@ -174,11 +174,11 @@ if __name__ == '__main__':
         rxn_class=train_rxn if args.use_class else None, **dataset_kwargs
     )
 
-    valid_set = create_inference_dataset(
+    valid_set = create_infernece_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None, **dataset_kwargs
     )
-    test_set = create_inference_dataset(
+    test_set = create_infernece_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
     )
