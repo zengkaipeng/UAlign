@@ -367,11 +367,7 @@ def convert_res_into_smiles(
 
     mol = mol.GetMol()
     t_str = Chem.MolToSmiles(mol)
-    can_mol = Chem.MolFromSmiles(t_str)
-    if can_mol is not None:
-        return Chem.MolToSmiles(can_mol)
-    else:
-        return None
+    return canonical_smiles(t_str)
 
 
 def clear_map_number(smi):
