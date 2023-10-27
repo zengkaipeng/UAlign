@@ -130,18 +130,22 @@ def eval_overall(model, loader, device, pad_num):
             synt_edges.append({x: this_edge_types[x] for x in remain_edges})
 
         decoder_graph = convert_graphs_into_decoder(synthons, pad_num)
+        # print(decoder_graph)
 
         with torch.no_grad():
             pad_nodes, pad_edges = model.decoder.predict_paddings(
-                decoder_graph, memory, mem_pad_mask
+                decoder_graph.to(device), memory, mem_pad_mask
             )
 
         for i in range(batch_size):
-            print(synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i])
-            exit()
+            # print(synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i])
+            # exit()
+            x = synt_edges[i].keys()
+            y = pad_edges[i].keys()
+
             result = convert_res_into_smiles(
                 synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i]
             )
             acc += (smi[i] == result)
 
-    return acc / curr
+    return acc / total

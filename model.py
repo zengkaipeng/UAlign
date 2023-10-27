@@ -254,6 +254,7 @@ class BinaryGraphEditModel(torch.nn.Module):
             activate_nodes = all_node_index[(node_logits > 0) & this_node_mask]
             activate_nodes = (activate_nodes - offset).tolist()
 
+
             meta_graph = {
                 'x': org_graph['x'], 'act_node': activate_nodes,
                 'self_edge': org_graph['self_edge'] - offset,
@@ -325,8 +326,8 @@ def convert_graphs_into_decoder(graphs, pad_num):
         node_feat.append(graph['x'])
         node_pad_mask.append(torch.zeros(graph['num_nodes']).bool())
         node_org_mask.append(torch.ones(graph['num_nodes']).bool())
-        node_org_mask.append(torch.ones(pad_num).bool())
-        node_pad_mask.append(torch.zeros(pad_num).bool())
+        node_org_mask.append(torch.zeros(pad_num).bool())
+        node_pad_mask.append(torch.ones(pad_num).bool())
 
         edge_feat.append(graph['edge_attr'])
         attn_mask.append(make_block(
@@ -341,6 +342,13 @@ def convert_graphs_into_decoder(graphs, pad_num):
         org_mask.append(torch.ones(res_num).bool())
         pad_mask.append(torch.zeros(res_num).bool())
 
+        exist_edges = set(
+            (row.item(), col.item()) for row, col in 
+            graph['res_edge'].T
+        )
+
+        # print('[res_num]', res_num)
+
         # self_edge
 
         edge_index.append(graph['self_edge'] + lst_node)
@@ -352,9 +360,14 @@ def convert_graphs_into_decoder(graphs, pad_num):
         link_idx = [x + graph['num_nodes'] for x in range(pad_num)]
         link_idx.extend(graph['act_node'])
 
-        pad_edges = [(x, y) for x in link_idx for y in link_idx if x != y]
+        pad_edges = [
+            (x, y) for x in link_idx for y in link_idx 
+            if x != y and (x, y) not in exist_edges
+        ]
         pad_e_num = len(pad_edges)
         pad_edges = torch.LongTensor(pad_edges).T + lst_node
+        edge_index.append(pad_edges)
+
 
         self_mask.append(torch.zeros(pad_e_num).bool())
         org_mask.append(torch.zeros(pad_e_num).bool())
@@ -470,8 +483,9 @@ class DecoderOnly(torch.nn.Module):
         node_pred = node_pred.argmax(dim=-1)
 
         batch_size = graph.batch.max().item() + 1
+        device = graph.x.device
 
-        all_node_index = torch.arange(0, graph.x.shape[0])
+        all_node_index = torch.arange(0, graph.num_nodes).to(device)
         all_node_res, all_edge_res = [], []
         for i in range(batch_size):
             pad_n_mask = (graph.batch == i) & graph.node_pad_mask
@@ -497,6 +511,8 @@ class DecoderOnly(torch.nn.Module):
             this_edge_pred = edge_pred[pad_e_mask]
             this_edge_idx = graph.edge_index[:, pad_e_mask]
 
+            # print(this_edge_idx.T)
+
             for idx, logs in enumerate(this_edge_pred):
                 row, col = this_edge_idx[:, idx]
                 row, col = row.item(), col.item()
@@ -511,7 +527,9 @@ class DecoderOnly(torch.nn.Module):
             edge_res = {}
             for (x, y), v in edge_log.items():
                 if (x, y) not in edge_res and (y, x) not in edge_res:
-                    edge_res[(x, y)] = v.argmax().item()
+                    pred_value = v.argmax().item()
+                    if pred_value != 0:
+                        edge_res[(x, y)] = pred_value
 
             all_node_res.append(node_res)
             all_edge_res.append(edge_res)

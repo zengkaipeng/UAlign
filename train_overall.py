@@ -307,7 +307,7 @@ if __name__ == '__main__':
         test_acc = eval_overall(model, test_loader, device, args.pad_num)
 
         print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
-        log_info['train'].append(train_loss)
+        log_info['train_loss'].append(train_loss)
         log_info['valid_metric'].append(valid_acc)
         log_info['test_metric'].append(test_acc)
         with open(log_dir, 'w') as Fout:

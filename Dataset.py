@@ -277,9 +277,12 @@ def overall_col_fn(selfloop, pad_num):
 
             org_edge_cls = np.zeros(edge_cnt, dtype=np.int64)
 
+            exists_edges = set()
+
             for edx in range(edge_cnt):
                 row, col = graph['edge_index'][:, res_e_mask][:, edx]
                 org_edge_cls[edx] = edge_cls[(row, col)]
+                exists_edges.add((row, col))
 
             org_edge.append(org_edge_cls)
 
@@ -314,8 +317,12 @@ def overall_col_fn(selfloop, pad_num):
 
             prod_node_idx = np.arange(graph['num_nodes'], dtype=np.int64)
             link_nds = prod_node_idx[(n_lb == 1).numpy()].tolist()
+
             link_nds += [x + graph['num_nodes'] for x in range(pad_num)]
-            pad_edges = [(x, y) for x in link_nds for y in link_nds if x != y]
+            pad_edges = [
+                (x, y) for x in link_nds for y in link_nds
+                if x != y and (x, y) not in exists_edges
+            ]
             pad_len = len(pad_edges)
             self_mask.append(torch.zeros(pad_len).bool())
             org_mask.append(torch.zeros(pad_len).bool())
