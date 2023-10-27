@@ -3,10 +3,10 @@ import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_node_types, get_edge_types
+    get_node_types, get_edge_types, clear_map_number
 )
 from utils.graph_utils import smiles2graph
-from Dataset import OverallDataset
+from Dataset import OverallDataset, InferenceDataset
 from Dataset import BinaryEditDataset
 import random
 import torch
@@ -108,6 +108,37 @@ def create_overall_dataset(
     )
 
 
+def create_infernece_dataset(
+    reacts, prods, rxn_class=None, kekulize=False,
+    verbose=True, pos_enc='none', **kwargs
+):
+    graphs, node_types, edge_types, smis = [], [], [], []
+    for idx, prod in enumerate(tqdm(prods) if verbose else prods):
+        # encoder_part
+        encoder_graph, prod_amap = smiles2graph(
+            prod, with_amap=True, kekulize=kekulize
+        )
+        encoder_graph = add_pos_enc(encoder_graph, method=pos_enc, **kwargs)
+        graphs.append(encoder_graph)
+
+        node_type = get_node_types(prods[idx])
+        edge_type = get_edge_types(prods[idx], kekulize=kekulize)
+
+        real_n_types = {prod_amap[k]: v for k, v in node_type.items()}
+        real_e_types = {
+            (prod_amap[x], prod_amap[y]): v
+            for (x, y), v in edge_type.items()
+        }
+        node_types.append(real_n_types)
+        edge_types.append(real_e_types)
+        smis.append(clear_map_number(reacts[idx]))
+
+    return InferenceDataset(
+        reac_graph=graphs, prod_smiles=smis, rxn_class=rxn_class,
+        reac_node_type=real_n_types, reac_edge_types=real_e_types
+    )
+
+
 def load_data(data_dir, part):
     df_train = pandas.read_csv(
         os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
@@ -133,8 +164,6 @@ def check_early_stop(*args):
     for x in args:
         answer &= all(t <= x[0] for t in x[1:])
     return answer
-
-
 
 
 if __name__ == '__main__':

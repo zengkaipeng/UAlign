@@ -119,15 +119,17 @@ def eval_overall(
             this_node_types = real_node_types[curr + idx]
             this_edge_types = real_edge_types[curr + idx]
             synt_nodes.append({
-                x: real_node_types[x]
+                x: this_node_types[x]
                 for x in range(synt['x'].shape[0])
             })
+
+            print(this_edge_types, curr + idx)
 
             remain_edges = set({
                 (x.item(), y.item()) if x.item() < y.item() else
                 (y.item(), x.item()) for x, y in synt['res_edge'].T
             })
-            synt_edges.append({x: real_edge_types[x] for x in remain_edges})
+            synt_edges.append({x: this_edge_types[x] for x in remain_edges})
 
         decoder_graph = convert_graphs_into_decoder(synthons, pad_num)
 

@@ -184,7 +184,7 @@ def make_diag_by_mask(max_node, mask):
     return x.bool()
 
 
-def overall_col_fn(selfloop, pad_num, encoder_only=False):
+def overall_col_fn(selfloop, pad_num):
     # use zero as empty type
 
     def dfs(x, graph, blocks, vis):
@@ -228,9 +228,6 @@ def overall_col_fn(selfloop, pad_num, encoder_only=False):
         use_class = len(batch[0]) == 6
         encoder_graph = encoder_fn([x[:4] for x in batch])\
             if use_class else encoder_fn([x[:3] for x in batch])
-
-        if encoder_only:
-            return encoder_graph
 
         # print('encoder done')
 
@@ -362,3 +359,125 @@ def overall_col_fn(selfloop, pad_num, encoder_only=False):
 
         return encoder_graph, decoder_graph, all_edge_type
     return col_fn
+
+
+class InferenceDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, reac_graph, prod_smiles, reac_node_type,
+        reac_edge_types, rxn_class=None
+    ):
+        super(InferenceDataset, self).__init__()
+
+        self.reac_graph = reac_graph
+        self.prod_smiles = prod_smiles
+        self.reac_node_type = reac_node_type
+        self.reac_edge_type = reac_edge_type
+        self.rxn_class = self.rxn_class
+
+    def forward(self, index):
+        answer = (
+            self.reac_graph[index], self.prod_smiles[index],
+            self.reac_edge_type[index], self.reac_edge_type[index]
+        )
+
+        if self.rxn_class is not None:
+            answer += (self.rxn_class[index], )
+        return answer
+
+
+def inference_col_fn(selfloop):
+    def edit_col_fn(selfloop):
+
+    def add_list_to_dict(k, v, it):
+        if k not in it:
+            it[k] = [v]
+        else:
+            it[k].append(v)
+
+    def real_fn(batch):
+        batch_size = len(batch)
+        edge_idx, node_feat, edge_feat = [], [], []
+        node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+        node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
+        self_mask, org_mask, attn_mask = [], [], []
+        node_types, edge_types, smiles = [], [], []
+
+        all_pos_enc = {}
+        max_node = max(x[0]['num_nodes'] for x in batch)
+
+        for idx, data in enumerate(batch):
+            if len(data) == 4:
+                (gp, smi, n_type, e_type), rxn = data, None
+            else:
+                gp, smi, n_type, e_type, rxn = data
+
+            node_types.append(n_type)
+            edge_types.append(e_type)
+            smiles.append(smi)
+
+            node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+            for k, v in gp.items():
+                if 'pos_enc' in k:
+                    add_list_to_dict(k, v, all_pos_enc)
+
+            node_feat.append(gp['node_feat'])
+            edge_feat.append(gp['edge_feat'])
+            edge_idx.append(gp['edge_index'] + lstnode)
+            self_mask.append(torch.zeros(edge_cnt).bool())
+            org_mask.append(torch.ones(edge_cnt).bool())
+
+            ams = torch.zeros((max_node, max_node))
+            ams[:node_cnt, :node_cnt] = 1
+            attn_mask.append(ams.bool())
+
+            if selfloop:
+                edge_idx.append(torch.LongTensor([
+                    list(range(node_cnt)), list(range(node_cnt))
+                ]) + lstnode)
+                edge_cnt += node_cnt
+                self_mask.append(torch.ones(node_cnt).bool())
+                org_mask.append(torch.zeros(node_cnt).bool())
+
+            lstnode += node_cnt
+            lstedge += edge_cnt
+            node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+            edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+            node_ptr.append(lstnode)
+            edge_ptr.append(lstedge)
+
+            if rxn is not None:
+                node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+                edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+        result = {
+            'x': torch.from_numpy(npcat(node_feat, axis=0)),
+            "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+            'ptr': torch.LongTensor(node_ptr),
+            'e_ptr': torch.LongTensor(edge_ptr),
+            'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+            'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+            'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+            "self_mask": torch.cat(self_mask, dim=0),
+            'org_mask': torch.cat(org_mask, dim=0),
+            'num_nodes': lstnode,
+            'num_edges': lstedge,
+            'attn_mask': torch.stack(attn_mask, dim=0)
+        }
+
+        for k, v in all_pos_enc.items():
+            v = torch.from_numpy(npcat(v, axis=0))
+            all_pos_enc[k] = v
+
+        result.update(all_pos_enc)
+
+        if len(node_rxn) > 0:
+            node_rxn = npcat(node_rxn, axis=0)
+            edge_rxn = npcat(edge_rxn, axis=0)
+            result['node_rxn'] = torch.from_numpy(node_rxn)
+            result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+        return torch_geometric.data.Data(**result), \
+            node_types, edge_types, smiles
+
+    return real_fn

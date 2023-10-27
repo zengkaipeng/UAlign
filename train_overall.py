@@ -7,11 +7,11 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
-from Dataset import overall_col_fn, edit_col_fn
+from Dataset import overall_col_fn, inference_col_fn
 from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from data_utils import (
     create_overall_dataset, load_data, fix_seed,
-    check_early_stop
+    check_early_stop, create_infernece_dataset
 )
 from utils.chemistry_parse import canonical_smiles
 from decoder import MixDecoder, GINDecoder, GATDecoder, GCNDecoder
@@ -174,42 +174,29 @@ if __name__ == '__main__':
         rxn_class=train_rxn if args.use_class else None, **dataset_kwargs
     )
 
-    valid_set = create_overall_dataset(
+    valid_set = create_inference_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None, **dataset_kwargs
     )
-    test_set = create_overall_dataset(
+    test_set = create_inference_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
     )
 
-    val_node_types = valid_set.decoder_node_class
-    test_node_types = test_set.decoder_node_class
-
-    val_edge_types = valid_set.decoder_edge_class
-    test_edge_types = test_set.decoder_edge_class
-
-    val_rec_smi = [canonical_smiles(x) for x in val_rec]
-    test_rec_smi = [canonical_smiles(x) for x in test_rec]
-
     col_fn = overall_col_fn(
-        selfloop=args.gnn_type == 'gat',
-        pad_num=args.pad_num, encoder_only=False
+        selfloop=args.gnn_type == 'gat', pad_num=args.pad_num
     )
 
-    val_col_fn = overall_col_fn(
-        selfloop=args.gnn_type == 'gat',
-        pad_num=args.pad_num, encoder_only=True
-    )
+    inf_col = inference_col_fn(selfloop=args.gnn_type == 'gat')
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=val_col_fn, batch_size=args.bs, shuffle=False
+        valid_set, collate_fn=inf_col, batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=val_col_fn, batch_size=args.bs, shuffle=False
+        test_set, collate_fn=inf_col, batch_size=args.bs, shuffle=False
     )
 
     if args.transformer:
