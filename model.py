@@ -461,8 +461,8 @@ class DecoderOnly(torch.nn.Module):
         edge_pred = self.edge_predictor(edge_feat)
         return node_pred, edge_pred
 
-    def predcit_paddings(self, graph, memory, mem_pad_mask=None):
-        node_feat, edge_feat = self.backbond(graph, memory, mem_pad_mask)
+    def predict_paddings(self, graph, memory, mem_pad_mask=None):
+        node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_pred = self.node_predictor(node_feat)
         edge_pred = self.edge_predictor(edge_feat)
 

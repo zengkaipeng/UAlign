@@ -372,12 +372,15 @@ class InferenceDataset(torch.utils.data.Dataset):
         self.prod_smiles = prod_smiles
         self.reac_node_type = reac_node_type
         self.reac_edge_type = reac_edge_type
-        self.rxn_class = self.rxn_class
+        self.rxn_class = rxn_class
 
-    def forward(self, index):
+    def __len__(self):
+        return len(self.reac_graph)
+
+    def __getitem__(self, index):
         answer = (
             self.reac_graph[index], self.prod_smiles[index],
-            self.reac_edge_type[index], self.reac_edge_type[index]
+            self.reac_node_type[index], self.reac_edge_type[index]
         )
 
         if self.rxn_class is not None:

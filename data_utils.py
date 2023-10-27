@@ -135,7 +135,7 @@ def create_infernece_dataset(
 
     return InferenceDataset(
         reac_graph=graphs, prod_smiles=smis, rxn_class=rxn_class,
-        reac_node_type=real_n_types, reac_edge_types=real_e_types
+        reac_node_type=node_types, reac_edge_type=edge_types
     )
 
 

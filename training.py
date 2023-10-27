@@ -117,6 +117,7 @@ def eval_overall(model, loader, device, pad_num):
         for idx, synt in enumerate(synthons):
             this_node_types = node_types[idx]
             this_edge_types = edge_types[idx]
+            # print(this_node_types, this_edge_types)
             synt_nodes.append({
                 x: this_node_types[x]
                 for x in range(synt['x'].shape[0])
@@ -131,8 +132,9 @@ def eval_overall(model, loader, device, pad_num):
         decoder_graph = convert_graphs_into_decoder(synthons, pad_num)
 
         with torch.no_grad():
-            pad_nodes, pad_edges = \
-                model.decoder.predict_paddings(decoder_graph)
+            pad_nodes, pad_edges = model.decoder.predict_paddings(
+                decoder_graph, memory, mem_pad_mask
+            )
 
         for i in range(batch_size):
             print(synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i])
