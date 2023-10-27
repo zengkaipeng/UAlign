@@ -184,7 +184,7 @@ def make_diag_by_mask(max_node, mask):
     return x.bool()
 
 
-def overall_col_fn(selfloop, pad_num):
+def overall_col_fn(selfloop, pad_num, encoder_only=False):
     # use zero as empty type
 
     def dfs(x, graph, blocks, vis):
@@ -228,6 +228,9 @@ def overall_col_fn(selfloop, pad_num):
         use_class = len(batch[0]) == 6
         encoder_graph = encoder_fn([x[:4] for x in batch])\
             if use_class else encoder_fn([x[:3] for x in batch])
+
+        if encoder_only:
+            return encoder_graph
 
         # print('encoder done')
 

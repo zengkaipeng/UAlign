@@ -7,7 +7,7 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase, GCNBase
 from Mix_backbone import MixFormer
-from Dataset import overall_col_fn
+from Dataset import overall_col_fn, edit_col_fn
 from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from data_utils import (
     create_overall_dataset, load_data, fix_seed,
@@ -194,17 +194,22 @@ if __name__ == '__main__':
 
     col_fn = overall_col_fn(
         selfloop=args.gnn_type == 'gat',
-        pad_num=args.pad_num
+        pad_num=args.pad_num, encoder_only=False
+    )
+
+    val_col_fn = overall_col_fn(
+        selfloop=args.gnn_type == 'gat',
+        pad_num=args.pad_num, encoder_only=True
     )
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=col_fn, batch_size=args.bs, shuffle=False
+        valid_set, collate_fn=val_col_fn, batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn, batch_size=args.bs, shuffle=False
+        test_set, collate_fn=val_col_fn, batch_size=args.bs, shuffle=False
     )
 
     if args.transformer:
@@ -241,7 +246,7 @@ if __name__ == '__main__':
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
             gnn_type=args.gnn_type, negative_slope=args.negative_slope,
-            n_class=11 if args.use_class else None, 
+            n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
     else:

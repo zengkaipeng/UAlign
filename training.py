@@ -107,8 +107,7 @@ def eval_overall(
     can_smiles, pad_num
 ):
     model, curr, acc = model.eval(), 0, 0
-    for data in tqdm(loader):
-        encoder_graph, _, _ = data
+    for encoder_graph in tqdm(loader):
         encoder_graph = encoder_graph.to(device)
         batch_size = encoder_graph.batch.max().item() + 1
         with torch.no_grad():
