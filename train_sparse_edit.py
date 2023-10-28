@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     # training
     parser.add_argument(
-        '--pos_weight', default=1, type=float, 
+        '--pos_weight', default=1, type=float,
         help='the weight for positive samples'
     )
 
@@ -131,7 +131,6 @@ if __name__ == '__main__':
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
-
 
     train_set = create_edit_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
@@ -162,53 +161,40 @@ if __name__ == '__main__':
     )
 
     if args.transformer:
-        if args.pos_enc == 'Lap':
-            pos_args = {'dim': args.lap_pos_dim}
-        else:
-            pos_args = None
-
-        if args.gnn_type == 'gcn':
-            gnn_args = {'emb_dim': args.dim}
-        elif args.gnn_type == 'gin':
-            gnn_args = {'embedding_dim': args.dim}
+        if args.gnn_type == 'gin':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'edge_dim': args.dim
+            }
         elif args.gnn_type == 'gat':
             assert args.dim % args.heads == 0, \
                 'The model dim should be evenly divided by num_heads'
             gnn_args = {
-                'in_channels': args.dim,
-                'out_channels': args.dim // args.heads,
-                'negative_slope': args.negative_slope,
-                'dropout': args.dropout, 'add_self_loop': False,
-                'edge_dim': args.dim, 'heads': args.heads
+                'in_channels': args.dim, 'dropout': args.dropout,
+                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
+                'negative_slope': args.negative_slope, 'heads': args.heads
             }
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads, pos_enc=args.pos_enc,
-            negative_slope=args.negative_slope, pos_args=pos_args,
-            n_class=11 if args.use_class else None, edge_last=True,
-            residual=True, update_gate=args.update_gate, gnn_type=args.gnn_type
+            dropout=args.dropout, heads=args.heads,
+            negative_slope=args.negative_slope, gnn_type=args.gnn_type,
+            n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True,
-                n_class=11 if args.use_class else None
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
-                num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
-                embedding_dim=args.dim, edge_last=True, residual=True,
-                negative_slope=args.negative_slope, num_heads=args.heads,
-                n_class=11 if args.use_class else None
-            )
-        elif args.gnn_type == 'gcn':
-            GNN = GCNBase(
-                num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True,
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, num_heads=args.heads,
+                negative_slope=args.negative_slope,
                 n_class=11 if args.use_class else None
             )
         else:
