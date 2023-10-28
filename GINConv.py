@@ -23,7 +23,7 @@ class MyGINConv(torch.nn.Module):
         edge_attr: torch.Tensor, org_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         num_nodes, num_edges = x.shape[0], edge_index.shape[1]
-        if padding_mask is not None:
+        if org_mask is not None:
             real_edge_attr = torch.zeros(num_edges, self.edge_dim)
             real_edge_attr = real_edge_attr.to(edge_attr)
             real_edge_attr[org_mask] = edge_attr

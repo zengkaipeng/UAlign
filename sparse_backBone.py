@@ -1,9 +1,8 @@
 import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-from GATconv import MyGATConv
+from GATconv import SelfLoopGATConv as MyGATConv
 from GINConv import MyGINConv
-from GCNConv import MyGCNConv
 import numpy as np
 
 
@@ -74,11 +73,11 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=G.edge_index,
-                padding_mask=G.get('e_padding_mask', None)
+                org_mask=G.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
 
-            if G.get('e_padding_mask', None) is not None:
+            if G.get('e_org_mask', None) is not None:
                 useful_edges = G.edge_index[:, G.e_org_mask]
             else:
                 useful_edges = G.edge_index
@@ -126,18 +125,18 @@ class GATBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=G.edge_index,
-                padding_mask=G.get('e_padding_mask', None)
+                org_mask=G.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
 
-            if G.get('e_padding_mask', None) is not None:
+            if G.get('e_org_mask', None) is not None:
                 useful_edges = G.edge_index[:, G.e_org_mask]
             else:
                 useful_edges = G.edge_index
 
             edge_feats = self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=graph.edge_index
+                edge_index=useful_edges
             )
 
         return node_feats, edge_feats

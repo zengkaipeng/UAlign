@@ -51,9 +51,9 @@ class SelfLoopGATConv(MessagePassing):
         glorot(self.att_edge)
         zeros(self.bias)
 
-    def forward(self, x, edge_index, edge_attr, padding_mask=None, size=None):
+    def forward(self, x, edge_index, edge_attr, org_mask=None, size=None):
         num_nodes, num_edges = x.shape[0], edge_index.shape[1]
-        if padding_mask is not None:
+        if org_mask is not None:
             real_edge_attr = torch.zeros(num_edges, self.edge_dim)
             real_edge_attr = real_edge_attr.to(edge_attr)
             real_edge_attr[org_mask] = edge_attr
