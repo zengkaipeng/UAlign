@@ -66,7 +66,7 @@ class BinaryGraphEditModel(torch.nn.Module):
                 pos_weight=pos_weight
             )
 
-        answer = node_logits, edge_logits
+        answer = (node_logits, edge_logits)
         if ret_loss:
             answer += (n_loss, e_loss)
         if ret_feat:
@@ -108,21 +108,6 @@ class BinaryGraphEditModel(torch.nn.Module):
             if G.get('node_rxn', None) is not None:
                 graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]].cpu()
         return graphs
-
-    def predict_logitis(self, graph):
-        node_feat, edge_feat = self.base_model(graph)
-        node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
-        node_pred = node_logits.detach().clone()
-        node_pred[node_pred > 0] = 1
-        node_pred[node_pred <= 0] = 0
-        useful_mask = self.make_useful_mask(
-            graph.edge_index, mode='inference', pred_label=node_pred
-        )
-
-        edge_logits = self.edge_predictor(edge_feat[useful_mask])
-        edge_logits = edge_logits.squeeze(-1)
-
-        return node_logits, useful_mask, edge_logits
 
     def predict_into_graphs(self, graph):
         node_feat, edge_feat = self.base_model(graph)

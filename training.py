@@ -5,6 +5,10 @@ import numpy as np
 import torch
 from model import convert_graphs_into_decoder
 from utils.chemistry_parse import convert_res_into_smiles
+from data_utils import (
+    eval_by_edge, eval_by_node, eval_by_graph,
+    convert_log_into_label
+)
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -18,8 +22,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def train_sparse_edit(
-    loader, model, optimizer, device, mode, verbose=True,
-    warmup=True, reduction='mean', graph_level=True
+    loader, model, optimizer, device, verbose=True,
+    warmup=True, pos_weight=1
 ):
     model = model.train()
     node_loss, edge_loss = [], []
@@ -28,9 +32,9 @@ def train_sparse_edit(
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
-
-        node_pred, edge_pred, useful_mask, loss_node, loss_edge = \
-            model(graph, mode, reduction, graph_level, ret_loss=True)
+        _, _, loss_node, loss_edge = model(
+            graph, ret_loss=True, pos_weight=pos_weight
+        )
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()
@@ -46,29 +50,67 @@ def train_sparse_edit(
 
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
-    node_cov, node_fit, edge_fit, edge_cov, all_cov, all_fit, tot = [0] * 7
+    node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
+    # node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
+    g_nfit, g_ncov, g_efit, g_ecov = [0] * 4
+    node_pd, node_lb, edge_pd, edge_lb = [], [], [], []
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
         with torch.no_grad():
-            node_pred, edge_pred, useful_mask = model(
-                graph, mask_mode='inference', ret_loss=False
-            )
-        batch_size = graph.batch.max().item() + 1
+            node_logs, edge_logs = model(graph, ret_loss=False)
+            node_pred = convert_log_into_label(node_logs)
+            edge_pred = convert_log_into_label(edge_logs)
 
-        metrics = evaluate_sparse(
-            node_pred, edge_pred, graph.batch, graph.e_batch[useful_mask],
-            graph.node_label, graph.edge_label[useful_mask], batch_size
+        node_pd.append(node_logs.sigmoid().cpu().numpy())
+        node_lb.append(graph.node_label.cpu().numpy())
+        edge_pd.append(edge_logs.sigmoid().cpu().numpy())
+        edge_lb.append(graph.edge_label.cpu().numpy())
+
+        batch_size = graph.batch.max().item() + 1
+        tot += batch_size
+
+        cover, fit = eval_by_node(
+            node_pred, edge_pred, graph.node_label, graph.edge_label,
+            graph.batch, graph.e_batch, graph.edge_index
+        )
+        node_cov += cover
+        node_fit += fit
+
+        cover, fit = eval_by_edge(
+            node_pred, edge_pred, graph.node_label, graph.edge_label,
+            graph.batch, graph.e_batch, graph.edge_index, graph.ptr
+        )
+        edge_cov += cover
+        edge_fit += fit
+
+        g_metric = eval_by_graph(
+            node_pred, edge_pred, graph.node_label,
+            graph.edge_label, graph.batch, graph.e_batch,
         )
 
-        node_cov += metrics[0]
-        node_fit += metrics[1]
-        edge_cov += metrics[2]
-        edge_fit += metrics[3]
-        all_cov += metrics[4]
-        all_fit += metrics[5]
-        tot += batch_size
-    return node_cov / tot, node_fit / tot, edge_cov / tot, \
-        edge_fit / tot, all_cov / tot, all_fit / tot
+        g_nfit += g_metric[0]
+        g_ncov += g_metric[1]
+        g_efit += g_metric[2]
+        g_ecov += g_metric[3]
+
+    node_pd = np.concatenate(node_pd, axis=0)
+    node_lb = np.concatenate(node_lb, axis=0)
+    edge_pd = np.concatenate(edge_pd, axis=0)
+    edge_lb = np.concatenate(edge_lb, axis=0)
+
+    result = {
+        'common': {
+            'node_roc': metrics.roc_auc_score(node_lb, node_pd),
+            'edge_roc': metrics.roc_auc_score(edge_lb, edge_pd)
+        },
+        'by_graph': {
+            'node_cover': g_ncov / tot, 'node_fit': g_nfit / tot,
+            'edge_cover': g_ecov / tot, 'edge_fit': g_efit / tot
+        },
+        'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
+        'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}
+    }
+    return result
 
 
 def train_overall(

@@ -39,99 +39,63 @@ class BinaryEditDataset(torch.utils.data.Dataset):
                 edge_labels, self.rxn_class[index]
 
 
-def edit_col_fn(selfloop):
-    def add_list_to_dict(k, v, it):
-        if k not in it:
-            it[k] = [v]
+def edit_col_fn(batch):
+    batch_size, all_node, all_edge = len(batch), [], []
+    edge_idx, node_feat, edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
+    max_node = max(x[0]['num_nodes'] for x in batch)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
+
+    for idx, data in enumerate(batch):
+        if len(data) == 4:
+            gp, nlb, elb, rxn = data
         else:
-            it[k].append(v)
+            (gp, nlb, elb), rxn = data, None
 
-    def real_fn(batch):
-        batch_size, all_node, all_edge = len(batch), [], []
-        edge_idx, node_feat, edge_feat = [], [], []
-        node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
-        node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
-        self_mask, org_mask, attn_mask = [], [], []
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
 
-        all_pos_enc = {}
-        max_node = max(x[0]['num_nodes'] for x in batch)
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_node.append(nlb)
+        all_edge.append(elb)
 
-        for idx, data in enumerate(batch):
-            if len(data) == 4:
-                gp, nlb, elb, rxn = data
-            else:
-                (gp, nlb, elb), rxn = data, None
+        batch_mask[idx, :node_cnt] = True
 
-            node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
 
-            for k, v in gp.items():
-                if 'pos_enc' in k:
-                    add_list_to_dict(k, v, all_pos_enc)
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
 
-            node_feat.append(gp['node_feat'])
-            edge_feat.append(gp['edge_feat'])
-            edge_idx.append(gp['edge_index'] + lstnode)
-            self_mask.append(torch.zeros(edge_cnt).bool())
-            org_mask.append(torch.ones(edge_cnt).bool())
-            all_node.append(nlb)
-            all_edge.append(elb)
+    result = {
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'node_label': torch.cat(all_node, dim=0),
+        'edge_label': torch.cat(all_edge, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
+    }
 
-            ams = torch.zeros((max_node, max_node))
-            ams[:node_cnt, :node_cnt] = 1
-            attn_mask.append(ams.bool())
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
-            if selfloop:
-                edge_idx.append(torch.LongTensor([
-                    list(range(node_cnt)), list(range(node_cnt))
-                ]) + lstnode)
-                edge_cnt += node_cnt
-                self_mask.append(torch.ones(node_cnt).bool())
-                org_mask.append(torch.zeros(node_cnt).bool())
-                all_edge.append(torch.zeros(node_cnt))
-
-            lstnode += node_cnt
-            lstedge += edge_cnt
-            node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
-            edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
-            node_ptr.append(lstnode)
-            edge_ptr.append(lstedge)
-
-            if rxn is not None:
-                node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
-                edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
-
-        result = {
-            'x': torch.from_numpy(npcat(node_feat, axis=0)),
-            "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
-            'ptr': torch.LongTensor(node_ptr),
-            'e_ptr': torch.LongTensor(edge_ptr),
-            'batch': torch.from_numpy(npcat(node_batch, axis=0)),
-            'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
-            'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
-            "self_mask": torch.cat(self_mask, dim=0),
-            'org_mask': torch.cat(org_mask, dim=0),
-            'node_label': torch.cat(all_node, dim=0),
-            'edge_label': torch.cat(all_edge, dim=0),
-            'num_nodes': lstnode,
-            'num_edges': lstedge,
-            'attn_mask': torch.stack(attn_mask, dim=0)
-        }
-
-        for k, v in all_pos_enc.items():
-            v = torch.from_numpy(npcat(v, axis=0))
-            all_pos_enc[k] = v
-
-        result.update(all_pos_enc)
-
-        if len(node_rxn) > 0:
-            node_rxn = npcat(node_rxn, axis=0)
-            edge_rxn = npcat(edge_rxn, axis=0)
-            result['node_rxn'] = torch.from_numpy(node_rxn)
-            result['edge_rxn'] = torch.from_numpy(edge_rxn)
-
-        return torch_geometric.data.Data(**result)
-
-    return real_fn
+    return torch_geometric.data.Data(**result)
 
 
 class OverallDataset(torch.utils.data.Dataset):
