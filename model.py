@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 from torch.nn.functional import binary_cross_entropy_with_logits
 from torch.nn.functional import cross_entropy
-from decoder import make_batch_mask, graph2batch
 from scipy.optimize import linear_sum_assignment
 
 
@@ -16,7 +15,6 @@ class BinaryGraphEditModel(torch.nn.Module):
     def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
         super(BinaryGraphEditModel, self).__init__()
         self.base_model = base_model
-
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
@@ -29,140 +27,61 @@ class BinaryGraphEditModel(torch.nn.Module):
             torch.nn.Linear(node_dim, 1)
         )
 
-    def make_useful_mask(
-        self, edge_index, mode, real_label=None, pred_label=None,
-    ):
-        def f(src, dst, lb):
-            xa = torch.index_select(lb, dim=0, index=src) > 0
-            xb = torch.index_select(lb, dim=0, index=dst) > 0
-            return torch.logical_and(xa, xb)
-
-        assert mode in ['inference', 'all', 'merge', 'org'], \
-            f'Invalid mode {mode} for making mask found'
-        num_edges, (src, dst) = edge_index.shape[1], edge_index
-        if mode == 'all':
-            useful_mask = torch.ones(num_edges).bool()
-            useful_mask = useful_mask.to(edge_index.device)
-        elif mode == 'merge':
-            assert real_label is not None, f'Missing real for mode {mode}'
-            assert pred_label is not None, f'Missing pred for mode {mode}'
-            mix_label = torch.logical_or(real_label > 0, pred_label > 0)
-            useful_mask = f(src, dst, mix_label)
-        elif mode == 'org':
-            assert real_label is not None, f'Missing real for mode {mode}'
-            useful_mask = f(src, dst, real_label > 0)
-        else:
-            assert pred_label is not None, f'Missing pred for mode {mode}'
-            useful_mask = f(src, dst, pred_label > 0)
-        return useful_mask
-
     def calc_loss(
         self, node_logits, node_label, edge_logits, edge_label,
-        reduction, graph_level, node_batch=None, edge_batch=None
+        node_batch, edge_batch, pos_weight=1
     ):
-        assert reduction in ['mean', 'sum'], \
-            f'Invalid reduction method {reduction}'
+        max_node_batch = node_batch.max().item() + 1
+        node_loss = torch.zeros(max_node_batch).to(node_logits)
+        node_loss_src = binary_cross_entropy_with_logits(
+            node_logits, node_label, reduction='none',
+            pos_weight=torch.tensor(pos_weight)
+        )
+        node_loss.scatter_add_(0, node_batch, node_loss_src)
 
-        if not graph_level:
-            node_loss = binary_cross_entropy_with_logits(
-                node_logits, node_label, reduction=reduction
-            )
-            if edge_logits.numel() > 0:
-                edge_loss = binary_cross_entropy_with_logits(
-                    edge_logits, edge_label, reduction=reduction
-                )
-            else:
-                edge_loss = 0
-            return node_loss, edge_loss
-        else:
-            assert node_batch is not None, 'require node_batch'
-            assert edge_batch is not None, 'require edge_batch'
-            max_node_batch = node_batch.max().item() + 1
-            node_loss = torch.zeros(max_node_batch).to(node_logits)
-            node_loss_src = binary_cross_entropy_with_logits(
-                node_logits, node_label, reduction='none'
-            )
-            node_loss.scatter_add_(0, node_batch, node_loss_src)
+        max_edge_batch = edge_batch.max().item() + 1
+        edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
+        edge_loss_src = binary_cross_entropy_with_logits(
+            edge_logits, edge_label, reduction='none',
+            pos_weight=torch.tensor(pos_weight)
+        )
+        edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
 
-            if edge_batch.numel() > 0:
-                max_edge_batch = edge_batch.max().item() + 1
-                edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
-                edge_loss_src = binary_cross_entropy_with_logits(
-                    edge_logits, edge_label, reduction='none'
-                )
-                edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
-            else:
-                edge_loss = torch.Tensor([0]).to(node_loss)
+        return node_loss.mean(), edge_loss.mean()
 
-            if reduction == 'mean':
-                return node_loss.mean(), edge_loss.mean()
-            else:
-                return node_loss.sum(), edge_loss.sum()
-
-    def forward(
-        self, graph, mask_mode, reduce_mode='mean',
-        graph_level=True, ret_loss=True, ret_feat=False
-    ):
+    def forward(self, graph, ret_loss=True, ret_feat=False, pos_weight=1):
         node_feat, edge_feat = self.base_model(graph)
 
         node_logits = self.node_predictor(node_feat)
         node_logits = node_logits.squeeze(dim=-1)
 
-        node_pred = node_logits.detach().clone()
-        node_pred[node_pred > 0] = 1
-        node_pred[node_pred <= 0] = 0
-
-        if mask_mode != 'inference':
-            useful_mask = self.make_useful_mask(
-                edge_index=graph.edge_index, mode=mask_mode,
-                real_label=graph.node_label, pred_label=node_pred
-            )
-        else:
-            useful_mask = self.make_useful_mask(
-                graph.edge_index, mode=mask_mode,
-                pred_label=node_pred
-            )
-
-        edge_logits = self.edge_predictor(edge_feat[useful_mask])
+        edge_logits = self.edge_predictor(edge_feat)
         edge_logits = edge_logits.squeeze(dim=-1)
-
-        edge_pred = edge_logits.detach().clone()
-        edge_pred[edge_pred > 0] = 1
-        edge_pred[edge_pred <= 0] = 0
 
         if ret_loss:
             n_loss, e_loss = self.calc_loss(
                 node_logits=node_logits, edge_logits=edge_logits,
                 node_label=graph.node_label, node_batch=graph.batch,
-                edge_label=graph.edge_label[useful_mask],
-                edge_batch=graph.e_batch[useful_mask],
-                reduction=reduce_mode, graph_level=graph_level
+                edge_label=graph.edge_label, edge_batch=graph.e_batch,
+                pos_weight=pos_weight
             )
-            answer = (node_pred, edge_pred, useful_mask, n_loss, e_loss)
-        else:
-            answer = (node_pred, edge_pred, useful_mask)
 
+        answer = node_logits, edge_logits
+        if ret_loss:
+            answer += (n_loss, e_loss)
         if ret_feat:
             answer += (node_feat, edge_feat)
         return answer
 
     def make_memory(self, graph):
         node_feat, edge_feat = self.base_model(graph)
-        batch_size = graph.batch.max().item() + 1
-        device = graph.x.device
-        n_nodes = torch.zeros(batch_size).long().to(device)
-        n_nodes.scatter_add_(
-            src=torch.ones_like(graph.batch),
-            dim=0, index=graph.batch
-        )
-        max_node = n_nodes.max().item() + 1
-        mem_pad_mask = make_batch_mask(graph.ptr, max_node, batch_size)
+        batch_size, max_node = graph.batch_mask.shape
 
         memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
         memory = memory.to(device)
-        memory[mem_pad_mask] = node_feat
+        memory[graph.batch_mask] = node_feat
 
-        return memory, mem_pad_mask
+        return memory, graph.batch_mask
 
     def seperate_a_graph(self, G):
         batch_size = G.batch.max().item() + 1
@@ -254,7 +173,6 @@ class BinaryGraphEditModel(torch.nn.Module):
             activate_nodes = all_node_index[(node_logits > 0) & this_node_mask]
             activate_nodes = (activate_nodes - offset).tolist()
 
-
             meta_graph = {
                 'x': org_graph['x'], 'act_node': activate_nodes,
                 'self_edge': org_graph['self_edge'] - offset,
@@ -343,7 +261,7 @@ def convert_graphs_into_decoder(graphs, pad_num):
         pad_mask.append(torch.zeros(res_num).bool())
 
         exist_edges = set(
-            (row.item(), col.item()) for row, col in 
+            (row.item(), col.item()) for row, col in
             graph['res_edge'].T
         )
 
@@ -361,13 +279,12 @@ def convert_graphs_into_decoder(graphs, pad_num):
         link_idx.extend(graph['act_node'])
 
         pad_edges = [
-            (x, y) for x in link_idx for y in link_idx 
+            (x, y) for x in link_idx for y in link_idx
             if x != y and (x, y) not in exist_edges
         ]
         pad_e_num = len(pad_edges)
         pad_edges = torch.LongTensor(pad_edges).T + lst_node
         edge_index.append(pad_edges)
-
 
         self_mask.append(torch.zeros(pad_e_num).bool())
         org_mask.append(torch.zeros(pad_e_num).bool())
@@ -413,16 +330,6 @@ def convert_graphs_into_decoder(graphs, pad_num):
         result['node_rxn'] = torch.cat(node_rxn, dim=0)
         result['edge_rxn'] = torch.cat(edge_rxn, dim=0)
     return Data(**result)
-
-
-def make_ptr_from_batch(batch, batch_size=None):
-    if batch_size is None:
-        batch_size = batch.max().item() + 1
-    ptr = torch.zeros(batch_size).to(batch)
-    ptr.scatter_add_(dim=0, src=torch.ones_like(batch), index=batch)
-    ptr = torch.cat([torch.Tensor([0]).to(batch.device), ptr], dim=0)
-    ptr = torch.cumsum(ptr, dim=0).long()
-    return ptr
 
 
 def evaluate_sparse(
