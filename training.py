@@ -9,6 +9,7 @@ from data_utils import (
     eval_by_edge, eval_by_node, eval_by_graph,
     convert_log_into_label
 )
+from sklearn import metrics
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):

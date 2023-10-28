@@ -7,7 +7,6 @@ from GINConv import MyGINConv
 from sparse_backBone import (
     SparseAtomEncoder, SparseBondEncoder, SparseEdgeUpdateLayer
 )
-from torch.nn import MultiHeadAttention
 
 
 class MixConv(torch.nn.Module):
@@ -16,7 +15,7 @@ class MixConv(torch.nn.Module):
         dropout: float = 0, gnn_type: str = 'gin', update_gate: str = 'add'
     ):
         super(MixConv, self).__init__()
-        self.attn_conv = MultiHeadAttention(
+        self.attn_conv = torch.nn.MultiheadAttention(
             emb_dim, batch_first=True, dropout=dropout, num_heads=heads,
         )
         assert update_gate in ['add', 'cat'], \
@@ -51,9 +50,9 @@ class MixConv(torch.nn.Module):
             attn_mask = attn_mask.unsqueeze(1).repeat(1, self.heads, 1, 1)
             attn_mask = attn_mask.reshape(-1, max_node, max_node)
 
-        attn_res = self.attn_conv(
+        attn_res, attn_w = self.attn_conv(
             query=attn_input, key=attn_input, value=attn_input,
-            attn_mask=attn_mask, key_padding_mask=~batch_mask
+            attn_mask=attn_mask, key_padding_mask=~batch_mask,
         )
 
         if self.update_method == 'cat':
@@ -99,7 +98,8 @@ class MixFormer(torch.nn.Module):
         for i in range(self.num_layers):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats,
-                batch_mask=G.batch_mask, attn_mask=G.get('attn_mask', None),
+                edge_index=G.edge_index, batch_mask=G.batch_mask,
+                attn_mask=G.get('attn_mask', None),
                 org_mask=G.get('e_org_mask', None)
             ) + node_feats
 

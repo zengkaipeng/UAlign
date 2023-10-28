@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch.nn import Parameter
+import torch_geometric
 
 
 class SelfLoopGATConv(MessagePassing):
@@ -13,7 +14,7 @@ class SelfLoopGATConv(MessagePassing):
         negative_slope=0.2, dropout=0.1, **kwargs,
     ):
         kwargs.setdefault('aggr', 'add')
-        super(MyGATConv, self).__init__(node_dim=0, **kwargs)
+        super(SelfLoopGATConv, self).__init__(node_dim=0, **kwargs)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.heads = heads
@@ -42,7 +43,8 @@ class SelfLoopGATConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
-        super(MyGATConv, self).reset_parameters()
+        if torch_geometric.__version__.startswith('2.3'):
+            super(SelfLoopGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()
@@ -66,10 +68,16 @@ class SelfLoopGATConv(MessagePassing):
         self_edges = torch.Tensor([(i, i) for i in range(num_nodes)])
         self_edges = self_edges.T.to(edge_index)
 
+        # print('[before]', edge_index.shape, real_edge_attr.shape)
+
         edge_index = torch.cat([edge_index, self_edges], dim=1)
         real_edge_attr = torch.cat([
             real_edge_attr, self.self_edge.repeat(num_nodes, 1)
         ], dim=0)
+
+        # print('[after]', edge_index.shape, real_edge_attr.shape)
+        # print(num_nodes)
+        # exit()
 
         # old prop
 

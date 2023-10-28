@@ -146,17 +146,16 @@ if __name__ == '__main__':
         rxn_class=test_rxn if args.use_class else None,
     )
 
-    col_fn = edit_col_fn(selfloop=args.gnn_type == 'GAT')
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn,
+        train_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=col_fn,
+        valid_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn,
+        test_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -179,8 +178,7 @@ if __name__ == '__main__':
 
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads,
-            negative_slope=args.negative_slope, gnn_type=args.gnn_type,
+            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
             n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
@@ -217,9 +215,8 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device, mode=args.mode,
-            verbose=True, warmup=(ep == 0), reduction=args.reduction,
-            graph_level=args.graph_level, pos_weight=args.pos_weight
+            train_loader, model, optimizer, device, verbose=True,
+            warmup=(ep == 0),  pos_weight=args.pos_weight
         )
         log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 
