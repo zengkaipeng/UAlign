@@ -7,7 +7,7 @@ from model import convert_graphs_into_decoder
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
     eval_by_edge, eval_by_node, eval_by_graph,
-    convert_log_into_label
+    convert_log_into_label, convert_edge_log_into_labels
 )
 from sklearn import metrics
 
@@ -60,7 +60,9 @@ def eval_sparse_edit(loader, model, device, verbose=True):
         with torch.no_grad():
             node_logs, edge_logs = model(graph, ret_loss=False)
             node_pred = convert_log_into_label(node_logs)
-            edge_pred = convert_log_into_label(edge_logs)
+            edge_pred = convert_edge_log_into_labels(
+                edge_logs, graph.edge_index, mod='sigmoid', return_dict=False
+            )
 
         node_pd.append(node_logs.sigmoid().cpu().numpy())
         node_lb.append(graph.node_label.cpu().numpy())
