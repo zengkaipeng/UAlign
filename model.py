@@ -83,32 +83,6 @@ class BinaryGraphEditModel(torch.nn.Module):
 
         return memory, graph.batch_mask
 
-    def seperate_a_graph(self, G):
-        batch_size = G.batch.max().item() + 1
-        graphs = []
-        padded_edge_feat = torch.zeros(
-            G.edge_index.shape[1], G.edge_attr.shape[-1]
-        ).to(G.edge_attr)
-        padded_edge_feat[G.org_mask] = G.edge_attr
-
-        for idx in range(batch_size):
-            this_graph = {}
-            this_node_mask = G.batch == idx
-            this_edge_mask = G.batch[G.edge_index[0]] == idx
-            this_org_edge = G.edge_index[:, this_edge_mask & G.org_mask]
-            this_self_edge = G.edge_index[:, this_edge_mask & G.self_mask]
-
-            graphs.append({
-                'x': G.x[this_node_mask].cpu(), 'edge_index': this_org_edge.cpu(),
-                'edge_attr': padded_edge_feat[this_edge_mask & G.org_mask].cpu(),
-                'self_edge': this_self_edge.cpu(), 'offset': G.ptr[idx].item(),
-                'num_nodes': G.x[this_node_mask].shape[0]
-            })
-
-            if G.get('node_rxn', None) is not None:
-                graphs[-1]['rxn'] = G.node_rxn[G.ptr[idx]].cpu()
-        return graphs
-
     def predict_into_graphs(self, graph):
         node_feat, edge_feat = self.base_model(graph)
         node_logits = self.node_predictor(node_feat).squeeze(dim=-1)
