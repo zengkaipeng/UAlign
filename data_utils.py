@@ -281,7 +281,7 @@ def convert_edge_log_into_labels(
             row, col = row.item(), col.item()
             p = p.sigmoid().item()
             if (row, col) not in edge_logs:
-                edge_logs[(row, col)] = edge_logs[(col, row)]
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
             else:
                 real_log = (edge_logs[(row, col)] + p) / 2
                 edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
@@ -296,7 +296,7 @@ def convert_edge_log_into_labels(
             row, col = edge_index[:, idx]
             row, col = row.item(), col.item()
             if (row, col) not in edge_logs:
-                edge_logs[(row, col)] = edge_logs[(col, row)]
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
             else:
                 real_log = (edge_logs[(row, col)] + p) / 2
                 edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
@@ -305,6 +305,7 @@ def convert_edge_log_into_labels(
             else convert_into_tensor(edge_logs, edge_index, mode=mod)
 
     return edge_pred
+
 
 if __name__ == '__main__':
     print(load_data('../data/USPTO-50K', 'train'))
