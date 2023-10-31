@@ -321,30 +321,27 @@ def seperate_encoder_graphs(G):
     return (graphs, rxns) if len(rxns) != 0 else graphs
 
 
-def seperate_pred(node_pred, edge_pred, G):
-    batch_size = G.batch.max().item() + 1
-    node_preds, edge_preds = [], []
+def seperate_pred(pred, batch_size, batch):
+    preds = []
     for idx in range(batch_size):
-        this_node_mask = G.batch == idx
-        this_edge_mask = G.e_batch == idx
-        node_preds.append(node_pred[this_node_mask])
-        edge_preds.append(edge_pred[this_edge_mask])
-
-    return node_preds, edge_preds
+        this_mask = batch == idx
+        preds.append(pred[this_mask])
+    return preds
 
 
-def seperate_dict(label_dict, G):
-    all_idx = torch.arange(G.num_nodes).to(G.batch.device)
-    batch2single = all_idx - G.ptr[G.batch]
-    batch_size = G.batch.max().item() + 1
-
+def seperate_dict(label_dict, num_nodes, batch, ptr):
+    device = batch.device
+    all_idx = torch.arange(num_nodes).to(device)
+    batch2single = all_idx - ptr[batch]
+    batch_size = batch.max().item() + 1
     e_labels = [{} for _ in range(batch_size)]
 
     for (row, col), v in label_dict.items():
-        b_idx = G.batch[row].item()
+        b_idx = batch[row].item()
         x = batch2single[row].item()
         y = batch2single[col].item()
         e_labels[b_idx][(x, y)] = v
+
     return e_labels
 
 
