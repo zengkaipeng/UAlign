@@ -101,10 +101,7 @@ class DecoderOnly(torch.nn.Module):
         self.edge_predictor = torch.nn.Linear(edge_dim, edge_class)
         self.feat_extracter = torch.nn.Linear(node_dim * 2, edge_dim)
 
-    def forward(
-        self, graph, memory, mem_pad_mask=None, mode='train',
-        use_matching=True
-    ):
+    def forward(self, graph, memory, mem_pad_mask=None, matching=True):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_logits = self.node_predictor(node_feat)
         org_edge_logits = self.edge_predictor(edge_feat)
@@ -112,53 +109,59 @@ class DecoderOnly(torch.nn.Module):
         batch_size = graph.batch.max().item() + 1
         all_node_index = torch.arange(graph.num_nodes).to(device)
 
-        if mode == 'inference':
-            node_pred = convert_log_into_label(node_logits, mod='softmax')
-            org_node_index = all_node_index - graph.ptr[graph.batch]
+        org_n_loss, org_e_loss = self.calc_org_loss(
+            batch_size=batch_size,
+            node_batch=graph.batch[graph.n_org_mask],
+            edge_batch=graph.e_batch[graph.e_org_mask],
+            org_n_logs=node_logits[graph.n_org_mask],
+            ord_n_cls=graph.node_class[graph.n_org_mask],
+            org_e_logs=org_edge_logits,
+            org_e_cls=graph.org_edge_class
+        )
 
-            # solving nodes
-            pad_n_pred = node_pred[graph.n_pad_mask]
-            pad_n_idx = org_node_index[graph.n_pad_mask]
+    def predict(self, graph, memory, mem_pad_mask=None):
+        node_feat, _ = self.backbone(graph, memory, mem_pad_mask)
+        node_logits = self.node_predictor(node_feat)
+        device = node_logits.device
+        batch_size = graph.batch.max().item() + 1
+        all_node_index = torch.arange(graph.num_nodes).to(device)
 
-            pad_n_pred = pad_n_pred.reshape(batch_size, -1)
-            pad_n_idx = pad_n_idx.reshape(batch_size, -1)
+        node_pred = convert_log_into_label(node_logits, mod='softmax')
+        org_node_index = all_node_index - graph.ptr[graph.batch]
 
-            node_res = [{
-                pad_n_idx[idx][i].item(): v.item()
-                for i, v in enumerate(pad_n_pred[idx])
-            } for idx in range(batch_size)]
+        # solving nodes
+        pad_n_pred = node_pred[graph.n_pad_mask]
+        pad_n_idx = org_node_index[graph.n_pad_mask]
 
-            useful_node = (node_pred != 0) | graph.n_org_mask
-            # unpadded nodes and nodes are not None are useful
-            useful_edge = graph.e_pad_mask
-            useful_edge &= useful_node[graph.edge_index[0]]
-            useful_edge &= useful_node[graph.edge_index[1]]
-            # padded edges between useful nodes are useful
+        pad_n_pred = pad_n_pred.reshape(batch_size, -1)
+        pad_n_idx = pad_n_idx.reshape(batch_size, -1)
 
-            row, col = graph.edge_index[:, useful_edge]
-            e_feat = torch.cat([node_feat[row], node_feat[col]], dim=-1)
-            e_feat = self.feat_extracter(e_feat)
-            edge_logits = self.edge_predictor(e_feat)
-            pad_e_pred = convert_edge_log_into_labels(
-                edge_logits, graph.edge_index[:, useful_edge],
-                mod='softmax', return_dict=True
-            )
+        node_res = [{
+            pad_n_idx[idx][i].item(): v.item()
+            for i, v in enumerate(pad_n_pred[idx])
+        } for idx in range(batch_size)]
 
-            edge_res = seperate_dict(
-                label_dict=pad_n_pred, num_nodes=graph.num_nodes,
-                batch=graph.batch, ptr=graph.ptr
-            )
-            return node_res, edge_res
-        else:
-            org_n_loss, org_e_loss = self.calc_org_loss(
-                batch_size=batch_size,
-                node_batch=graph.batch[graph.n_org_mask],
-                edge_batch=graph.e_batch[graph.e_org_mask],
-                org_n_logs=node_logits[graph.n_org_mask],
-                ord_n_cls=graph.node_class[graph.n_org_mask],
-                org_e_logs=org_edge_logits,
-                org_e_cls=graph.org_edge_class
-            )
+        useful_node = (node_pred != 0) | graph.n_org_mask
+        # unpadded nodes and nodes are not None are useful
+        useful_edge = graph.e_pad_mask
+        useful_edge &= useful_node[graph.edge_index[0]]
+        useful_edge &= useful_node[graph.edge_index[1]]
+        # padded edges between useful nodes are useful
+
+        row, col = graph.edge_index[:, useful_edge]
+        e_feat = torch.cat([node_feat[row], node_feat[col]], dim=-1)
+        e_feat = self.feat_extracter(e_feat)
+        edge_logits = self.edge_predictor(e_feat)
+        pad_e_pred = convert_edge_log_into_labels(
+            edge_logits, graph.edge_index[:, useful_edge],
+            mod='softmax', return_dict=True
+        )
+
+        edge_res = seperate_dict(
+            label_dict=pad_n_pred, num_nodes=graph.num_nodes,
+            batch=graph.batch, ptr=graph.ptr
+        )
+        return node_res, edge_res
 
     def calc_org_loss(
         self, batch_size, node_batch, edge_batch,
