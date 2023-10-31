@@ -170,25 +170,24 @@ def make_decoder_graph(
     node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
     node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
     e_org_mask, e_pad_mask, attn_mask = [], [], []
-    n_org_mask, n_pad_mask, batch_mask = [], [], []
+    n_org_mask, n_pad_mask = [], []
 
-    max_node = max(x[0]['num_nodes'] + pad_num for x in batch)
+    max_node = max(x['num_nodes'] + pad_num for x in graphs)
     batch_size = len(graphs)
+
+    batch_mask = torch.zeros(batch_size, max_node).bool()
 
     for idx in range(batch_size):
         # init
         rxn = None if rxns is None else rxns[idx]
-        o_n_cnt = graphs['node_feat'].shape[0]
-        p_n_cnt = o_n_cnt + pad_num
+        o_n_cnt = graphs[idx]['num_nodes']
+        a_n_cnt = o_n_cnt + pad_num
 
-        edge_res_mask = changed_edges[idx] > 0
-        res_enc_edges = graph[idx]['edge_index'][:, edge_res_mask]
-
-        o_e_cnt = res_enc_edges.shape[1]
+        batch_mask[idx, :a_n_cnt] = True
 
         # node
 
-        all_node_feat.append(graph['node_feat'])
+        all_node_feat.append(graphs[idx]['node_feat'])
         n_org_mask.append(torch.ones(o_n_cnt).bool())
         n_pad_mask.append(torch.zeros(o_n_cnt).bool())
         n_org_mask.append(torch.zeros(pad_num).bool())
@@ -200,14 +199,102 @@ def make_decoder_graph(
                 node_cls[k] = v
             all_node_types.append(node_cls)
 
+        # org_edge
+
+        edge_res_mask = (changed_edges[idx] == 0).tolist()
+        res_enc_edges = graphs[idx]['edge_index'][:, edge_res_mask]
+        o_e_cnt = res_enc_edges.shape[1]
+
+        all_edge_feat.append(graphs[idx]['edge_feat'][edge_res_mask])
+        all_edg_idx.append(res_enc_edges + lstnode)
+
+        e_org_mask.append(torch.ones(o_e_cnt).bool())
+        e_pad_mask.append(torch.zeros(o_e_cnt).bool())
+
+        if edge_types is not None:
+            org_edge_cls = torch.zeros(o_e_cnt).bool()
+            exists_edges = set()
+            for edx in range(o_e_cnt):
+                row, col = res_enc_edges[:, edx].tolist()
+                exists_edges.add((row, col))
+                org_edge_cls[edx] = edge_types[idx][(row, col)]
+            org_edge.append(org_edge_cls)
+        else:
+            exists_edges = set()
+            for edx in range(o_e_cnt):
+                row, col = res_enc_edges[:, edx].tolist()
+                exists_edges.add((row, col))
+
+        # edge_labels
+
+        if edge_types is not None:
+            all_edge_types.update({
+                (x + lstnode, y + lstnode): v for (x, y), v
+                in edge_types[idx].items()
+            })
+
+        # pad_edges
+
+        pad_idx = [x + o_n_cnt for x in range(pad_num)]
+
+        attn_mask.append(make_attn_mask(res_enc_edges, max_node, pad_idx))
+
+        prod_node_idx = torch.arange(0, o_n_cnt, 1)
+        link_nds = prod_node_idx[activate_nodes[idx] == 1].tolist() + pad_idx
+
+        pad_edges = [
+            (x, y) for x in link_nds for y in link_nds
+            if x != y and (x, y) not in exists_edges
+        ]
+        all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T + lstnode)
+
+        e_org_mask.append(torch.zeros(p_e_cnt).bool())
+        e_pad_mask.append(torch.ones(p_e_cnt).bool())
+
+        p_e_cnt = len(pad_edges)
+        a_e_cnt = o_e_cnt + p_e_cnt
+
+        lstnode += a_n_cnt
+        lstedge += a_e_cnt
+
+        node_batch.append(np.ones(a_n_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(a_e_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
+
         if rxn is not None:
             graph_rxn.append(rxn)
             node_rxn.append(np.ones(p_n_cnt, dtype=np.int64) * rxn)
             edge_rxn.append(np.ones(o_e_cnt, dtype=np.int64) * rxn)
 
-        # edge
-        
-        
+    result = {
+        'x': torch.from_numpy(npcat(all_node_feat, axis=0)),
+        'edge_attr': torch.from_numpy(npcat(all_edge_feat, axis=0)),
+        'edge_index': torch.from_numpy(npcat(all_edg_idx, axis=1)),
+        'attn_mask': torch.stack(attn_mask, dim=0),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        "num_nodes": lstnode,
+        "num_edges": lstedge,
+        "ptr": torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'e_org_mask': torch.cat(e_org_mask, dim=0),
+        'e_pad_mask': torch.cat(e_pad_mask, dim=0),
+        'n_org_mask': torch.cat(n_org_mask, dim=0),
+        "n_pad_mask": torch.cat(n_pad_mask, dim=0)
+    }
+
+    if len(graph_rxn) > 0:
+        result['node_rxn'] = torch.from_numpy(npcat(node_rxn, axis=0))
+        result['edge_rxn'] = torch.from_numpy(npcat(edge_rxn, axis=0))
+        result['graph_rxn'] = torch.LongTensor(graph_rxn)
+
+    if node_types is not None and edge_types is not None:
+        result['node_class'] = torch.from_numpy(npcat(all_node, axis=0))
+        result['org_edge_class'] = torch.from_numpy(npcat(org_edge, axis=0))
+        return torch_geometric.data.Data(**result), all_edge_types
+    else:
+        return torch_geometric.data.Data(**result)
 
 
 def make_attn_mask(edge_index, max_node, pad_idx):
@@ -252,141 +339,17 @@ def overall_col_fn(selfloop, pad_num):
             if use_class else encoder_fn([x[:3] for x in batch])
 
         # print('encoder done')
-
-        all_edge_type, all_node, org_edge = {}, [], []
-        all_edg_idx, all_node_feat, all_edge_feat = [], [], []
-        node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
-        node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
-        self_mask, org_mask, pad_mask, attn_mask = [], [], [], []
-        node_org_mask, node_pad_mask = [], []
-
-        max_node = max(x[0]['num_nodes'] + pad_num for x in batch)
-        # print('shape', [x[0]['num_nodes'] for x in batch])
-
-        for idx, data in enumerate(batch):
-            graph, n_lb, e_lb = data[:3]
-            node_cls, edge_cls = data[-2:]
-            node_cnt = graph['num_nodes'] + pad_num
-            rxn = data[3] if use_class else None
-
-            if rxn is not None:
-                graph_rxn.append(rxn)
-
-            # node_feats
-            all_node_feat.append(graph['node_feat'])
-            node_org_mask.append(torch.ones(graph['num_nodes']).bool())
-            node_pad_mask.append(torch.zeros(graph['num_nodes']).bool())
-            node_org_mask.append(torch.zeros(pad_num).bool())
-            node_pad_mask.append(torch.ones(pad_num).bool())
-            node_cls_x = np.zeros(node_cnt, dtype=np.int64)
-            for k, v in node_cls.items():
-                node_cls_x[k] = v
-            all_node.append(node_cls_x)
-
-            if rxn is not None:
-                n_rxn = np.ones(graph['num_nodes'], dtype=np.int64) * rxn
-                node_rxn.append(n_rxn)
-
-            # org edge feat
-
-            res_e_mask = (e_lb == 0).numpy()
-            edge_cnt = int(res_e_mask.sum())
-            all_edge_feat.append(graph['edge_feat'][res_e_mask])
-            all_edg_idx.append(graph['edge_index'][:, res_e_mask] + lstnode)
-            self_mask.append(torch.zeros(edge_cnt).bool())
-            org_mask.append(torch.ones(edge_cnt).bool())
-            pad_mask.append(torch.zeros(edge_cnt).bool())
-
-            org_edge_cls = np.zeros(edge_cnt, dtype=np.int64)
-
-            exists_edges = set()
-
-            for edx in range(edge_cnt):
-                row, col = graph['edge_index'][:, res_e_mask][:, edx]
-                org_edge_cls[edx] = edge_cls[(row, col)]
-                exists_edges.add((row, col))
-
-            org_edge.append(org_edge_cls)
-
-            # self_loop edges
-            if selfloop:
-                all_edg_idx.append(torch.LongTensor([
-                    list(range(node_cnt)), list(range(node_cnt))
-                ]) + lstnode)
-                edge_cnt += node_cnt
-                self_mask.append(torch.ones(node_cnt).bool())
-                org_mask.append(torch.zeros(node_cnt).bool())
-                pad_mask.append(torch.zeros(node_cnt).bool())
-
-            if rxn is not None:
-                edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
-
-            # update_edge_types
-            all_edge_type.update({
-                (x + lstnode, y + lstnode): v
-                for (x, y), v in edge_cls.items()
-            })
-
-            # make blocked attn block
-
-            attn_mask.append(make_block(
-                edge_index=graph['edge_index'][:, res_e_mask],
-                max_node=max_node,
-                pad_idx=[x + graph['num_nodes'] for x in range(pad_num)]
-            ))
-
-            # padded edge_idx
-
-            prod_node_idx = np.arange(graph['num_nodes'], dtype=np.int64)
-            link_nds = prod_node_idx[(n_lb == 1).numpy()].tolist()
-
-            link_nds += [x + graph['num_nodes'] for x in range(pad_num)]
-            pad_edges = [
-                (x, y) for x in link_nds for y in link_nds
-                if x != y and (x, y) not in exists_edges
-            ]
-            pad_len = len(pad_edges)
-            self_mask.append(torch.zeros(pad_len).bool())
-            org_mask.append(torch.zeros(pad_len).bool())
-            pad_mask.append(torch.ones(pad_len).bool())
-            edge_cnt += pad_len
-            all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T + lstnode)
-
-            lstnode += node_cnt
-            lstedge += edge_cnt
-
-            node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
-            edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
-            node_ptr.append(lstnode)
-            edge_ptr.append(lstedge)
-
-        result = {
-            'x': torch.from_numpy(npcat(all_node_feat, axis=0)),
-            'edge_attr': torch.from_numpy(npcat(all_edge_feat, axis=0)),
-            'edge_index': torch.from_numpy(npcat(all_edg_idx, axis=1)),
-            'attn_mask': torch.stack(attn_mask, dim=0),
-            'node_class': torch.from_numpy(npcat(all_node, axis=0)),
-            'batch': torch.from_numpy(npcat(node_batch, axis=0)),
-            'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
-            "num_nodes": lstnode,
-            "num_edges": lstedge,
-            'org_edge_class': torch.from_numpy(npcat(org_edge, axis=0)),
-            "ptr": torch.LongTensor(node_ptr),
-            'e_ptr': torch.LongTensor(edge_ptr),
-            "self_mask": torch.cat(self_mask, dim=0),
-            'org_mask': torch.cat(org_mask, dim=0),
-            'pad_mask': torch.cat(pad_mask, dim=0),
-            'node_org_mask': torch.cat(node_org_mask, dim=0),
-            "node_pad_mask": torch.cat(node_pad_mask, dim=0)
+        paras = {
+            'graphs': [x[0] for x in batch],
+            'activate_nodes': [x[1] for x in batch],
+            'changed_edges': [x[2] for x in batch],
+            'node_types': [x[-2] for x in batch],
+            'edge_types': [x[-1] for x in batch],
+            'rxns': [x[3] for x in batch] if use_class else None
         }
-        if len(graph_rxn) > 0:
-            result['node_rxn'] = torch.from_numpy(npcat(node_rxn, axis=0))
-            result['edge_rxn'] = torch.from_numpy(npcat(edge_rxn, axis=0))
-            result['graph_rxn'] = torch.LongTensor(graph_rxn)
+        decoder_graph, all_edge_types = make_decoder_graph(**paras)
 
-        decoder_graph = torch_geometric.data.Data(**result)
-
-        return encoder_graph, decoder_graph, all_edge_type
+        return encoder_graph, decoder_graph, all_edge_types
     return col_fn
 
 
