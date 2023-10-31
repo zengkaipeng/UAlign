@@ -142,10 +142,10 @@ class MixDecoder(torch.nn.Module):
             else:
                 useful_edges = graph.edge_index
 
-            edge_feats = self.edge_update[i](
+            edge_feats = torch.relu(self.edge_update[i](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=useful_edges
-            )
+            ))
 
         return node_feats, edge_feats
 
@@ -217,10 +217,10 @@ class GATDecoder(torch.nn.Module):
             else:
                 useful_edges = graph.edge_index
 
-            edge_feats = self.edge_update[layer](
+            edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=useful_edges
-            )
+            ))
 
         return node_feats, edge_feats
 
@@ -283,8 +283,8 @@ class GINDecoder(torch.nn.Module):
             else:
                 useful_edges = graph.edge_index
 
-            edge_feats = self.edge_update[layer](
+            edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=useful_edges
-            )
+            ))
         return node_feats, edge_feats

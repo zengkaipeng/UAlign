@@ -97,11 +97,27 @@ class DecoderOnly(torch.nn.Module):
     ):
         super(DecoderOnly, self).__init__()
         self.backbone = backbone
-        self.node_predictor = torch.nn.Linear(node_dim, node_class)
-        self.edge_predictor = torch.nn.Linear(edge_dim, edge_class)
-        self.feat_extracter = torch.nn.Linear(node_dim * 2, edge_dim)
+        self.node_predictor = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, node_class)
+        )
+        self.edge_predictor = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, edge_class)
+        )
+        self.feat_extracter = torch.nn.Sequential(
+            torch.nn.Linear(node_dim * 2, edge_dim),
+            torch.nn.ReLU()
+        )
+        self.node_class = node_class
+        self.edge_class = edge_class
 
-    def forward(self, graph, memory, mem_pad_mask=None, matching=True):
+    def forward(
+        self, graph, memory, all_edge_types,
+        mem_pad_mask=None, matching=True
+    ):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_logits = self.node_predictor(node_feat)
         org_edge_logits = self.edge_predictor(edge_feat)
@@ -117,6 +133,15 @@ class DecoderOnly(torch.nn.Module):
             ord_n_cls=graph.node_class[graph.n_org_mask],
             org_e_logs=org_edge_logits,
             org_e_cls=graph.org_edge_class
+        )
+        pad_n_loss, pad_e_loss = self.calc_pad_loss(
+            batch_size=batch_size, node_feat=node_feat,
+            pad_n_logs=node_logits[graph.n_pad_mask],
+            pad_n_cls=graph.node_class[graph.n_pad_mask],
+            pad_n_idx=all_node_index[graph.n_pad_mask],
+            pad_e_index=graph.edge_index[:, graph.e_pad_mask],
+            pad_e_batch=graph.e_batch[graph.e_pad_mask],
+            all_edge_types=all_edge_types, use_matching=matching
         )
 
     def predict(self, graph, memory, mem_pad_mask=None):
@@ -181,8 +206,69 @@ class DecoderOnly(torch.nn.Module):
 
         return node_loss.mean(), edge_loss.mean()
 
-    def get_matching(self):
-        pass
+    def get_matching(self, pad_logits, pad_cls):
+        neg_prob = -torch.softmax(pad_logits, dim=-1)
+        val_matrix = neg_node_log_prob[:, pad_node_label]
+        val_matrix = val_matrix.cpu().numpy()
+        row_id, col_id = linear_sum_assignment(val_matrix)
+        return row_id, col_id
+
+    def calc_pad_loss(
+        self, batch_size, pad_n_logs, pad_n_cls, node_feat,
+        pad_n_idx, pad_e_index, pad_e_batch, all_edge_types,
+        use_matching
+    ):
+        pad_n_logs = pad_n_logs.reshape(batch_size, -1, self.node_class)
+        pad_n_cls = pad_n_cls.reshape(batch_size, -1)
+        pad_n_idx = pad_n_idx.reshape(batch_size, -1)
+        device = pad_n_logs.device
+
+        total_n_loss = torch.zeros(batch_size).to(device)
+        total_e_loss = torch.zeros(batch_size).to(device)
+        for idx in range(batch_size):
+            this_edges = pad_e_index[pad_e_batch == idx]
+            if use_matching:
+                with torch.no_grad():
+                    row_id, col_id = self.get_matching(
+                        pad_logits=pad_n_logs[idx],
+                        pad_cls=pad_n_cls[idx]
+                    )
+                node_remap = {
+                    pad_n_idx[idx][x].item(): pad_n_idx[idx][col_id[i]].item()
+                    for i, x in enumerate(row_id)
+                }
+            else:
+                node_remap = {}
+
+            total_n_loss[idx] = cross_entropy(
+                pad_n_logs[idx][row_id], pad_n_cls[idx][col_id],
+                reduction='sum'
+            )
+
+            useless_nodes = set(
+                pad_n_idx[idx][i].item() for i, v in
+                enumerate(pad_n_cls[idx]) if v.item() == 0
+            )
+
+            useful_edges, e_labs = [], []
+            for ex, (row, col) in enumerate(this_edges.T):
+                x, y = row.item(), col.item()
+                row = node_remap.get(x, x)
+                col = node_remap.get(y, y)
+                if row in useless_nodes or col in useless_nodes:
+                    continue
+                useful_edges.append((x, y))
+                e_labs.append(all_edge_types.get((row, col), 0))
+
+            useful_edges = torch.LongTensor(useful_edges).to(device)
+            e_labs = torch.LongTensor(e_labs).to(device)
+
+            idx_i, idx_j = useful_edges[:, 0], useful_edges[:, 1]
+            e_feat = torch.cat([node_feat[idx_i], node_feat[idx_j]], dim=-1)
+            e_logs = self.edge_predictor(self.feat_extracter(e_feat))
+
+            total_e_loss[idx] = cross_entropy(e_logs, e_labs, reduction='sum')
+        return total_n_loss.mean(), total_e_loss.mean()
 
 
 class EncoderDecoder(torch.nn.Module):

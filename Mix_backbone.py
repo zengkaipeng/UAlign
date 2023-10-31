@@ -110,9 +110,9 @@ class MixFormer(torch.nn.Module):
             else:
                 useful_edges = G.edge_index
 
-            edge_feats = self.edge_update[i](
+            edge_feats = torch.relu(self.edge_update[i](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=useful_edges
-            )
+            ))
 
         return node_feats, edge_feats
