@@ -101,16 +101,20 @@ class DecoderOnly(torch.nn.Module):
         self.edge_predictor = torch.nn.Linear(edge_dim, edge_class)
         self.feat_extracter = torch.nn.Linear(node_dim * 2, edge_dim)
 
-    def forward(self, graph, memory, mem_pad_mask=None, mode='train'):
+    def forward(
+        self, graph, memory, mem_pad_mask=None, mode='train',
+        use_matching=True
+    ):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_logits = self.node_predictor(node_feat)
         org_edge_logits = self.edge_predictor(edge_feat)
         device = node_logits.device
+        batch_size = graph.batch.max().item() + 1
+        all_node_index = torch.arange(graph.num_nodes).to(device)
+
         if mode == 'inference':
             node_pred = convert_log_into_label(node_logits, mod='softmax')
-            all_node_index = torch.arange(graph.num_nodes).to(device)
             org_node_index = all_node_index - graph.ptr[graph.batch]
-            batch_size = graph.batch.max().item() + 1
 
             # solving nodes
             pad_n_pred = node_pred[graph.n_pad_mask]
@@ -146,7 +150,36 @@ class DecoderOnly(torch.nn.Module):
             )
             return node_res, edge_res
         else:
-            pass
+            org_n_loss, org_e_loss = self.calc_org_loss(
+                batch_size=batch_size,
+                node_batch=graph.batch[graph.n_org_mask],
+                edge_batch=graph.e_batch[graph.e_org_mask],
+                org_n_logs=node_logits[graph.n_org_mask],
+                ord_n_cls=graph.node_class[graph.n_org_mask],
+                org_e_logs=org_edge_logits,
+                org_e_cls=graph.org_edge_class
+            )
+
+    def calc_org_loss(
+        self, batch_size, node_batch, edge_batch,
+        org_n_logs, ord_n_cls, org_e_logs, org_e_cls
+    ):
+        node_loss = torch.zeros(batch_size).to(node_logits)
+        org_node_loss = cross_entropy(
+            org_n_logs, org_node_cls, reduction='none'
+        )
+        node_loss.scatter_add_(0, node_batch, node_loss_src)
+
+        edge_loss = torch.zeros(batch_size).to(edge_logits)
+        org_edge_loss = cross_entropy(
+            org_e_logs, org_e_cls, reduction='none'
+        )
+        edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
+
+        return node_loss.mean(), edge_loss.mean()
+
+    def get_matching(self):
+        pass
 
 
 class EncoderDecoder(torch.nn.Module):
