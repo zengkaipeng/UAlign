@@ -264,7 +264,7 @@ def make_decoder_graph(
 
         if rxn is not None:
             graph_rxn.append(rxn)
-            node_rxn.append(np.ones(p_n_cnt, dtype=np.int64) * rxn)
+            node_rxn.append(np.ones(a_n_cnt, dtype=np.int64) * rxn)
             edge_rxn.append(np.ones(o_e_cnt, dtype=np.int64) * rxn)
 
     result = {
