@@ -28,13 +28,16 @@ class Feat_init(torch.nn.Module):
     ):
         super(Feat_init, self).__init__()
         self.Qemb = torch.nn.Parameter(torch.randn(1, n_pad, dim))
-        self.atom_encoder = SparseAtomEncoder(dim, n_class)
-        self.bond_encoder = SparseBondEncoder(dim, n_class)
+        self.atom_encoder = SparseAtomEncoder(dim, n_class=None)
+        self.bond_encoder = SparseBondEncoder(dim, n_class=None)
+
+        if n_class is not None:
+            self.node_cls_emb = torch.nn.Embedding(n_class, dim)
+            self.edge_cls_emb = torch.nn.Embedding(n_class, dim)
+            self.node_lin = torch.nn.Linear(dim << 1, dim)
+            self.edge_lin = torch.nn.Linear(dim << 1, dim)
 
         assert dim % heads == 0, 'dim should be evenly divided by heads'
-        if n_class is not None:
-            self.cls_emb = torch.nn.Embedding(n_class, dim)
-            self.cls_lin = torch.nn.Linear(dim + dim, dim)
 
         self.Attn = MultiheadAttention(
             dim, num_heads=heads, dropout=dropout,
@@ -48,26 +51,27 @@ class Feat_init(torch.nn.Module):
 
         # get node feat
         node_feat = torch.zeros((G.num_nodes, self.dim)).to(device)
-        org_node_feat = self.atom_encoder(G.x, G.get('node_rxn', None))
+        org_node_feat = self.atom_encoder(G.x, None)
         node_feat[G.n_org_mask] = org_node_feat
-
         Qval = self.Qemb.repeat(batch_size, 1, 1)
-
         pad_node_feat = self.Attn(
             query=Qval, key=memory, value=memory,
             key_padding_mask=mem_pad_mask
         )
-
-        if self.n_class is not None:
-            emb_cls = self.cls_emb(G.graph_rxn)  # [batch_size, dim]
-            emb_cls = emb_cls.unsqueeze(dim=0).repeat(1, self.n_pad, 1)
-            pad_node_feat = torch.cat([pad_node_feat, emb_cls], dim=--1)
-            pad_node_feat = self.cls_lin(pad_node_feat)
-
         # [B, pad, dim]
         node_feat[G.n_pad_mask] = pad_node_feat.reshape(-1, self.dim)
 
-        edge_feat = self.bond_encoder(G.edge_attr, G.get('edge_rxn', None))
+        # edge_feat
+        edge_feat = self.bond_encoder(G.edge_attr, None)
+
+        if self.n_class is not None:
+            n_cls_emb = self.node_cls_emb(graph.node_rxn)
+            node_feat = torch.cat([node_feat, n_cls_emb], dim=-1)
+            node_feat = self.node_lin(node_feat)
+
+            e_cls_emb = self.edge_cls_emb(graph.edge_rxn)
+            edge_feat = torch.cat([edge_feat, e_cls_emb], dim=-1)
+            edge_feat = self.edge_lin(edge_feat)
 
         return node_feat, edge_feat
 

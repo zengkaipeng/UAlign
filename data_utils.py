@@ -3,7 +3,8 @@ import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_node_types, get_edge_types, clear_map_number
+    get_node_types, get_edge_types, clear_map_number,
+    extend_by_bfs, extend_by_dfs
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -29,20 +30,9 @@ def create_edit_dataset(
     return BinaryEditDataset(graphs, nodes, edges, rxn_class=rxn_class)
 
 
-def extend_amap(amap, node_list):
-    result, max_node = {}, max(amap.values())
-    for node in node_list:
-        if node not in amap:
-            result[node] = max_node + 1
-            max_node += 1
-        else:
-            result[node] = amap[node]
-    return result
-
-
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, pos_enc='none', **kwargs
+    verbose=True, label_method='dfs'
 ):
     graphs, nodes, edges = [], [], []
     node_types, edge_types = [], []
@@ -52,14 +42,17 @@ def create_overall_dataset(
         encoder_graph, prod_amap = smiles2graph(
             prod, with_amap=True, kekulize=kekulize
         )
-        encoder_graph = add_pos_enc(encoder_graph, method=pos_enc, **kwargs)
         graphs.append(encoder_graph)
         nodes.append([prod_amap[t] for t in x])
         edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
         node_type = get_node_types(reacts[idx])
-        extended_amap = extend_amap(prod_amap, node_type.keys())
         edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
+
+        if label_method == 'dfs':
+            extended_amap = extend_by_dfs(reacts[idx], x, prod_amap)
+        elif label_method == 'bfs':
+            extended_amap = extend_by_bfs(reacts[idx], x, prod_amap)
 
         real_n_types = {extended_amap[k]: v for k, v in node_type.items()}
         real_e_types = {
@@ -68,6 +61,7 @@ def create_overall_dataset(
         }
         node_types.append(real_n_types)
         edge_types.append(real_e_types)
+
     return OverallDataset(
         graphs=graphs, activate_nodes=nodes, changed_edges=edges,
         decoder_node_type=node_types, decoder_edge_type=edge_types,
@@ -352,6 +346,23 @@ def seperate_dict(label_dict, G):
         y = batch2single[col].item()
         e_labels[b_idx][(x, y)] = v
     return e_labels
+
+
+def filter_label_by_node(node_pred, edge_pred, edge_index):
+    useful_node = node_pred > 0
+    useful_edges = useful_node[edge_index[0]] & useful_node[edge_index[1]]
+    edge_pred[~useful_edges] = 0
+    return node_pred, edge_pred
+
+
+def extend_label_by_edge(node_pred, edge_pred, edge_index):
+    useful_node = torch.zeros_like(node_pred).bool()
+    useful_edge = edge_pred > 0
+
+    useful_node[edge_index[0, useful_edge]] = True
+    useful_node[edge_index[1, useful_edge]] = True
+    node_pred[useful_node] = 1
+    return node_pred, edge_pred
 
 
 if __name__ == '__main__':

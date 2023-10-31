@@ -394,3 +394,89 @@ def canonical_smiles(smi):
             )
             canonical_smi = '.'.join(canonical_smi_list)
         return canonical_smi
+
+
+def extend_by_dfs(reac, activate_nodes, prod_amap):
+    def dfs(mol, x, vis, curr_nodes):
+        curr = mol.GetAtomWithIdx(x)
+        curr_amap = curr.GetAtomMapNum()
+        if curr_amap in vis:
+            return
+        curr_nodes.append(curr_amap)
+        vis.add(curr_amap)
+        for nei in curr.GetNeighbors():
+            dfs(mol, nei.GetIdx(), vis, curr_nodes)
+
+    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
+    for k, v in prod_amap.items():
+        curr_nodes[v] = k
+
+    vis = set(prod_amap.keys())
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap' 
+
+    mol = Chem.MolFromSmiles(reac)
+    if mol is None:
+        raise ValueError(f'Invalid smiles {reac}')
+
+    # mark connected parts
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am in activate_nodes:
+            for nei in atom.GetNeighbors():
+                dfs(mol, nei.GetIdx(), vis, curr_nodes)
+
+    # mark isolated part
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am not in vis:
+            dfs(mol, atom.GetIdx(), vis, curr_nodes)
+
+    return {v: idx for idx, v in enumerate(curr_nodes)}
+
+
+def extend_by_bfs(reac, activate_nodes, prod_amap):
+
+    def bfs_with_Q(Q, lf, mol, vis):
+        while lf < len(Q):
+            top = Q[lf]
+            top_atom = mol.GetAtomWithIdx(top)
+            for nei in top_atom.GetNeighbors():
+                nei_amap = nei.GetAtomMapNum()
+                if nei_amap not in vis:
+                    vis.add(nei_amap)
+                    curr_nodes.append(nei_amap)
+                    Q.append(top_atom.GetIdx())
+            lf += 1
+
+    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
+    for k, v in prod_amap.items():
+        curr_nodes[v] = k
+    vis = set(prod_amap.keys())
+
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap' 
+
+    mol = Chem.MolFromSmiles(reac)
+    if mol is None:
+        raise ValueError(f'Invalid smiles {reac}')
+
+    # mark connected part
+    Q, lf = [], 0
+
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am in activate_nodes:
+            Q.append(am.GetIdx())
+
+    bfs_with_Q(Q, lf, mol, vis)
+
+    # mark isolated part
+
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am in not in vis:
+            Q = [atom.GetIdx()]
+            vis.add(am)
+            curr_nodes.append(am)
+            bfs_with_Q(Q, 0, mol, vis)
+
+    return {v: idx for idx, v in enumerate(curr_nodes)}

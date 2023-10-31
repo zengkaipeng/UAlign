@@ -141,16 +141,76 @@ class OverallDataset(torch.utils.data.Dataset):
                 self.decoder_edge_class[index]
 
 
-def make_diag_by_mask(max_node, mask):
-    x = torch.zeros(max_node, max_node)
-    x[mask] = 1
-    x[:, ~mask] = 0
-    return x.bool()
+def make_decoder_graph(
+    graphs, activate_nodes, changed_edges, pad_num, rxns=None,
+    node_types=None, edge_types=None
+):
+    """[summary]
+
+    a aux for decoder collate fn
+
+    Args:
+        graphs ([List]): a list of graphs, representing products
+        activate_nodes ([List]): a list of tensors, each of tensor
+            is of shape [num_nodes], representing whether a 
+            node is activated on each graph
+        changed_edges ([type]):  a list of tensors, eahc of tensor
+            is of shape [num_edges], representing whether a edge is 
+            changed on each graph
+        pad_num ([int]): the number of pad nodes
+        rxn ([list]): optional, a list of int representing the 
+            reaction class (default: `None`)
+        node_types ([list]): optional, a list of dict
+            representing each atom type on reactant (default: `None`)
+        edge_types ([list]): a list of dict, representing each
+            bond type on reactant  (default: `None`)
+    """
+    all_edge_types, all_node_types, org_edge = {}, [], []
+    all_edg_idx, all_node_feat, all_edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
+    e_org_mask, e_pad_mask, attn_mask = [], [], []
+    n_org_mask, n_pad_mask, batch_mask = [], [], []
+
+    max_node = max(x[0]['num_nodes'] + pad_num for x in batch)
+    batch_size = len(graphs)
+
+    for idx in range(batch_size):
+        # init
+        rxn = None if rxns is None else rxns[idx]
+        o_n_cnt = graphs['node_feat'].shape[0]
+        p_n_cnt = o_n_cnt + pad_num
+
+        edge_res_mask = changed_edges[idx] > 0
+        res_enc_edges = graph[idx]['edge_index'][:, edge_res_mask]
+
+        o_e_cnt = res_enc_edges.shape[1]
+
+        # node
+
+        all_node_feat.append(graph['node_feat'])
+        n_org_mask.append(torch.ones(o_n_cnt).bool())
+        n_pad_mask.append(torch.zeros(o_n_cnt).bool())
+        n_org_mask.append(torch.zeros(pad_num).bool())
+        n_pad_mask.append(torch.ones(pad_num).bool())
+
+        if node_types is not None:
+            node_cls = torch.zeros(p_n_cnt).long()
+            for k, v in node_types[idx].items():
+                node_cls[k] = v
+            all_node_types.append(node_cls)
+
+        if rxn is not None:
+            graph_rxn.append(rxn)
+            node_rxn.append(np.ones(p_n_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(o_e_cnt, dtype=np.int64) * rxn)
+
+        # edge
+        
+        
 
 
-def overall_col_fn(selfloop, pad_num):
-    # use zero as empty type
-
+def make_attn_mask(edge_index, max_node, pad_idx):
     def dfs(x, graph, blocks, vis):
         blocks.append(x)
         vis.add(x)
@@ -158,34 +218,32 @@ def overall_col_fn(selfloop, pad_num):
             if neighbor not in vis:
                 dfs(neighbor, graph, blocks, vis)
 
-    def make_block(edge_index, max_node, pad_idx):
-        # print('pad_idx', max_node, pad_idx)
-        attn_mask = torch.zeros(max_node, max_node).bool()
-        graph, vis = {}, set()
+    def make_graph(edge_index, pad_idx, max_node):
+        graph = {i: [i] for i in range(max_node) if i not in pad_idx}
         for idx in range(edge_index.shape[1]):
             row, col = edge_index[:, idx].tolist()
             if row not in graph:
                 graph[row] = []
             graph[row].append(col)
+        return graph
 
-        for idx in range(max_node):
-            if idx not in graph and idx not in pad_idx:
-                graph[idx] = [idx]
-
-        for node in graph.keys():
-            if node in vis:
-                continue
+    attn_mask = torch.ones(max_node, max_node).bool()
+    graph, vis = make_graph(edge_index, pad_idx, max_node), set()
+    for node in graph.keys():
+        if node not in vis:
             block = []
             dfs(node, graph, block, vis)
-            x_mask = torch.zeros(max_node).bool()
-            # print('block', block)
-            x_mask[block] = True
-            x_mask[pad_idx] = True
-            # print('x_mask', x_mask)
-            block_attn = make_diag_by_mask(max_node, x_mask)
-            # print('block_attn', block_attn.long())
-            attn_mask |= block_attn
-        return attn_mask
+            x_mask = torch.ones(max_node).bool()
+            x_mask[block] = False
+            block_attn = torch.zeros(max_node, max_node).bool()
+            block_attn[x_mask] = True
+            block_attn[:, x_mask] = True
+            attn_mask &= block_attn
+    return attn_mask
+
+
+def overall_col_fn(selfloop, pad_num):
+    # use zero as empty type
 
     def col_fn(batch):
         encoder_fn = edit_col_fn(selfloop)
