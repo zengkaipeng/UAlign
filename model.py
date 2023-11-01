@@ -371,7 +371,7 @@ class EncoderDecoder(torch.nn.Module):
 
         return enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
 
-    def predict(self, graph):
+    def predict(self, graph, syn_mode='edge'):
         enc_n_log, enc_e_log, n_feat, e_feat = self.encoder(
             graph, ret_feat=True, ret_loss=False
         )
@@ -384,6 +384,17 @@ class EncoderDecoder(torch.nn.Module):
         enc_e_pred = convert_edge_log_into_labels(
             enc_e_log, graph.edge_index, mod='sigmoid'
         )
+
+        if syn_mode == 'node':
+            enc_n_pred, enc_e_pred = filter_label_by_node(
+                enc_n_pred, enc_e_pred, graph.edge_index
+            )
+        elif syn_mode == 'edge':
+            enc_n_pred, enc_e_pred = extend_label_by_edge(
+                enc_n_pred, enc_e_pred, graph.edge_index
+            )
+        else:
+            raise NotImplementedError(f'Invalid aug_mode {syn_mode}')
 
         pad_num = self.decoder.feat_init.pad_num
         batch_size = memory.shape[0]
@@ -404,7 +415,7 @@ class EncoderDecoder(torch.nn.Module):
             decoder_graph, memory, mem_pad_mask
         )
 
-        return pad_n_pred, pad_e_pred
+        return enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred
 
 
 def filter_valid_idx(
