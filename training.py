@@ -10,6 +10,7 @@ from data_utils import (
     convert_log_into_label, convert_edge_log_into_labels
 )
 from sklearn import metrics
+from data_utils import predict_synthon
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -117,11 +118,11 @@ def eval_sparse_edit(loader, model, device, verbose=True):
 
 
 def train_overall(
-    model, loader, optimizer, device, mode, alpha=1,
-    warmup=True, reduction='mean', graph_level=True
+    model, loader, optimizer, device, mode, alpha=1, warmup=True,
+    pos_weight=1, matching=True, aug_mode='none'
 ):
+    enc_nl, enc_el, org_nl, org_el, pad_nl, pad_el = [[] for _ in range(6)]
     model = model.train()
-    overall_loss = []
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
@@ -131,65 +132,57 @@ def train_overall(
         encoder_graph = encoder_graph.to(device)
         decoder_graph = decoder_graph.to(device)
 
-        loss = model(
-            encoder_graph, decoder_graph, encoder_mode=mode,
-            edge_types=real_edge_type, reduction=reduction,
-            graph_level=graph_level, alpha=alpha
+        losses = model(
+            encoder_graph, decoder_graph, real_edge_type,
+            pos_weight=pos_weight, matching=matching, aug_mode=aug_mode
         )
+
+        enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, \
+            pad_n_loss, pad_e_loss = losses
+
+        loss = enc_n_loss + enc_e_loss + \
+            alpha * (org_n_loss + org_e_loss) +\
+            pad_n_loss + pad_e_loss
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        overall_loss.append(loss.item())
+        enc_nl.append(enc_n_loss.item())
+        enc_el.append(enc_e_loss.item())
+        org_nl.append(org_n_loss.item())
+        org_el.append(org_e_loss.item())
+        pad_nl.append(pad_n_loss.item())
+        pad_el.append(pad_e_loss.item())
+
         if warmup:
             warmup_sher.step()
 
-    return np.mean(overall_loss)
+    return np.mean(enc_nl), np.mean(enc_el), np.mean(org_nl), \
+        np.mean(org_el), np.mean(pad_nl), np.mean(pad_el)
 
 
-def eval_overall(model, loader, device, pad_num):
+def eval_overall(model, loader, device, mode='edge'):
     model, acc, total = model.eval(), 0, 0
     for data in tqdm(loader):
         encoder_graph, node_types, edge_types, smi = data
         encoder_graph = encoder_graph.to(device)
-        batch_size = encoder_graph.batch.max().item() + 1
+        batch_size = len(smi)
         total += batch_size
-        with torch.no_grad():
-            synthons = model.encoder.predict_into_graphs(encoder_graph)
-            memory, mem_pad_mask = model.encoder.make_memory(encoder_graph)
-
-        synt_nodes, synt_edges = [], []
-        for idx, synt in enumerate(synthons):
-            this_node_types = node_types[idx]
-            this_edge_types = edge_types[idx]
-            # print(this_node_types, this_edge_types)
-            synt_nodes.append({
-                x: this_node_types[x]
-                for x in range(synt['x'].shape[0])
-            })
-
-            remain_edges = set({
-                (x.item(), y.item()) if x.item() < y.item() else
-                (y.item(), x.item()) for x, y in synt['res_edge'].T
-            })
-            synt_edges.append({x: this_edge_types[x] for x in remain_edges})
-
-        decoder_graph = convert_graphs_into_decoder(synthons, pad_num)
-        # print(decoder_graph)
 
         with torch.no_grad():
-            pad_nodes, pad_edges = model.decoder.predict_paddings(
-                decoder_graph.to(device), memory, mem_pad_mask
-            )
+            answer = model.predict(encoder_graoph, syn_mode=mode)
+            enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred = answer
+
+        synthon_nodes, synthon_edges = predict_synthon(
+            batch_size=batch_size, n_pred=enc_n_pred, e_pred=enc_e_pred,
+            graph=encoder_graph, n_types=node_types, e_types=edge_types
+        )
 
         for i in range(batch_size):
-            # print(synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i])
-            # exit()
-            x = synt_edges[i].keys()
-            y = pad_edges[i].keys()
-
             result = convert_res_into_smiles(
-                synt_nodes[i], synt_edges[i], pad_nodes[i], pad_edges[i]
+                synthon_nodes[i], synthon_edges[i],
+                pad_n_pred[i], pad_e_pred[i]
             )
             acc += (smi[i] == result)
 
