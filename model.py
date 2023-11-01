@@ -371,6 +371,41 @@ class EncoderDecoder(torch.nn.Module):
 
         return enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
 
+    def predict(self, graph):
+        enc_n_log, enc_e_log, n_feat, e_feat = self.encoder(
+            graph, ret_feat=True, ret_loss=False
+        )
+
+        memory, mem_pad_mask = make_memory_from_feat(
+            n_feat, graph.batch_mask
+        )
+
+        enc_n_pred = convert_log_into_label(enc_n_pred)
+        enc_e_pred = convert_edge_log_into_labels(
+            enc_e_log, graph.edge_index, mod='sigmoid'
+        )
+
+        pad_num = self.decoder.feat_init.pad_num
+        batch_size = memory.shape[0]
+
+        enc_n_pred = seperate_pred(enc_n_pred, batch_size, graph.batch)
+        enc_e_pred = seperate_pred(enc_e_pred, batch_size, graph.e_batch)
+        org_graphs = seperate_encoder_graphs(graph)
+        if len(org_graphs) == 2:
+            org_graphs, rxns = org_graphs
+        else:
+            rxns = None
+
+        decoder_graph = make_decoder_graph(
+            org_graphs, enc_n_pred, enc_e_pred, pad_num, rxns=rxns
+        )
+
+        pad_n_pred, pad_e_pred = self.decoder(
+            decoder_graph, memory, mem_pad_mask
+        )
+
+        return pad_n_pred, pad_e_pred
+
 
 def filter_valid_idx(
     node_pred, edge_pred, n_lb, e_lb, batch, e_batch, batch_size
