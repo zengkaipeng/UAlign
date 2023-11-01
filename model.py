@@ -11,8 +11,10 @@ from torch.nn.functional import cross_entropy
 from scipy.optimize import linear_sum_assignment
 from data_utils import (
     convert_log_into_label, convert_edge_log_into_labels,
-    seperate_dict
+    seperate_dict, extend_label_by_edge, filter_label_by_node,
+    seperate_encoder_graphs, seperate_pred
 )
+from Dataset import make_decoder_graph
 
 
 class BinaryGraphEditModel(torch.nn.Module):
@@ -143,6 +145,8 @@ class DecoderOnly(torch.nn.Module):
             pad_e_batch=graph.e_batch[graph.e_pad_mask],
             all_edge_types=all_edge_types, use_matching=matching
         )
+
+        return org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
 
     def predict(self, graph, memory, mem_pad_mask=None):
         node_feat, _ = self.backbone(graph, memory, mem_pad_mask)
@@ -278,43 +282,115 @@ class EncoderDecoder(torch.nn.Module):
         self.decoder = decoder
 
     def forward(
-        self, encoder_graph, decoder_graph, encoder_mode, edge_types,
-        reduction='mean', graph_level=True, alpha=1
+        self, encoder_graph, decoder_graph, edge_types,
+        pos_weight=1, use_matching=True, aug_mode='none'
     ):
-        encoder_answer = self.encoder(
-            graph=encoder_graph, graph_level=graph_level,
-            mask_mode=encoder_mode, ret_loss=True,
-            ret_feat=True, reduce_mode=reduction,
+        enc_n_log, enc_e_log, enc_n_loss, enc_e_loss, n_feat, e_feat =\
+            self.encoder(encoder_graph, True, True, pos_weight)
+
+        memory, memory_pad_mask = make_memory_from_feat(
+            node_feat=n_feat, batch_mask=encoder_graph.batch_mask
         )
 
-        node_pred, edge_pred, useful_mask, n_loss, e_loss, \
-            node_feat, edge_feat = encoder_answer
-
-        device = encoder_graph.x.device
-        batch_size = encoder_graph.batch.max().item() + 1
-        n_nodes = torch.zeros(batch_size).long().to(device)
-        n_nodes.scatter_add_(
-            src=torch.ones_like(encoder_graph.batch),
-            dim=0, index=encoder_graph.batch
+        org_n_loss, org_e_loss, pad_n_loss, pad_e_loss = self.decoder(
+            decoder_graph, memory, edge_types, matching=use_matching,
+            memory_pad_mask=memory_pad_mask
         )
-        max_node = n_nodes.max().item() + 1
-        mem_pad_mask = make_batch_mask(encoder_graph.ptr, max_node, batch_size)
+        batch_size = memory.shape[0]
 
-        memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
-        memory = memory.to(device)
-        memory[mem_pad_mask] = node_feat
+        if aug_mode != 'none':
+            pad_num = self.decoder.feat_init.n_pad
+            enc_n_pred = convert_log_into_label(enc_n_log)
+            enc_e_pred = convert_edge_log_into_labels(
+                enc_e_log, encoder_graph.edge_index,
+                mod='sigmoid', return_dict=False,
+            )
 
-        node_logits, edge_logits = self.decoder(
-            graph=decoder_graph, memory=memory,
-            mem_pad_mask=mem_pad_mask
-        )
+            if aug_mode == 'node':
+                enc_n_pred, enc_e_pred = filter_label_by_node(
+                    enc_n_pred, enc_e_pred, encoder_graph.edge_index
+                )
+            elif aug_mode == 'edge':
+                enc_n_pred, enc_e_pred = extend_label_by_edge(
+                    enc_n_pred, enc_e_pred, encoder_graph.edge_index
+                )
+            else:
+                raise NotImplementedError(f'Invalid aug_mode {aug_mode}')
 
-        decoder_losses = self.loss_calc(
-            graph=decoder_graph, node_logits=node_logits,
-            reduction=reduction, edge_logits=edge_logits,
-            edge_type_dict=edge_types, graph_level=graph_level
-        )
-        org_node_loss, org_edge_loss, x_loss, c_loss = decoder_losses
+            valid_idx = filter_valid_idx(
+                enc_n_pred, enc_e_pred, encoder_graph.node_label,
+                encoder_graph.edge_label, encoder_graph.batch,
+                encoder_graph.e_batch, batch_size
+            )
 
-        return n_loss + e_loss + x_loss + c_loss \
-            + (org_node_loss + org_edge_loss) * alpha
+            org_graphs = seperate_encoder_graphs(encoder_graph)
+            if len(org_graphs) == 2:
+                org_graphs, rxns = org_graphs
+            else:
+                rxns = None
+
+            ext_n_lb = seperate_pred(
+                enc_n_pred, batch_size, encoder_graph.batch
+            )
+            ext_e_lb = seperate_pred(
+                enc_e_pred, batch_size, encoder_graph.e_batch
+            )
+
+            sep_edges = seperate_dict(
+                edge_types, decoder_graph.num_nodes,
+                decoder_graph.batch, decoder_graph.ptr
+            )
+
+            sep_nodes = seperate_pred(
+                decoder_graph.node_class, batch_size,
+                decoder_graph.batch
+            )
+
+            paras = {
+                'graphs': [org_graphs[x] for x in valid_idx],
+                'activate_nodes': [ext_n_lb[x] for x in valid_idx],
+                'changed_edges': [ext_e_lb[x] for x in valid_idx],
+                'pad_num': pad_num, 'rxns': rxns,
+                'node_types': [
+                    {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
+                    for x in valid_idx
+                ]
+                'edge_types': [sep_edges for x in valid_idx]
+            }
+
+            aug_dec_G = make_decoder_graph(**paras)
+            a, b, c, d = self.decoder(
+                decoder_graph, memory, edge_types, matching=use_matching,
+                memory_pad_mask=memory_pad_mask
+            )
+
+            org_n_loss += a
+            org_e_loss += b
+            pad_n_loss += c
+            pad_e_loss += e
+
+        return enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
+
+
+def filter_valid_idx(
+    node_pred, edge_pred, n_lb, e_lb, batch, e_batch, batch_size
+):
+    answer = []
+    for idx in range(batch_size):
+        this_n_mask = batch == idx
+        this_e_mask = e_batch == idx
+
+        this_nlb = n_lb[this_n_mask] > 0
+        this_elb = e_lb[this_e_mask] > 0
+
+        this_npd = node_pred[this_n_mask] > 0
+        this_epd = edge_pred[this_e_mask] > 0
+
+        inters = this_nlb & this_npd
+        nc = torch.all(this_nlb == inters).item()
+
+        inters = this_elb & this_epd
+        ec = torch.all(this_elb == inters).item()
+        if nc and ec:
+            answer.append(idx)
+    return idx
