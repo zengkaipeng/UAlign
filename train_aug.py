@@ -29,6 +29,9 @@ def create_log_model(args):
         f'lrstep_{args.step_start}', f'aug_prob_{args.aug_prob}'
     ]
 
+    if args.kekulize:
+        log_dir.append('ke')
+
     detail_log_folder = os.path.join(
         args.base_log,  args.backbone, '-'.join(log_dir)
     )
@@ -141,6 +144,10 @@ if __name__ == '__main__':
         '--token_ckpt', type=str, default='',
         help='the path of tokenizer, when ckpt is loaded, necessary'
     )
+    parser.add_argument(
+        '--kekulize', action='store_true',
+        help='use kekulize for mole or not'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -169,15 +176,15 @@ if __name__ == '__main__':
 
     train_set = OnFlyDataset(
         prod_sm=train_prod, reat_sm=train_rec, target=train_target,
-        aug_prob=args.aug_prob, randomize=True,
+        aug_prob=args.aug_prob, randomize=True, kekulize=args.kekulize
     )
     valid_set = OnFlyDataset(
         prod_sm=val_prod, reat_sm=val_rec, target=val_target,
-        aug_prob=0, randomize=False
+        aug_prob=0, randomize=False, kekulize=args.kekulize
     )
     test_set = OnFlyDataset(
         prod_sm=test_prod, reat_sm=test_rec, target=test_target,
-        aug_prob=0, randomize=False
+        aug_prob=0, randomize=False, kekulize=args.kekulize
     )
 
     train_loader = DataLoader(
@@ -202,19 +209,21 @@ if __name__ == '__main__':
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, negative_slope=args.negative_slope,
-            num_heads=args.heads, add_self_loop=False
+            num_heads=args.heads
         )
     else:
         GNN = MixFormer(
             emb_dim=args.dim, num_layer=args.layer_encoder,
             heads=args.heads, dropout=args.dropout,
-            negative_slope=args.negative_slope,  add_self_loop=True,
+            negative_slope=args.negative_slope
         )
+    trans_head = args.heads if args.backbone != 'MIX' else args.heads * 2
 
     decode_layer = TransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
+        d_model=args.dim, nhead=trans_head, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
+
     Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 

@@ -1,6 +1,6 @@
 import random
 import torch
-from sparse_backBone import GINBase, GATBase, SparseBondEncoder
+from sparse_backBone import GINBase, GATBase
 
 from ogb.graphproppred.mol_encoder import AtomEncoder
 from utils.chemistry_parse import get_reaction_core, clear_map_number
@@ -17,7 +17,7 @@ from tokenlizer import smi_tokenizer
 class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
         self, prod_sm: List[str], reat_sm: List[str], target: List[str],
-        randomize: bool = False, aug_prob: float = 0
+        randomize: bool = False, aug_prob: float = 0, kekulize: bool = False
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
@@ -26,6 +26,7 @@ class OnFlyDataset(torch.utils.data.Dataset):
 
         self.randomize = randomize
         self.aug_prob = aug_prob
+        self.kekulize = kekulize
 
     def __len__(self):
         return len(self.reat_sm)
@@ -47,12 +48,12 @@ class OnFlyDataset(torch.utils.data.Dataset):
 
         x, y = get_reaction_core(
             r=self.reat_sm[index], p=self.prod_sm[index],
-            kekulize=False
+            kekulize=self.kekulize
         )
 
         graph, amap = smiles2graph(
             smiles_string=self.prod_sm[index],
-            with_amap=True, kekulize=False
+            with_amap=True, kekulize=self.kekulize
         )
 
         node_label = torch.zeros(graph['num_nodes']).long()

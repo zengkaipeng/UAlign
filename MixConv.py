@@ -57,7 +57,7 @@ class MhAttnBlock(torch.nn.Module):
             all_mask = all_mask.transpose(1, 2)
             all_mask[key_padding_mask] = True
             if attn_mask is not None:
-                all_mask = torch.logical_and(all_mask, attn_mask)
+                all_mask = torch.logical_or(all_mask, attn_mask)
             return all_mask
         else:
             return attn_mask if attn_mask is not None else None
@@ -87,7 +87,7 @@ class SelfAttnBlock(torch.nn.Module):
 class MixConv(torch.nn.Module):
     def __init__(
         self, in_channels, out_channels, edge_dim, heads=2,
-        negative_slope=0.2, dropout=0.1, add_self_loop=True,
+        negative_slope=0.2, dropout=0.1,
     ):
         super(MixConv, self).__init__()
         self.attn = SelfAttnBlock(
@@ -97,7 +97,6 @@ class MixConv(torch.nn.Module):
         self.conv = MyGATConv(
             in_channels, out_channels, edge_dim, heads=heads,
             negative_slope=negative_slope, dropout=dropout,
-            add_self_loop=add_self_loop
         )
 
     def forward(
@@ -117,7 +116,7 @@ class MixConv(torch.nn.Module):
 class MixFormer(torch.nn.Module):
     def __init__(
         self, emb_dim, num_layer, heads=2, dropout=0.1,
-        negative_slope=0.2,  add_self_loop=True,
+        negative_slope=0.2,
     ):
         super(MixFormer, self).__init__()
         self.convs = torch.nn.ModuleList()
@@ -135,7 +134,7 @@ class MixFormer(torch.nn.Module):
             self.convs.append(MixConv(
                 in_channels=emb_dim, out_channels=emb_dim // (heads * 2),
                 edge_dim=emb_dim, heads=heads, negative_slope=negative_slope,
-                dropout=dropout, add_self_loop=add_self_loop
+                dropout=dropout,
             ))
 
         self.atom_encoder = AtomEncoder(emb_dim)
@@ -152,9 +151,9 @@ class MixFormer(torch.nn.Module):
             )))
 
             node_feats = self.batch_norms[layer](conv_res + node_feats)
-            edge_feats = self.edge_update[layer](
+            edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=graph.edge_index
-            )
+            ))
 
         return node_feats, edge_feats

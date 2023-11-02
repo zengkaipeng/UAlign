@@ -43,7 +43,7 @@ class MyGATConv(MessagePassing):
 
     def reset_parameters(self):
         if torch_geometric.__version__.startswith('2.3'):
-            super(SelfLoopGATConv, self).reset_parameters()
+            super(MyGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()

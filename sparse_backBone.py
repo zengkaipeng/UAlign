@@ -67,10 +67,10 @@ class GINBase(torch.nn.Module):
             ))
 
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
-            edge_feats = self.edge_update[layer](
+            edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=graph.edge_index
-            )
+            ))
         return node_feats, edge_feats
 
 
@@ -78,7 +78,7 @@ class GATBase(torch.nn.Module):
     def __init__(
         self, num_layers: int = 4, num_heads: int = 4,
         embedding_dim: int = 64, dropout: float = 0.7,
-        negative_slope: float = 0.2, add_self_loop: bool = True
+        negative_slope: float = 0.2,
     ):
         super(GATBase, self).__init__()
         if num_layers < 2:
@@ -95,7 +95,7 @@ class GATBase(torch.nn.Module):
                 in_channels=embedding_dim, heads=num_heads,
                 out_channels=embedding_dim // num_heads,
                 negative_slope=negative_slope, dropout=dropout,
-                edge_dim=embedding_dim, add_self_loop=add_self_loop
+                edge_dim=embedding_dim,
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             self.edge_update.append(SparseEdgeUpdateLayer(
@@ -114,9 +114,9 @@ class GATBase(torch.nn.Module):
                 edge_index=graph.edge_index
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
-            edge_feats = self.edge_update[layer](
+            edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
                 edge_index=graph.edge_index
-            )
+            ))
 
         return node_feats, edge_feats
