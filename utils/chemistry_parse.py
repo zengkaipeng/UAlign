@@ -412,7 +412,7 @@ def extend_by_dfs(reac, activate_nodes, prod_amap):
         curr_nodes[v] = k
 
     vis = set(prod_amap.keys())
-    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap' 
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
 
     mol = Chem.MolFromSmiles(reac)
     if mol is None:
@@ -440,20 +440,24 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
         while lf < len(Q):
             top = Q[lf]
             top_atom = mol.GetAtomWithIdx(top)
+            # print('[top atom]', lf, top_atom.GetAtomMapNum())
             for nei in top_atom.GetNeighbors():
                 nei_amap = nei.GetAtomMapNum()
                 if nei_amap not in vis:
                     vis.add(nei_amap)
                     curr_nodes.append(nei_amap)
-                    Q.append(top_atom.GetIdx())
+                    Q.append(nei.GetIdx())
             lf += 1
+
+        # print('\n[done]\n')
 
     curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
     for k, v in prod_amap.items():
         curr_nodes[v] = k
     vis = set(prod_amap.keys())
+    # print(vis)
 
-    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap' 
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
 
     mol = Chem.MolFromSmiles(reac)
     if mol is None:
@@ -465,7 +469,7 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
     for atom in mol.GetAtoms():
         am = atom.GetAtomMapNum()
         if am in activate_nodes:
-            Q.append(am.GetIdx())
+            Q.append(atom.GetIdx())
 
     bfs_with_Q(Q, lf, mol, vis)
 
@@ -473,7 +477,7 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
 
     for atom in mol.GetAtoms():
         am = atom.GetAtomMapNum()
-        if am in not in vis:
+        if am not in vis:
             Q = [atom.GetIdx()]
             vis.add(am)
             curr_nodes.append(am)

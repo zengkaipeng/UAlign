@@ -198,7 +198,7 @@ def make_decoder_graph(
         n_pad_mask.append(torch.ones(pad_num).bool())
 
         if node_types is not None:
-            node_cls = torch.zeros(p_n_cnt).long()
+            node_cls = torch.zeros(a_n_cnt).long()
             for k, v in node_types[idx].items():
                 node_cls[k] = v
             all_node_types.append(node_cls)
@@ -252,11 +252,11 @@ def make_decoder_graph(
         ]
         all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T + lstnode)
 
-        e_org_mask.append(torch.zeros(p_e_cnt).bool())
-        e_pad_mask.append(torch.ones(p_e_cnt).bool())
-
         p_e_cnt = len(pad_edges)
         a_e_cnt = o_e_cnt + p_e_cnt
+
+        e_org_mask.append(torch.zeros(p_e_cnt).bool())
+        e_pad_mask.append(torch.ones(p_e_cnt).bool())
 
         lstnode += a_n_cnt
         lstedge += a_e_cnt
@@ -294,7 +294,7 @@ def make_decoder_graph(
         result['graph_rxn'] = torch.LongTensor(graph_rxn)
 
     if node_types is not None and edge_types is not None:
-        result['node_class'] = torch.from_numpy(npcat(all_node, axis=0))
+        result['node_class'] = torch.from_numpy(npcat(all_node_types, axis=0))
         result['org_edge_class'] = torch.from_numpy(npcat(org_edge, axis=0))
         return torch_geometric.data.Data(**result), all_edge_types
     else:
@@ -324,6 +324,7 @@ def make_attn_mask(edge_index, max_node, pad_idx):
         if node not in vis:
             block = []
             dfs(node, graph, block, vis)
+            block.extend(pad_idx)
             x_mask = torch.ones(max_node).bool()
             x_mask[block] = False
             block_attn = torch.zeros(max_node, max_node).bool()
@@ -337,14 +338,13 @@ def overall_col_fn(pad_num):
     # use zero as empty type
 
     def col_fn(batch):
-        encoder_fn = edit_col_fn(selfloop)
         use_class = len(batch[0]) == 6
-        encoder_graph = encoder_fn([x[:4] for x in batch])\
-            if use_class else encoder_fn([x[:3] for x in batch])
+        encoder_graph = edit_col_fn([x[:4] for x in batch])\
+            if use_class else edit_col_fn([x[:3] for x in batch])
 
         # print('encoder done')
         paras = {
-            'graphs': [x[0] for x in batch],
+            'graphs': [x[0] for x in batch], 'pad_num': pad_num,
             'activate_nodes': [x[1] for x in batch],
             'changed_edges': [x[2] for x in batch],
             'node_types': [x[-2] for x in batch],

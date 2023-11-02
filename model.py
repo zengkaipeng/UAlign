@@ -354,7 +354,7 @@ class EncoderDecoder(torch.nn.Module):
                 'node_types': [
                     {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
                     for x in valid_idx
-                ]
+                ],
                 'edge_types': [sep_edges for x in valid_idx]
             }
 

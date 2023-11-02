@@ -46,7 +46,13 @@ def create_overall_dataset(
         nodes.append([prod_amap[t] for t in x])
         edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
+
+        print('activate_nodes', x)
+
         node_type = get_node_types(reacts[idx])
+
+        # print(node_type)
+
         edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
 
         if label_method == 'dfs':
@@ -71,7 +77,7 @@ def create_overall_dataset(
 
 def create_infernece_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, pos_enc='none', **kwargs
+    verbose=True,
 ):
     graphs, node_types, edge_types, smis = [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
@@ -79,9 +85,7 @@ def create_infernece_dataset(
         encoder_graph, prod_amap = smiles2graph(
             prod, with_amap=True, kekulize=kekulize
         )
-        encoder_graph = add_pos_enc(encoder_graph, method=pos_enc, **kwargs)
         graphs.append(encoder_graph)
-
         node_type = get_node_types(prods[idx])
         edge_type = get_edge_types(prods[idx], kekulize=kekulize)
 
