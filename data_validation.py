@@ -57,7 +57,7 @@ if __name__ == '__main__':
     col_fn = overall_col_fn(pad_num=10)
     batch_size = 2
     loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=False, 
+        dataset, collate_fn=col_fn, shuffle=False,
         batch_size=batch_size
     )
 
@@ -83,15 +83,15 @@ if __name__ == '__main__':
         # print(decoder_graph.node_class)
     exit()
 
-    
+    gnn_args = {
+        'in_channels': 64, 'out_channels': 64,
+        'edge_dim': 64
+    }
 
-
-    gnn_args = {'embedding_dim': 64}
-    GNN_enc = MixFormer(
+    GNN = MixFormer(
         emb_dim=64, n_layers=2, gnn_args=gnn_args,
-        dropout=0.1, heads=4, pos_enc='none',
-        negative_slope=0.2, pos_args={}, n_class=None, edge_last=True,
-        residual=True, update_gate='cat', gnn_type='gin'
+        dropout=0.1, heads=4, gnn_type='gin',
+        n_class=None, update_gate='cat'
     )
 
     encoder = BinaryGraphEditModel(GNN_enc, 64, 64)
