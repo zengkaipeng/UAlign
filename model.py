@@ -76,73 +76,11 @@ class OnFlyDataset(torch.utils.data.Dataset):
         return graph, node_label, edge_label, ret
 
 
-def get_col_fc(self_loop):
-    def fc_collect_fn(data_batch):
-        batch_size, node_label, max_node = len(data_batch), [], 0
-        edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
-        edge_label, batch, ptr, reats = [], [], [0], []
-        node_per_graph, org_mask, self_mask = [], [], []
-        for idx, data in enumerate(data_batch):
-            graph, n_lb, e_lb, ret = data
-            num_nodes = graph['num_nodes']
-            num_edges = graph['edge_index'].shape[1]
-
-            node_label.append(n_lb)
-            edge_label.append(e_lb)
-            reats.append(ret)
-
-            edge_idxes.append(graph['edge_index'] + lstnode)
-            edge_feats.append(graph['edge_feat'])
-            node_feats.append(graph['node_feat'])
-            org_mask.append(torch.ones(num_edges).bool())
-            self_mask.append(torch.zeros(num_edges).bool())
-
-            if self_loop:
-                self_edges = [(x, x) for x in range(num_nodes)]
-                self_edges = np.array(self_edges, dtype=np.int64).T
-                edge_idxes.append(self_edges + lstnode)
-                edge_label.append(torch.zeros(num_nodes).long())
-
-                org_mask.append(torch.zeros(num_nodes).bool())
-                self_mask.append(torch.ones(num_nodes).bool())
-
-            lstnode += num_nodes
-            max_node = max(max_node, num_nodes)
-            node_per_graph.append(num_nodes)
-            batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
-            ptr.append(lstnode)
-
-        result = {
-            'edge_index': np.concatenate(edge_idxes, axis=-1),
-            'edge_attr': np.concatenate(edge_feats, axis=0),
-            'batch': np.concatenate(batch, axis=0),
-            'x': np.concatenate(node_feats, axis=0),
-            'ptr': np.array(ptr, dtype=np.int64)
-        }
-
-        result = {k: torch.from_numpy(v) for k, v in result.items()}
-        result['num_nodes'] = lstnode
-        result['node_label'] = torch.cat(node_label, dim=0)
-        result['edge_label'] = torch.cat(edge_label, dim=0)
-
-        all_batch_mask = torch.zeros((batch_size, max_node))
-        for idx, mk in enumerate(node_per_graph):
-            all_batch_mask[idx, :mk] = 1
-        result['node_per_graph'] = torch.LongTensor(node_per_graph)
-        result['batch_mask'] = all_batch_mask.bool()
-        result['org_mask'] = torch.cat(org_mask, dim=0)
-        result['self_mask'] = torch.cat(self_mask, dim=0)
-
-        return GData(**result), reats
-    return fc_collect_fn
-
-
-
 def col_fn_unloop(data_batch):
     batch_size, node_label, max_node = len(data_batch), [], 0
     edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
     edge_label, batch, ptr, reats = [], [], [0], []
-    node_per_graph, org_mask, self_mask = [], [], []
+    node_per_graph = []
     for idx, data in enumerate(data_batch):
         graph, n_lb, e_lb, ret = data
         num_nodes = graph['num_nodes']
@@ -155,8 +93,6 @@ def col_fn_unloop(data_batch):
         edge_idxes.append(graph['edge_index'] + lstnode)
         edge_feats.append(graph['edge_feat'])
         node_feats.append(graph['node_feat'])
-        org_mask.append(torch.ones(num_edges).bool())
-        self_mask.append(torch.zeros(num_edges).bool())
 
         lstnode += num_nodes
         max_node = max(max_node, num_nodes)
@@ -180,67 +116,7 @@ def col_fn_unloop(data_batch):
     all_batch_mask = torch.zeros((batch_size, max_node))
     for idx, mk in enumerate(node_per_graph):
         all_batch_mask[idx, :mk] = 1
-    result['node_per_graph'] = torch.LongTensor(node_per_graph)
     result['batch_mask'] = all_batch_mask.bool()
-    result['org_mask'] = torch.cat(org_mask, dim=0)
-    result['self_mask'] = torch.cat(self_mask, dim=0)
-
-    return GData(**result), reats
-
-def col_fn_selfloop(data_batch):
-    batch_size, node_label, max_node = len(data_batch), [], 0
-    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
-    edge_label, batch, ptr, reats = [], [], [0], []
-    node_per_graph, org_mask, self_mask = [], [], []
-    for idx, data in enumerate(data_batch):
-        graph, n_lb, e_lb, ret = data
-        num_nodes = graph['num_nodes']
-        num_edges = graph['edge_index'].shape[1]
-
-        node_label.append(n_lb)
-        edge_label.append(e_lb)
-        reats.append(ret)
-
-        edge_idxes.append(graph['edge_index'] + lstnode)
-        edge_feats.append(graph['edge_feat'])
-        node_feats.append(graph['node_feat'])
-        org_mask.append(torch.ones(num_edges).bool())
-        self_mask.append(torch.zeros(num_edges).bool())
-
-        self_edges = [(x, x) for x in range(num_nodes)]
-        self_edges = np.array(self_edges, dtype=np.int64).T
-        edge_idxes.append(self_edges + lstnode)
-        edge_label.append(torch.zeros(num_nodes).long())
-
-        org_mask.append(torch.zeros(num_nodes).bool())
-        self_mask.append(torch.ones(num_nodes).bool())
-
-        lstnode += num_nodes
-        max_node = max(max_node, num_nodes)
-        node_per_graph.append(num_nodes)
-        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
-        ptr.append(lstnode)
-
-    result = {
-        'edge_index': np.concatenate(edge_idxes, axis=-1),
-        'edge_attr': np.concatenate(edge_feats, axis=0),
-        'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0),
-        'ptr': np.array(ptr, dtype=np.int64)
-    }
-
-    result = {k: torch.from_numpy(v) for k, v in result.items()}
-    result['num_nodes'] = lstnode
-    result['node_label'] = torch.cat(node_label, dim=0)
-    result['edge_label'] = torch.cat(edge_label, dim=0)
-
-    all_batch_mask = torch.zeros((batch_size, max_node))
-    for idx, mk in enumerate(node_per_graph):
-        all_batch_mask[idx, :mk] = 1
-    result['node_per_graph'] = torch.LongTensor(node_per_graph)
-    result['batch_mask'] = all_batch_mask.bool()
-    result['org_mask'] = torch.cat(org_mask, dim=0)
-    result['self_mask'] = torch.cat(self_mask, dim=0)
 
     return GData(**result), reats
 
@@ -298,8 +174,9 @@ class Graph2Seq(torch.nn.Module):
     def encode(self, graphs):
         node_feat, edge_feat = self.encoder(graphs)
 
-        batch_size = graphs.batch.max().item() + 1
-        max_mem_len = graphs.node_per_graph.max().item()
+        # batch_size = graphs.batch.max().item() + 1
+        # max_mem_len = graphs.node_per_graph.max().item()
+        batch_size, max_mem_len = graphs.batch_mask.shape
         memory = self.graph2batch(
             node_feat=node_feat, batch_mask=graphs.batch_mask,
             batch_size=batch_size, max_node=max_mem_len
@@ -322,8 +199,7 @@ class Graph2Seq(torch.nn.Module):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
         node_feat, edge_feat = self.encoder(graphs)
 
-        batch_size = graphs.batch.max().item() + 1
-        max_mem_len = graphs.node_per_graph.max().item()
+        batch_size, max_mem_len = graphs.batch_mask.shape
         memory = self.graph2batch(
             node_feat=node_feat, batch_mask=graphs.batch_mask,
             batch_size=batch_size, max_node=max_mem_len

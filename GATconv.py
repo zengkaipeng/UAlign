@@ -1,6 +1,5 @@
 from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.utils import softmax as sp_softmax
-from torch_geometric.utils import add_self_loops, remove_self_loops
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
@@ -12,8 +11,7 @@ import torch_geometric
 class MyGATConv(MessagePassing):
     def __init__(
         self, in_channels, out_channels, edge_dim, heads=1,
-        negative_slope=0.2, dropout=0.1, add_self_loop=True,
-        **kwargs,
+        negative_slope=0.2, dropout=0.1, **kwargs,
     ):
         kwargs.setdefault('aggr', 'add')
         super(MyGATConv, self).__init__(node_dim=0, **kwargs)
@@ -29,7 +27,6 @@ class MyGATConv(MessagePassing):
             in_channels, out_channels * heads,
             bias=False, weight_initializer='glorot'
         )
-        self.add_self_loop = add_self_loop
 
         self.att_src = Parameter(torch.zeros(1, heads, out_channels))
         self.att_dst = Parameter(torch.zeros(1, heads, out_channels))
@@ -40,12 +37,13 @@ class MyGATConv(MessagePassing):
             edge_dim, out_channels * heads,
             bias=True, weight_initializer='glorot'
         )
+        self.self_edge = torch.nn.Parameter(torch.randn(1, edge_dim))
 
         self.reset_parameters()
 
     def reset_parameters(self):
         if torch_geometric.__version__.startswith('2.3'):
-            super(MyGATConv, self).reset_parameters()
+            super(SelfLoopGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()
@@ -55,12 +53,18 @@ class MyGATConv(MessagePassing):
         zeros(self.bias)
 
     def forward(self, x, edge_index, edge_attr, size=None):
-        num_nodes = x.shape[0]
-        if self.add_self_loop:
-            edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
-            edge_index, edge_attr = add_self_loops(
-                edge_index, edge_attr, fill_value='mean', num_nodes=num_nodes
-            )
+        num_nodes, num_edges = x.shape[0], edge_index.shape[1]
+
+        # add self loop
+
+        self_edges = torch.Tensor([(i, i) for i in range(num_nodes)])
+        self_edges = self_edges.T.to(edge_index)
+        edge_index = torch.cat([edge_index, self_edges], dim=1)
+        edge_attr = torch.cat([
+            edge_attr, self.self_edge.repeat(num_nodes, 1)
+        ], dim=0)
+
+        # old prop
 
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)

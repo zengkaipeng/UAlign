@@ -54,18 +54,15 @@ class GINBase(torch.nn.Module):
                 embedding_dim, embedding_dim
             ))
         self.atom_encoder = AtomEncoder(embedding_dim)
-        self.bond_encoder = SparseBondEncoder(embedding_dim)
+        self.bond_encoder = BondEncoder(embedding_dim)
 
     def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
         node_feats = self.atom_encoder(graph.x)
-        edge_feats = self.bond_encoder(
-            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
-            self_mask=graph.self_mask
-        )
+        edge_feats = self.bond_encoder(graph.edge_attr)
 
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, 
+                x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index,
             ))
 
@@ -106,17 +103,14 @@ class GATBase(torch.nn.Module):
             ))
         self.add_self_loop = add_self_loop
         self.atom_encoder = AtomEncoder(embedding_dim)
-        self.bond_encoder = SparseBondEncoder(embedding_dim)
+        self.bond_encoder = BondEncoder(embedding_dim)
 
     def forward(self, graph) -> Tuple[torch.Tensor, torch.Tensor]:
         node_feats = self.atom_encoder(graph.x)
-        edge_feats = self.bond_encoder(
-            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
-            self_mask=graph.self_mask
-        )
+        edge_feats = self.bond_encoder(graph.edge_attr)
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, 
+                x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
@@ -126,22 +120,3 @@ class GATBase(torch.nn.Module):
             )
 
         return node_feats, edge_feats
-
-
-class SparseBondEncoder(torch.nn.Module):
-    def __init__(self, dim):
-        super(SparseBondEncoder, self).__init__()
-        self.bond_encoder = BondEncoder(dim)
-        self.self_embedding = torch.nn.Parameter(torch.randn(dim))
-        self.dim = dim
-
-    def forward(self, edge_feat, org_mask, self_mask):
-        assert org_mask.shape == self_mask.shape, \
-            'org mask and self mask should share the same shape'
-
-        num_edges = org_mask.shape[0]
-        result = torch.zeros(num_edges, self.dim).to(edge_feat.device)
-        result[org_mask] = self.bond_encoder(edge_feat)
-        result[self_mask] = self.self_embedding
-
-        return result

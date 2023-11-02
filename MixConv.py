@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from collections.abc import Iterable
 import torch.nn.functional as F
 from GATconv import MyGATConv
-from sparse_backBone import SparseEdgeUpdateLayer, SparseBondEncoder
-from ogb.graphproppred.mol_encoder import AtomEncoder
+from sparse_backBone import SparseEdgeUpdateLayer
+from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 
 
 class MhAttnBlock(torch.nn.Module):
@@ -139,14 +139,11 @@ class MixFormer(torch.nn.Module):
             ))
 
         self.atom_encoder = AtomEncoder(emb_dim)
-        self.bond_encoder = SparseBondEncoder(emb_dim)
+        self.bond_encoder = BondEncoder(emb_dim)
 
     def forward(self, graph):
         node_feats = self.atom_encoder(graph.x)
-        edge_feats = self.bond_encoder(
-            edge_feat=graph.edge_attr, org_mask=graph.org_mask,
-            self_mask=graph.self_mask
-        )
+        edge_feats = self.bond_encoder(graph.edge_attr)
         for layer in range(self.num_layers):
             conv_res = torch.relu(self.drop_fun(self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,

@@ -9,7 +9,7 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, get_col_fc, PositionalEncoding, Acc_fn
+from model import Graph2Seq, col_fn_unloop, PositionalEncoding, Acc_fn
 from training import train_trans, eval_trans
 from data_utils import load_ext_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
@@ -180,20 +180,16 @@ if __name__ == '__main__':
         aug_prob=0, randomize=False
     )
 
-    if args.backbone in ['GAT', 'MIX']:
-        col_fn = get_col_fc(self_loop=True)
-    else:
-        col_fn = get_col_fc(self_loop=False)
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn,
+        train_set, collate_fn=col_fn_unloop,
         batch_size=args.bs, shuffle=True,
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=col_fn,
+        valid_set, collate_fn=col_fn_unloop,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn,
+        test_set, collate_fn=col_fn_unloop,
         batch_size=args.bs, shuffle=False
     )
 
