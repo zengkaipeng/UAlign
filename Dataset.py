@@ -164,6 +164,10 @@ def make_decoder_graph(
             representing each atom type on reactant (default: `None`)
         edge_types ([list]): a list of dict, representing each
             bond type on reactant  (default: `None`)
+    return:
+        graphs (torch_geometric.data.Data): containing graph informations
+        all_edge_types (dict): optional, a dict containing all the edge types, 
+            edge indexes are merged
     """
     all_edge_types, all_node_types, org_edge = {}, [], []
     all_edg_idx, all_node_feat, all_edge_feat = [], [], []
@@ -329,7 +333,7 @@ def make_attn_mask(edge_index, max_node, pad_idx):
     return attn_mask
 
 
-def overall_col_fn(selfloop, pad_num):
+def overall_col_fn(pad_num):
     # use zero as empty type
 
     def col_fn(batch):

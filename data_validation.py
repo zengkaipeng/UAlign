@@ -11,23 +11,23 @@ from tqdm import tqdm
 if __name__ == '__main__':
 
     # run all
-    rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'train')
-    dataset = create_overall_dataset(
-        rec, prod, rxn_class=None, kekulize=False
-    )
+    # rec, prod, rxn = load_data(r'..\data\UTPSO-50K', 'train')
+    # dataset = create_overall_dataset(
+    #     rec, prod, rxn_class=None, kekulize=False
+    # )
 
-    print(dataset)
+    # print(dataset)
 
-    col_fn = overall_col_fn(selfloop=False, pad_num=35)
+    # col_fn = overall_col_fn(selfloop=False, pad_num=35)
 
-    loader = DataLoader(
-        dataset, collate_fn=col_fn, shuffle=True, batch_size=64
-    )
+    # loader = DataLoader(
+    #     dataset, collate_fn=col_fn, shuffle=True, batch_size=64
+    # )
 
-    for data in tqdm(loader):
-        pass
+    # for data in tqdm(loader):
+    #     pass
 
-    exit()
+    # exit()
 
     # by case
 
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     ]
 
     dataset = create_overall_dataset(rec, prod, rxn_class=None, kekulize=False)
-    col_fn = overall_col_fn(selfloop=True, pad_num=10)
+    col_fn = overall_col_fn(pad_num=10)
 
     loader = DataLoader(
         dataset, collate_fn=col_fn, shuffle=False, batch_size=2
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     for data in loader:
         # print(data)
         decoder_graph = data[1]
-        # print(decoder_graph.attn_mask.long())
+        print(decoder_graph.attn_mask.long())
         # exit()
         # print(decoder_graph.ptr, '\n', decoder_graph.edge_index)
         # print(decoder_graph.node_class.shape)
@@ -67,7 +67,8 @@ if __name__ == '__main__':
         # print(data[2])
         # exit()
         # print(decoder_graph.node_class)
-        pass
+        
+    exit()
 
     gnn_args = {'embedding_dim': 64}
     GNN_enc = MixFormer(
