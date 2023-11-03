@@ -129,6 +129,7 @@ def train_overall(
         encoder_graph, decoder_graph, real_edge_type = data
         encoder_graph = encoder_graph.to(device)
         decoder_graph = decoder_graph.to(device)
+        # print(decoder_graph.node_class)
 
         losses = model(
             encoder_graph, decoder_graph, real_edge_type,
@@ -185,6 +186,7 @@ def eval_overall(model, loader, device, mode='edge'):
                 synthon_nodes[i], synthon_edges[i],
                 pad_n_pred[i], pad_e_pred[i]
             )
+            # print(result)
             acc += (smi[i] == result)
 
     return acc / total

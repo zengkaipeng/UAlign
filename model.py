@@ -275,6 +275,8 @@ class DecoderOnly(torch.nn.Module):
             e_feat = torch.cat([node_feat[idx_i], node_feat[idx_j]], dim=-1)
             e_logs = self.edge_predictor(self.feat_extracter(e_feat))
 
+            # print(useful_edges)
+
             total_e_loss[idx] = cross_entropy(e_logs, e_labs, reduction='sum')
         return total_n_loss.mean(), total_e_loss.mean()
 
