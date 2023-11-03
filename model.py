@@ -421,7 +421,7 @@ class EncoderDecoder(torch.nn.Module):
 
         decoder_graph = make_decoder_graph(
             org_graphs, enc_n_pred, enc_e_pred, pad_num, rxns=rxns
-        )
+        ).to(memory.device)
 
         pad_n_pred, pad_e_pred = self.decoder.predict(
             decoder_graph, memory, mem_pad_mask
