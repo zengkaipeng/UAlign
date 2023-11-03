@@ -364,22 +364,38 @@ def extend_label_by_edge(node_pred, edge_pred, edge_index):
     return node_pred, edge_pred
 
 
-def predict_synthon(batch_size, n_pred, e_pred, graph, n_types, e_types):
+# def predict_synthon(batch_size, n_pred, e_pred, graph, n_types, e_types):
+#     answer_n, answer_e = [], []
+#     for idx in range(batch_size):
+#         this_n_mask = graph.batch == idx
+#         this_e_mask = graph.e_batch == idx
+#         num_nodes = n_pred[this_n_mask].shape[0]
+#         answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
+#         edge_res = {}
+#         this_edge = graph.edge_index[this_e_mask].T
+#         this_epd = e_pred[this_e_mask]
+#         for edx, res in enumerate(this_epd):
+#             if res.item() == 1:
+#                 continue
+#             row, col = this_edge[:, edx].tolist()
+#             row -= graph.ptr[idx].item()
+#             col -= graph.ptr[idx].item()
+#             if (row, col) not in edge_res and (col, row not in edge_res):
+#                 edge_res[(row, col)] = e_types[idx][(row, col)]
+#         answer_e.append(edge_res)
+#     return answer_n, answer_e
+
+def predict_synthon(n_pred, e_pred, graph, n_types, e_types):
     answer_n, answer_e = [], []
-    for idx in range(batch_size):
-        this_n_mask = graph.batch == idx
-        this_e_mask = graph.e_batch == idx
-        num_nodes = n_pred[this_n_mask].shape[0]
+    for idx, this_n in enumerate(n_pred):
+        this_e_idx = graph.edge_index[:, graph.e_batch == idx]
+        num_nodes, offset = this_n.shape[0], graph.ptr[idx].item()
         answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
-        edge_res = {}
-        this_edge = graph.edge_index[this_e_mask].T
-        this_epd = e_pred[this_e_mask]
-        for edx, res in enumerate(this_epd):
+        for edx, res in enumerate(e_pred[idx]):
             if res.item() == 1:
                 continue
-            row, col = this_edge[:, edx].tolist()
-            row -= graph.ptr[idx].item()
-            col -= graph.ptr[idx].item()
+            row, col = this_e_idx[:, edx].tolist()
+            row, col = row - offset, col - offset
             if (row, col) not in edge_res and (col, row not in edge_res):
                 edge_res[(row, col)] = e_types[idx][(row, col)]
         answer_e.append(edge_res)

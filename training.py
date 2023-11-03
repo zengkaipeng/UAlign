@@ -175,6 +175,8 @@ def eval_overall(model, loader, device, mode='edge'):
             answer = model.predict(encoder_graph, syn_mode=mode)
             enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred = answer
 
+        print(len(enc_n_pred), len(enc_e_pred))
+
         synthon_nodes, synthon_edges = predict_synthon(
             batch_size=batch_size, n_pred=enc_n_pred, e_pred=enc_e_pred,
             graph=encoder_graph, n_types=node_types, e_types=edge_types

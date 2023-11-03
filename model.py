@@ -188,7 +188,7 @@ class DecoderOnly(torch.nn.Module):
         )
 
         edge_res = seperate_dict(
-            label_dict=pad_n_pred, num_nodes=graph.num_nodes,
+            label_dict=pad_e_pred, num_nodes=graph.num_nodes,
             batch=graph.batch, ptr=graph.ptr
         )
         return node_res, edge_res
