@@ -241,7 +241,7 @@ if __name__ == '__main__':
 
     decoder = DecoderOnly(
         backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
-        node_class=len(ATOM_TPYE_TO_IDX) + 1,
+        node_class=len(ATOM_TPYE_TO_IDX) + 1, pad_num=args.pad_num,
         edge_class=4 if args.kekulize else 5
     )
 

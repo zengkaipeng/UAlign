@@ -95,7 +95,7 @@ def make_memory_from_feat(node_feat, batch_mask):
 class DecoderOnly(torch.nn.Module):
     def __init__(
         self, backbone, node_dim, edge_dim,
-        node_class, edge_class
+        node_class, edge_class, pad_num
     ):
         super(DecoderOnly, self).__init__()
         self.backbone = backbone
@@ -115,6 +115,7 @@ class DecoderOnly(torch.nn.Module):
         )
         self.node_class = node_class
         self.edge_class = edge_class
+        self.pad_num = pad_num
 
     def forward(
         self, graph, memory, all_edge_types,
@@ -226,8 +227,6 @@ class DecoderOnly(torch.nn.Module):
         pad_n_cls = pad_n_cls.reshape(batch_size, -1)
         pad_n_idx = pad_n_idx.reshape(batch_size, -1)
         device = pad_n_logs.device
-        pad_num = pad_n_cls.shape[1]
-        assert pad_num == pad_n_idx.shape[1], 'idx and cls un match'
 
         total_n_loss = torch.zeros(batch_size).to(device)
         total_e_loss = torch.zeros(batch_size).to(device)
@@ -244,7 +243,7 @@ class DecoderOnly(torch.nn.Module):
                     for i, x in enumerate(row_id)
                 }
             else:
-                row_id = col_id = list(range(pad_num))
+                row_id = col_id = list(range(self.pad_num))
                 node_remap = {}
 
             total_n_loss[idx] = cross_entropy(
@@ -398,7 +397,7 @@ class EncoderDecoder(torch.nn.Module):
         else:
             raise NotImplementedError(f'Invalid aug_mode {syn_mode}')
 
-        pad_num = self.decoder.feat_init.pad_num
+        pad_num = self.decoder.pad_num
         batch_size = memory.shape[0]
 
         enc_n_pred = seperate_pred(enc_n_pred, batch_size, graph.batch)
@@ -409,11 +408,15 @@ class EncoderDecoder(torch.nn.Module):
         else:
             rxns = None
 
+        # print([x['num_nodes'] for x in org_graphs])
+        # print(org_graphs[0])
+        # print(org_graphs[1])
+
         decoder_graph = make_decoder_graph(
             org_graphs, enc_n_pred, enc_e_pred, pad_num, rxns=rxns
         )
 
-        pad_n_pred, pad_e_pred = self.decoder(
+        pad_n_pred, pad_e_pred = self.decoder.predict(
             decoder_graph, memory, mem_pad_mask
         )
 

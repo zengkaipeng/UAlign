@@ -309,12 +309,13 @@ def seperate_encoder_graphs(G):
         this_graph = {}
         this_node_mask = G.batch == idx
         this_edge_mask = G.e_batch == idx
+        this_eidx = G.edge_index[:, this_edge_mask]
+        this_eidx = (this_eidx - G.ptr[idx]).cpu().numpy()
 
         graphs.append({
             'node_feat': G.x[this_node_mask].cpu().numpy(),
-            'edge_index': G.edge_index[:, this_edge_mask].cpu().numpy(),
-            'edge_feat': G.edge_attr[this_edge_mask].cpu().numpy(),
-            'num_nodes': G.x[this_node_mask].shape[0]
+            'edge_index': this_eidx, 'num_nodes': G.x[this_node_mask].shape[0],
+            'edge_feat': G.edge_attr[this_edge_mask].cpu().numpy()
         })
 
         if G.get('node_rxn', None) is not None:
