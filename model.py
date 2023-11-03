@@ -214,8 +214,8 @@ class DecoderOnly(torch.nn.Module):
         return node_loss.mean(), edge_loss.mean()
 
     def get_matching(self, pad_logits, pad_cls):
-        neg_prob = -torch.softmax(pad_logits, dim=-1)
-        val_matrix = neg_node_log_prob[:, pad_node_label]
+        neg_prob = -torch.log_softmax(pad_logits, dim=-1)
+        val_matrix = neg_prob[:, pad_cls]
         val_matrix = val_matrix.cpu().numpy()
         row_id, col_id = linear_sum_assignment(val_matrix)
         return row_id, col_id
