@@ -391,12 +391,13 @@ def predict_synthon(n_pred, e_pred, graph, n_types, e_types):
         this_e_idx = graph.edge_index[:, graph.e_batch == idx]
         num_nodes, offset = this_n.shape[0], graph.ptr[idx].item()
         answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
+        edge_res = {}
         for edx, res in enumerate(e_pred[idx]):
             if res.item() == 1:
                 continue
             row, col = this_e_idx[:, edx].tolist()
             row, col = row - offset, col - offset
-            if (row, col) not in edge_res and (col, row not in edge_res):
+            if (row, col) not in edge_res and (col, row) not in edge_res:
                 edge_res[(row, col)] = e_types[idx][(row, col)]
         answer_e.append(edge_res)
     return answer_n, answer_e

@@ -187,6 +187,8 @@ class DecoderOnly(torch.nn.Module):
             mod='softmax', return_dict=True
         )
 
+        pad_e_pred = {k: v for k, v in pad_e_pred.items() if v != 0}
+
         edge_res = seperate_dict(
             label_dict=pad_e_pred, num_nodes=graph.num_nodes,
             batch=graph.batch, ptr=graph.ptr
@@ -300,7 +302,7 @@ class EncoderDecoder(torch.nn.Module):
         batch_size = memory.shape[0]
 
         if aug_mode != 'none':
-            pad_num = self.decoder.feat_init.n_pad
+            pad_num = self.decoder.pad_num
             enc_n_pred = convert_log_into_label(enc_n_log)
             enc_e_pred = convert_edge_log_into_labels(
                 enc_e_log, encoder_graph.edge_index,
@@ -324,51 +326,52 @@ class EncoderDecoder(torch.nn.Module):
                 encoder_graph.e_batch, batch_size
             )
 
-            org_graphs = seperate_encoder_graphs(encoder_graph)
-            if len(org_graphs) == 2:
-                org_graphs, rxns = org_graphs
-            else:
-                rxns = None
+            if len(valid_idx) > 0:
+                org_graphs = seperate_encoder_graphs(encoder_graph)
+                if len(org_graphs) == 2:
+                    org_graphs, rxns = org_graphs
+                else:
+                    rxns = None
 
-            ext_n_lb = seperate_pred(
-                enc_n_pred, batch_size, encoder_graph.batch
-            )
-            ext_e_lb = seperate_pred(
-                enc_e_pred, batch_size, encoder_graph.e_batch
-            )
+                ext_n_lb = seperate_pred(
+                    enc_n_pred, batch_size, encoder_graph.batch
+                )
+                ext_e_lb = seperate_pred(
+                    enc_e_pred, batch_size, encoder_graph.e_batch
+                )
 
-            sep_edges = seperate_dict(
-                edge_types, decoder_graph.num_nodes,
-                decoder_graph.batch, decoder_graph.ptr
-            )
+                sep_edges = seperate_dict(
+                    edge_types, decoder_graph.num_nodes,
+                    decoder_graph.batch, decoder_graph.ptr
+                )
 
-            sep_nodes = seperate_pred(
-                decoder_graph.node_class, batch_size,
-                decoder_graph.batch
-            )
+                sep_nodes = seperate_pred(
+                    decoder_graph.node_class, batch_size,
+                    decoder_graph.batch
+                )
 
-            paras = {
-                'graphs': [org_graphs[x] for x in valid_idx],
-                'activate_nodes': [ext_n_lb[x] for x in valid_idx],
-                'changed_edges': [ext_e_lb[x] for x in valid_idx],
-                'pad_num': pad_num, 'rxns': rxns,
-                'node_types': [
-                    {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
-                    for x in valid_idx
-                ],
-                'edge_types': [sep_edges for x in valid_idx]
-            }
+                paras = {
+                    'graphs': [org_graphs[x] for x in valid_idx],
+                    'activate_nodes': [ext_n_lb[x] for x in valid_idx],
+                    'changed_edges': [ext_e_lb[x] for x in valid_idx],
+                    'pad_num': pad_num, 'rxns': rxns,
+                    'node_types': [
+                        {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
+                        for x in valid_idx
+                    ],
+                    'edge_types': [sep_edges[x] for x in valid_idx]
+                }
 
-            aug_dec_G = make_decoder_graph(**paras)
-            a, b, c, d = self.decoder(
-                decoder_graph, memory, edge_types, matching=use_matching,
-                memory_pad_mask=memory_pad_mask
-            )
+                aug_dec_G = make_decoder_graph(**paras)
+                a, b, c, d = self.decoder(
+                    decoder_graph, memory, edge_types, matching=use_matching,
+                    mem_pad_mask=memory_pad_mask
+                )
 
-            org_n_loss += a
-            org_e_loss += b
-            pad_n_loss += c
-            pad_e_loss += e
+                org_n_loss += a
+                org_e_loss += b
+                pad_n_loss += c
+                pad_e_loss += d
 
         return enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
 
@@ -444,4 +447,4 @@ def filter_valid_idx(
         ec = torch.all(this_elb == inters).item()
         if nc and ec:
             answer.append(idx)
-    return idx
+    return answer
