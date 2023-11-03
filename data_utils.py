@@ -46,7 +46,7 @@ def create_overall_dataset(
         nodes.append([prod_amap[t] for t in x])
         edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
-        print('activate_nodes', x)
+        # print('activate_nodes', x)
 
         node_type, edge_type = get_reac_infos(
             prod, reacts[idx], return_idx=True, kekulize=kekulize

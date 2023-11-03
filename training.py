@@ -1,9 +1,7 @@
-from model import evaluate_sparse
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
 import torch
-from model import convert_graphs_into_decoder
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
     eval_by_edge, eval_by_node, eval_by_graph,
@@ -134,7 +132,7 @@ def train_overall(
 
         losses = model(
             encoder_graph, decoder_graph, real_edge_type,
-            pos_weight=pos_weight, matching=matching, aug_mode=aug_mode
+            pos_weight=pos_weight, use_matching=matching, aug_mode=aug_mode
         )
 
         enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, \

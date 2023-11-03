@@ -291,10 +291,9 @@ class EncoderDecoder(torch.nn.Module):
         memory, memory_pad_mask = make_memory_from_feat(
             node_feat=n_feat, batch_mask=encoder_graph.batch_mask
         )
-
         org_n_loss, org_e_loss, pad_n_loss, pad_e_loss = self.decoder(
             decoder_graph, memory, edge_types, matching=use_matching,
-            memory_pad_mask=memory_pad_mask
+            mem_pad_mask=memory_pad_mask
         )
         batch_size = memory.shape[0]
 

@@ -54,7 +54,7 @@ class Feat_init(torch.nn.Module):
         org_node_feat = self.atom_encoder(G.x, None)
         node_feat[G.n_org_mask] = org_node_feat
         Qval = self.Qemb.repeat(batch_size, 1, 1)
-        pad_node_feat = self.Attn(
+        pad_node_feat, _ = self.Attn(
             query=Qval, key=memory, value=memory,
             key_padding_mask=mem_pad_mask
         )
@@ -120,8 +120,9 @@ class MixDecoder(torch.nn.Module):
         for i in range(self.num_layers):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats,
-                attn_mask=graph.attn_mask, batch_mask=graph.batch_mask,
-                edge_index=graph.edge_index,
+                edge_index=graph.edge_index, batch_mask=graph.batch_mask,
+                attn_mask=graph.get('attn_mask', None),
+                org_mask=graph.get('e_org_mask', None)
             ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
@@ -131,8 +132,8 @@ class MixDecoder(torch.nn.Module):
             )
 
             cross_res = self.cross_attns[i](
-                query=node_feats, key=memory, Value=memory,
-                key_padding_mask=mem_pad_mask
+                query=node_feats, key=memory, value=memory,
+                key_padding_mask=mem_pad_mask, need_weights=False,
             ) + node_feats
 
             node_feats = torch.relu(self.ln2[i](cross_res))[graph.batch_mask]
@@ -206,7 +207,7 @@ class GATDecoder(torch.nn.Module):
 
             cross_res = self.cross_attns[i](
                 query=node_feats, key=memory, value=memory,
-                key_padding_mask=mem_pad_mask
+                key_padding_mask=mem_pad_mask, need_weights=False,
             ) + node_feats
 
             node_feats = torch.relu(self.ln2[layer](cross_res))
@@ -272,7 +273,7 @@ class GINDecoder(torch.nn.Module):
             )
             cross_res = self.cross_attns[layer](
                 query=node_feats, key=memory, value=memory,
-                key_padding_mask=mem_pad_mask
+                key_padding_mask=mem_pad_mask, need_weights=False,
             ) + node_feats
 
             node_feats = torch.relu(self.ln2[layer](cross_res))

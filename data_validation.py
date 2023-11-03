@@ -51,8 +51,8 @@ if __name__ == '__main__':
     # prod = ['[NH:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1']
 
     dataset = create_overall_dataset(
-        rec, prod, rxn_class=None, kekulize=False,
-        label_method='dfs'
+        rec, prod, rxn_class=None, kekulize=True,
+        label_method='dfs',
     )
     col_fn = overall_col_fn(pad_num=10)
     batch_size = 2
@@ -68,9 +68,10 @@ if __name__ == '__main__':
         decoder_graph = data[1]
         # for t in range(batch_size):
         #     print(decoder_graph.attn_mask[t].long())
-        # print(decoder_graph.node_class[decoder_graph.n_pad_mask].reshape(batch_size, -1))
+        print(decoder_graph.node_class[decoder_graph.n_pad_mask].reshape(batch_size, -1))
         print(data[2])
         print(decoder_graph.edge_index)
+        print(decoder_graph.batch_mask)
         # exit()
         # print(decoder_graph.ptr, '\n', decoder_graph.edge_index)
         # print(decoder_graph.node_class.shape)

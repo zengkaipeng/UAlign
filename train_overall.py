@@ -16,6 +16,7 @@ from data_utils import (
 from utils.chemistry_parse import canonical_smiles
 from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
+from utils.chemistry_parse import ATOM_TPYE_TO_IDX
 
 
 def create_log_model(args):
@@ -111,7 +112,7 @@ if __name__ == '__main__':
         '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
-    parser.add_argument('--pos_wegith', default=1, type=float)
+    parser.add_argument('--pos_weight', default=1, type=float)
 
     # training
     parser.add_argument(
@@ -161,12 +162,10 @@ if __name__ == '__main__':
     valid_set = create_infernece_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None,
-        label_method=args.extend_order
     )
     test_set = create_infernece_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None,
-        label_method=args.extend_order
     )
 
     col_fn = overall_col_fn(pad_num=args.pad_num)
@@ -242,7 +241,8 @@ if __name__ == '__main__':
 
     decoder = DecoderOnly(
         backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
-        node_class=43, edge_class=4 if args.kekulize else 5
+        node_class=len(ATOM_TPYE_TO_IDX) + 1,
+        edge_class=4 if args.kekulize else 5
     )
 
     model = EncoderDecoder(encoder, decoder).to(device)

@@ -17,16 +17,24 @@ BOND_FLOAT_TO_TYPE = {
 }
 
 BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
+# ATOM_TPYE_TO_IDX = {
+#     'S_1_SP3': 1, 'O_0_SP3': 2, 'S_0_SP3D2': 3, 'Cu_0_SP3D2': 4, 'N_1_SP3': 5,
+#     'S_0_SP3D': 6, 'Br_0_SP3': 7, 'C_0_SP': 8, 'N_0_SP2': 9, 'S_0_SP3': 10,
+#     'P_0_SP3': 11, 'Sn_0_SP3': 12, 'I_0_SP3': 13, 'S_0_SP2': 14, 'C_0_SP3': 15,
+#     'P_0_SP2': 16, 'C_0_SP2': 17, 'S_-1_SP2': 18, 'C_-1_SP': 19, 'F_0_SP3': 20,
+#     'O_-1_SP3': 21, 'Mg_1_S': 22, 'Mg_0_SP': 23, 'N_-1_SP2': 24, 'O_-1_SP2': 25,
+#     'S_1_SP2': 26, 'Zn_0_SP': 27, 'Se_0_SP2': 28, 'Zn_1_S': 29, 'Si_0_SP3': 30,
+#     'N_0_SP': 31, 'N_1_SP2': 32, 'P_1_SP3': 33, 'P_0_SP3D': 34, 'O_0_SP2': 35,
+#     'N_1_SP': 36, 'S_-1_SP3': 37, 'Se_0_SP3': 38, 'Cl_0_SP3': 39, 'P_1_SP2': 40,
+#     'B_0_SP2': 41, 'N_0_SP3': 42
+# }
+
 ATOM_TPYE_TO_IDX = {
-    'S_1_SP3': 1, 'O_0_SP3': 2, 'S_0_SP3D2': 3, 'Cu_0_SP3D2': 4, 'N_1_SP3': 5,
-    'S_0_SP3D': 6, 'Br_0_SP3': 7, 'C_0_SP': 8, 'N_0_SP2': 9, 'S_0_SP3': 10,
-    'P_0_SP3': 11, 'Sn_0_SP3': 12, 'I_0_SP3': 13, 'S_0_SP2': 14, 'C_0_SP3': 15,
-    'P_0_SP2': 16, 'C_0_SP2': 17, 'S_-1_SP2': 18, 'C_-1_SP': 19, 'F_0_SP3': 20,
-    'O_-1_SP3': 21, 'Mg_1_S': 22, 'Mg_0_SP': 23, 'N_-1_SP2': 24, 'O_-1_SP2': 25,
-    'S_1_SP2': 26, 'Zn_0_SP': 27, 'Se_0_SP2': 28, 'Zn_1_S': 29, 'Si_0_SP3': 30,
-    'N_0_SP': 31, 'N_1_SP2': 32, 'P_1_SP3': 33, 'P_0_SP3D': 34, 'O_0_SP2': 35,
-    'N_1_SP': 36, 'S_-1_SP3': 37, 'Se_0_SP3': 38, 'Cl_0_SP3': 39, 'P_1_SP2': 40,
-    'B_0_SP2': 41, 'N_0_SP3': 42
+    'Zn_1': 1, 'S_-1': 2, 'Mg_1': 3, 'C_0_SP2': 4, 'Si_0': 5,
+    'S_0': 6, 'Mg_0': 7, 'N_1': 8, 'Cu_0': 9, 'Zn_0': 10, 'P_1': 11,
+    'O_0': 12, 'O_-1': 13, 'C_-1_SP': 14, 'S_1': 15, 'Br_0': 16, 'P_0': 17,
+    'C_0_SP': 18, 'Sn_0': 19, 'B_0': 20, 'Se_0': 21, 'F_0': 22, 'I_0': 23,
+    'N_-1': 24, 'N_0': 25, 'C_0_SP3': 26, 'Cl_0': 27
 }
 
 ATOM_IDX_TO_TYPE = {v: k for k, v in ATOM_TPYE_TO_IDX.items()}
@@ -281,7 +289,10 @@ def get_reac_infos(prod, reac, return_idx=True, kekulize=False):
         hyb = atom.GetHybridization()
         sym = atom.GetSymbol()
         chg = atom.GetFormalCharge()
-        node_res[amap_num] = f'{sym}_{chg}_{hyb}'
+        if sym == 'C':
+            node_res[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            node_res[amap_num] = f'{sym}_{chg}'
 
     if return_idx:
         node_res = {
@@ -308,7 +319,10 @@ def get_node_types(smiles, return_idx=True):
         hyb = atom.GetHybridization()
         sym = atom.GetSymbol()
         chg = atom.GetFormalCharge()
-        result[amap_num] = f'{sym}_{chg}_{hyb}'
+        if sym == 'C':
+            result[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            result[amap_num] = f'{sym}_{chg}'
 
     if return_idx:
         result = {
@@ -376,14 +390,14 @@ def convert_res_into_smiles(
     mol = Chem.RWMol()
     atom_reidx = {}
     for k, v in org_node_types.items():
-        symbol, charge, _ = ATOM_IDX_TO_TYPE[v].split('_')
+        symbol, charge = ATOM_IDX_TO_TYPE[v].split('_')[:2]
         new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
         atom_reidx[k] = new_idx
         this_atom = mol.GetAtomWithIdx(new_idx)
         this_atom.SetFormalCharge(int(charge))
 
     for k, v in node_pred.items():
-        symbol, charge, _ = ATOM_IDX_TO_TYPE[v].split('_')
+        symbol, charge = ATOM_IDX_TO_TYPE[v].split('_')[:2]
         new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
         atom_reidx[k] = new_idx
         this_atom = mol.GetAtomWithIdx(new_idx)

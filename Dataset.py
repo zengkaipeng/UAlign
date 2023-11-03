@@ -285,7 +285,8 @@ def make_decoder_graph(
         'e_org_mask': torch.cat(e_org_mask, dim=0),
         'e_pad_mask': torch.cat(e_pad_mask, dim=0),
         'n_org_mask': torch.cat(n_org_mask, dim=0),
-        "n_pad_mask": torch.cat(n_pad_mask, dim=0)
+        "n_pad_mask": torch.cat(n_pad_mask, dim=0),
+        'batch_mask': batch_mask
     }
 
     if len(graph_rxn) > 0:
