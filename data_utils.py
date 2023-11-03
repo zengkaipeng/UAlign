@@ -3,8 +3,8 @@ import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_node_types, get_edge_types, clear_map_number,
-    extend_by_bfs, extend_by_dfs
+    get_reac_infos, clear_map_number, extend_by_bfs,
+    extend_by_dfs, get_edge_types, get_node_types
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -46,14 +46,11 @@ def create_overall_dataset(
         nodes.append([prod_amap[t] for t in x])
         edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
-
         print('activate_nodes', x)
 
-        node_type = get_node_types(reacts[idx])
-
-        # print(node_type)
-
-        edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
+        node_type, edge_type = get_reac_infos(
+            prod, reacts[idx], return_idx=True, kekulize=kekulize
+        )
 
         if label_method == 'dfs':
             extended_amap = extend_by_dfs(reacts[idx], x, prod_amap)

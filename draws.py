@@ -47,5 +47,7 @@ if __name__ == '__main__':
     # mol2svg(mol, 'tmp_figs/example2.svg')
     
     # rxn = '[CH:1]1=[CH:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[CH2:10]1>>[cH:1]1[cH:2][cH:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[cH:10]1'
-    rxn = '[CH3:14][C:15]([CH3:16])([CH3:17])[O:18][C:19](=[O:20])[N:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1>>[NH:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1'
-    rxn2svg(rxn, 'tmp_figs/rxn_4.svg')
+    # rxn = '[CH3:14][C:15]([CH3:16])([CH3:17])[O:18][C:19](=[O:20])[N:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1>>[NH:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1'
+    # rxn2svg(rxn, 'tmp_figs/rxn_4.svg')
+    mol = 'CCN=C=NCCCN(C)C'
+    mol2svg(mol, f'tmp_figs/{mol}.svg')
