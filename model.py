@@ -354,8 +354,8 @@ class EncoderDecoder(torch.nn.Module):
 
                 paras = {
                     'graphs': [org_graphs[x] for x in valid_idx],
-                    'activate_nodes': [ext_n_lb[x] for x in valid_idx],
-                    'changed_edges': [ext_e_lb[x] for x in valid_idx],
+                    'activate_nodes': [ext_n_lb[x].cpu() for x in valid_idx],
+                    'changed_edges': [ext_e_lb[x].cpu() for x in valid_idx],
                     'pad_num': pad_num, 'rxns': rxns,
                     'node_types': [
                         {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
@@ -407,6 +407,8 @@ class EncoderDecoder(torch.nn.Module):
 
         enc_n_pred = seperate_pred(enc_n_pred, batch_size, graph.batch)
         enc_e_pred = seperate_pred(enc_e_pred, batch_size, graph.e_batch)
+        enc_n_pred = [x.cpu() for x in enc_n_pred]
+        enc_e_pred = [x.cpu() for x in enc_e_pred]
         org_graphs = seperate_encoder_graphs(graph)
         if len(org_graphs) == 2:
             org_graphs, rxns = org_graphs

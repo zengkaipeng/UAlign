@@ -186,7 +186,7 @@ def eval_overall(model, loader, device, mode='edge'):
                 synthon_nodes[i], synthon_edges[i],
                 pad_n_pred[i], pad_e_pred[i]
             )
-            # print(result)
+            # print(result, smi[i])
             acc += (smi[i] == result)
 
     return acc / total
