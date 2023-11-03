@@ -216,7 +216,7 @@ def make_decoder_graph(
         e_pad_mask.append(torch.zeros(o_e_cnt).bool())
 
         if edge_types is not None:
-            org_edge_cls = torch.zeros(o_e_cnt).bool()
+            org_edge_cls = torch.zeros(o_e_cnt).long()
             exists_edges = set()
             for edx in range(o_e_cnt):
                 row, col = res_enc_edges[:, edx].tolist()
@@ -393,7 +393,7 @@ def inference_col_fn(batch):
     node_types, edge_types, smiles = [], [], []
 
     max_node = max(x[0]['num_nodes'] for x in batch)
-    batch_mask = torch.zeros(batch_size, max_node)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
 
     for idx, data in enumerate(batch):
         if len(data) == 4:

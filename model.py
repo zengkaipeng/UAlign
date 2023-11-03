@@ -132,7 +132,7 @@ class DecoderOnly(torch.nn.Module):
             node_batch=graph.batch[graph.n_org_mask],
             edge_batch=graph.e_batch[graph.e_org_mask],
             org_n_logs=node_logits[graph.n_org_mask],
-            ord_n_cls=graph.node_class[graph.n_org_mask],
+            org_n_cls=graph.node_class[graph.n_org_mask],
             org_e_logs=org_edge_logits,
             org_e_cls=graph.org_edge_class
         )
@@ -194,19 +194,19 @@ class DecoderOnly(torch.nn.Module):
 
     def calc_org_loss(
         self, batch_size, node_batch, edge_batch,
-        org_n_logs, ord_n_cls, org_e_logs, org_e_cls
+        org_n_logs, org_n_cls, org_e_logs, org_e_cls
     ):
-        node_loss = torch.zeros(batch_size).to(node_logits)
+        node_loss = torch.zeros(batch_size).to(org_n_logs)
         org_node_loss = cross_entropy(
-            org_n_logs, org_node_cls, reduction='none'
+            org_n_logs, org_n_cls, reduction='none'
         )
-        node_loss.scatter_add_(0, node_batch, node_loss_src)
+        node_loss.scatter_add_(0, node_batch, org_node_loss)
 
-        edge_loss = torch.zeros(batch_size).to(edge_logits)
+        edge_loss = torch.zeros(batch_size).to(org_e_logs)
         org_edge_loss = cross_entropy(
             org_e_logs, org_e_cls, reduction='none'
         )
-        edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
+        edge_loss.scatter_add_(0, edge_batch, org_edge_loss)
 
         return node_loss.mean(), edge_loss.mean()
 
@@ -226,11 +226,13 @@ class DecoderOnly(torch.nn.Module):
         pad_n_cls = pad_n_cls.reshape(batch_size, -1)
         pad_n_idx = pad_n_idx.reshape(batch_size, -1)
         device = pad_n_logs.device
+        pad_num = pad_n_cls.shape[1]
+        assert pad_num == pad_n_idx.shape[1], 'idx and cls un match'
 
         total_n_loss = torch.zeros(batch_size).to(device)
         total_e_loss = torch.zeros(batch_size).to(device)
         for idx in range(batch_size):
-            this_edges = pad_e_index[pad_e_batch == idx]
+            this_edges = pad_e_index[:, pad_e_batch == idx]
             if use_matching:
                 with torch.no_grad():
                     row_id, col_id = self.get_matching(
@@ -242,6 +244,7 @@ class DecoderOnly(torch.nn.Module):
                     for i, x in enumerate(row_id)
                 }
             else:
+                row_id = col_id = list(range(pad_num))
                 node_remap = {}
 
             total_n_loss[idx] = cross_entropy(
@@ -379,7 +382,7 @@ class EncoderDecoder(torch.nn.Module):
             n_feat, graph.batch_mask
         )
 
-        enc_n_pred = convert_log_into_label(enc_n_pred)
+        enc_n_pred = convert_log_into_label(enc_n_log)
         enc_e_pred = convert_edge_log_into_labels(
             enc_e_log, graph.edge_index, mod='sigmoid'
         )

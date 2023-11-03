@@ -172,7 +172,7 @@ def eval_overall(model, loader, device, mode='edge'):
         total += batch_size
 
         with torch.no_grad():
-            answer = model.predict(encoder_graoph, syn_mode=mode)
+            answer = model.predict(encoder_graph, syn_mode=mode)
             enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred = answer
 
         synthon_nodes, synthon_edges = predict_synthon(
