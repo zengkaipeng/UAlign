@@ -118,7 +118,7 @@ def eval_sparse_edit(loader, model, device, verbose=True):
 
 
 def train_overall(
-    model, loader, optimizer, device, mode, alpha=1, warmup=True,
+    model, loader, optimizer, device, alpha=1, warmup=True,
     pos_weight=1, matching=True, aug_mode='none'
 ):
     enc_nl, enc_el, org_nl, org_el, pad_nl, pad_el = [[] for _ in range(6)]
@@ -158,8 +158,11 @@ def train_overall(
         if warmup:
             warmup_sher.step()
 
-    return np.mean(enc_nl), np.mean(enc_el), np.mean(org_nl), \
-        np.mean(org_el), np.mean(pad_nl), np.mean(pad_el)
+    return {
+        'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
+        'dec_org_n_loss': np.mean(org_nl), 'dec_org_e_loss': np.mean(org_el),
+        'dec_pad_n_loss': np.mean(pad_nl), 'dec_pad_e_loss': np.mean(pad_el)
+    }
 
 
 def eval_overall(model, loader, device, mode='edge'):

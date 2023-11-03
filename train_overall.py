@@ -5,7 +5,7 @@ import os
 import time
 
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase, GCNBase
+from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
 from Dataset import overall_col_fn, inference_col_fn
 from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
@@ -14,13 +14,11 @@ from data_utils import (
     check_early_stop, create_infernece_dataset
 )
 from utils.chemistry_parse import canonical_smiles
-from decoder import MixDecoder, GINDecoder, GATDecoder, GCNDecoder
+from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
 
 
 def create_log_model(args):
-    if args.pos_enc == 'Lap' and args.lap_pos_dim <= 0:
-        raise ValueError('The dim of positional enc should be positive')
 
     timestamp = time.time()
     detail_log_folder = os.path.join(
@@ -83,7 +81,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--gnn_type', type=str, choices=['gat', 'gin', 'gcn'],
+        '--gnn_type', type=str, choices=['gat', 'gin'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -110,33 +108,12 @@ if __name__ == '__main__':
         help='negative slope for attention, only useful for gat'
     )
     parser.add_argument(
-        '--pos_enc', choices=['none', 'Lap'], type=str, default='none',
-        help='the method to add graph positional encoding'
-    )
-
-    parser.add_argument(
-        '--lap_pos_dim', type=int, default=5,
-        help='the dim of lap pos encoding'
-    )
-    parser.add_argument(
-        '--update_gate', choices=['cat', 'add', 'gate'], default='add',
+        '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
+    parser.add_argument('--pos_wegith', default=1, type=float)
 
     # training
-    parser.add_argument(
-        '--mode', choices=['all', 'org', 'merge'], type=str,
-        help='the training mode for synthon prediction',
-        default='all'
-    )
-    parser.add_argument(
-        '--reduction', choices=['sum', 'mean'], type=str,
-        default='mean', help='the method to reduce loss'
-    )
-    parser.add_argument(
-        '--graph_level', action='store_true',
-        help='calc loss in graph level'
-    )
     parser.add_argument(
         '--pad_num', type=int, default=35,
         help='the number of padding'
@@ -144,6 +121,19 @@ if __name__ == '__main__':
     parser.add_argument(
         '--alpha', type=float, default=1,
         help='the prop of known part for loss'
+    )
+
+    parser.add_argument('--matching', action='store_true')
+
+    parser.add_argument('--use_aug', action='store_true')
+    parser.add_argument(
+        '--extend_order', choices=['bfs', 'dfs'], default='dfs',
+        help='the method to extend label '
+    )
+
+    parser.add_argument(
+        '--inference_mode', choices=['node', 'edge'],
+        default='edge', help='the method to choices'
     )
 
     args = parser.parse_args()
@@ -162,112 +152,87 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    if args.pos_enc == 'none':
-        dataset_kwargs = {'pos_enc': args.pos_enc}
-    elif args.pos_enc == 'Lap':
-        dataset_kwargs = {'pos_enc': args.pos_enc, 'dim': args.lap_pos_dim}
-    else:
-        raise ValueError(f'Invalid pos_enc {args.pos_enc}')
-
     train_set = create_overall_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None, **dataset_kwargs
+        rxn_class=train_rxn if args.use_class else None,
+        label_method=args.extend_order
     )
 
     valid_set = create_infernece_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None, **dataset_kwargs
+        rxn_class=val_rxn if args.use_class else None,
+        label_method=args.extend_order
     )
     test_set = create_infernece_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None, **dataset_kwargs
+        rxn_class=test_rxn if args.use_class else None,
+        label_method=args.extend_order
     )
 
-    col_fn = overall_col_fn(
-        selfloop=args.gnn_type == 'gat', pad_num=args.pad_num
-    )
-
-    inf_col = inference_col_fn(selfloop=args.gnn_type == 'gat')
+    col_fn = overall_col_fn(pad_num=args.pad_num)
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=inf_col, batch_size=args.bs, shuffle=False
+        valid_set, collate_fn=inference_col_fn,
+        batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=inf_col, batch_size=args.bs, shuffle=False
+        test_set, collate_fn=inference_col_fn,
+        batch_size=args.bs, shuffle=False
     )
 
     if args.transformer:
-        if args.pos_enc == 'Lap':
-            pos_args = {'dim': args.lap_pos_dim}
-        else:
-            pos_args = None
-
-        if args.gnn_type == 'gcn':
-            gnn_args = {'emb_dim': args.dim}
-        elif args.gnn_type == 'gin':
-            gnn_args = {'embedding_dim': args.dim}
+        if args.gnn_type == 'gin':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'edge_dim': args.dim
+            }
         elif args.gnn_type == 'gat':
             assert args.dim % args.heads == 0, \
                 'The model dim should be evenly divided by num_heads'
             gnn_args = {
-                'in_channels': args.dim,
-                'out_channels': args.dim // args.heads,
-                'negative_slope': args.negative_slope,
-                'dropout': args.dropout, 'add_self_loop': False,
-                'edge_dim': args.dim, 'heads': args.heads
+                'in_channels': args.dim, 'dropout': args.dropout,
+                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
+                'negative_slope': args.negative_slope, 'heads': args.heads
             }
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads, pos_enc=args.pos_enc,
-            negative_slope=args.negative_slope, pos_args=pos_args,
-            n_class=11 if args.use_class else None, edge_last=True,
-            residual=True, update_gate=args.update_gate, gnn_type=args.gnn_type
+            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
+            n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
         )
         GNN_dec = MixDecoder(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
-            gnn_type=args.gnn_type, negative_slope=args.negative_slope,
-            n_class=11 if args.use_class else None,
+            gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True,
-                n_class=11 if args.use_class else None
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, n_class=11 if args.use_class else None
             )
             GNN_dec = GINDecoder(
-                n_layers=4, embedding_dim=args.dim, dropout=args.dropout,
-                n_class=11 if args.use_class else None
+                num_layers=args.n_layer, embedding_dim=args.dim,
+                dropout=args.dropout, n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
-                num_layers=args.n_layer, dropout=args.dropout, self_loop=False,
-                embedding_dim=args.dim, edge_last=True, residual=True,
-                negative_slope=args.negative_slope, num_heads=args.heads,
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, num_heads=args.heads,
+                negative_slope=args.negative_slope,
                 n_class=11 if args.use_class else None
             )
             GNN_dec = GATDecoder(
                 num_heads=args.heads, num_layers=args.n_layer,
-                embedding_dim=args.dim, selfloop=False, dropout=args.dropout,
+                dropout=args.dropout, embedding_dim=args.dim,
                 negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
-            )
-        elif args.gnn_type == 'gcn':
-            GNN = GCNBase(
-                num_layers=args.n_layer, dropout=args.dropout, residual=True,
-                embedding_dim=args.dim, edge_last=True,
-                n_class=11 if args.use_class else None
-            )
-            GNN_dec = GCNDecoder(
-                n_layers=4, embedding_dim=args.dim, dropout=args.dropout,
                 n_class=11 if args.use_class else None
             )
         else:
@@ -276,8 +241,8 @@ if __name__ == '__main__':
     encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
 
     decoder = DecoderOnly(
-        GNN_dec, args.dim, args.dim, 43,
-        4 if args.kekulize else 5
+        backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
+        node_class=43, edge_class=4 if args.kekulize else 5
     )
 
     model = EncoderDecoder(encoder, decoder).to(device)
@@ -297,14 +262,19 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traning for ep {ep}')
         train_loss = train_overall(
-            model, train_loader, optimizer, device, mode=args.mode,
-            warmup=(ep < 2), alpha=args.alpha, reduction=args.reduction,
-            graph_level=args.graph_level
+            model, train_loader, optimizer, device, pos_weight=args.pos_weight,
+            alpha=args.alpha, matching=args.matching, warmup=(ep < 2),
+            aug_mode=args.inference_mode if args.use_aug else 'none',
+
         )
         print('[INFO] train_loss:', train_loss)
 
-        valid_acc = eval_overall(model, valid_loader, device, args.pad_num)
-        test_acc = eval_overall(model, test_loader, device, args.pad_num)
+        valid_acc = eval_overall(
+            model, valid_loader, device, mode=args.inference_mode
+        )
+        test_acc = eval_overall(
+            model, test_loader, device, mode=args.inference_mode
+        )
 
         print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
         log_info['train_loss'].append(train_loss)
