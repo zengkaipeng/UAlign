@@ -133,8 +133,9 @@ class MixDecoder(torch.nn.Module):
 
             cross_res = self.cross_attns[i](
                 query=node_feats, key=memory, value=memory,
-                key_padding_mask=mem_pad_mask, need_weights=False,
-            ) + node_feats
+                key_padding_mask=mem_pad_mask,
+            )
+            cross_res = cross_res[0] + node_feats
 
             node_feats = torch.relu(self.ln2[i](cross_res))[graph.batch_mask]
 
@@ -207,8 +208,9 @@ class GATDecoder(torch.nn.Module):
 
             cross_res = self.cross_attns[i](
                 query=node_feats, key=memory, value=memory,
-                key_padding_mask=mem_pad_mask, need_weights=False,
-            ) + node_feats
+                key_padding_mask=mem_pad_mask,
+            )
+            cross_res = cross_res[0] + node_feats
 
             node_feats = torch.relu(self.ln2[layer](cross_res))
             node_feats = node_feats[graph.batch_mask]
@@ -271,10 +273,11 @@ class GINDecoder(torch.nn.Module):
             node_feats = graph2batch(
                 node_feats, graph.batch_mask, batch_size, max_node
             )
-            cross_res = self.cross_attns[layer](
+            cross_res = self.cross_attns[i](
                 query=node_feats, key=memory, value=memory,
-                key_padding_mask=mem_pad_mask, need_weights=False,
-            ) + node_feats
+                key_padding_mask=mem_pad_mask,
+            )
+            cross_res = cross_res[0] + node_feats
 
             node_feats = torch.relu(self.ln2[layer](cross_res))
             node_feats = node_feats[graph.batch_mask]
