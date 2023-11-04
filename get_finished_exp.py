@@ -1,6 +1,8 @@
-import argparse
-import os
 import json
+import os
+import argparse
+import numpy as np
+
 
 def filter_args(args, filter_ag):
     for k, v in filter_ag.items():
@@ -10,45 +12,39 @@ def filter_args(args, filter_ag):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Parser')
-    parser.add_argument("--transformer", action='store_true')
-    parser.add_argument('--log_dir', required=True)
-    parser.add_argument('--gnn_type', choices=['gcn', 'gin', 'gat'])
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir', required=True)
+    parser.add_argument(
+        '--filter', type=str, default='{}',
+        help='a string as filter dict'
+    )
 
     args = parser.parse_args()
-    base_filter = {'gnn_type': args.gnn_type, 'transformer': args.transformer}
-    model_name = ('Gtrans_' if args.transformer else '') + args.gnn_type
+    args_ft = eval(args.filter)
 
-    finished = {}
+    bpref, btime, bargs, bep = None, None, None, None
 
-    t_keys = ['dropout', 'mode', 'heads', 'update_gate', 'pos_enc']
-    base_dir = os.path.join(args.log_dir, model_name)
-
-    for x in os.listdir(base_dir):
+    for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
-            with open(os.path.join(base_dir, x)) as Fin:
+            with open(os.path.join(args.dir, x)) as Fin:
                 INFO = json.load(Fin)
+            timestamp = x[4: -5]
 
-            if not filter_args(INFO['args'], base_filter):
+            if not filter_args(INFO['args'], args_ft):
                 continue
 
-            if INFO['args']['dim'] not in finished:
-                finished[INFO['args']['dim']] = set()
+            if len(INFO['valid_metric']) == 0:
+                continue
 
-            if args.transformer:
-                o_key = t_keys
-            elif args.gnn_type != 'gat':
-                o_key = t_keys[:2]
-            else:
-                o_key = t_keys[:3]
+            best_idx = np.argmax(INFO['valid_metric'])
+            best_node_fit = INFO['test_metric'][best_idx]
 
-            ix = tuple(INFO['args'][x] for x in o_key)
-            finished[INFO['args']['dim']].add(ix)
+            if bpref is None or best_node_fit > bpref['by_node']['fit']:
+                bpref = INFO['test_metric'][best_idx]
+                btime, bargs, bep = timestamp, INFO['args'], best_idx
 
-    print(f'[MODEL] {model_name}')
-
-    for k, v in finished.items():
-        print(f'[DIM] {k}')
-        for ix in v:
-            print({t_keys[x]: ix[x] for x in range(len(ix))})
-        print('\n')
+    print('[BEST BY NODE]')
+    print('[args]\n', bargs)
+    print('[TIME]', btime)
+    print('[EPOCH]', bep)
+    print('[pref]', bpref)
