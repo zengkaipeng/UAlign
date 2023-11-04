@@ -73,18 +73,12 @@ class GINBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=G.edge_index,
-                org_mask=G.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
 
-            if G.get('e_org_mask', None) is not None:
-                useful_edges = G.edge_index[:, G.e_org_mask]
-            else:
-                useful_edges = G.edge_index
-
             edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=G.edge_index
             ))
         return node_feats, edge_feats
 
@@ -125,18 +119,12 @@ class GATBase(torch.nn.Module):
         for layer in range(self.num_layers):
             conv_res = self.batch_norms[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats, edge_index=G.edge_index,
-                org_mask=G.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
 
-            if G.get('e_org_mask', None) is not None:
-                useful_edges = G.edge_index[:, G.e_org_mask]
-            else:
-                useful_edges = G.edge_index
-
             edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=G.edge_index
             ))
 
         return node_feats, edge_feats

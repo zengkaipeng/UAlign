@@ -44,6 +44,8 @@ class Feat_init(torch.nn.Module):
             batch_first=True
         )
 
+        self.feat_ext = torch.nn.Linear(dim << 1, dim)
+
         self.dim, self.n_class, self.n_pad = dim, n_class, n_pad
 
     def forward(self, G, memory, mem_pad_mask=None):
@@ -62,7 +64,13 @@ class Feat_init(torch.nn.Module):
         node_feat[G.n_pad_mask] = pad_node_feat.reshape(-1, self.dim)
 
         # edge_feat
-        edge_feat = self.bond_encoder(G.edge_attr, None)
+        num_edges = G.e_org_mask.shape[0]
+        edge_feat = torch.zeros(num_edges, self.dim).to(device)
+        edge_feat[G.e_org_mask] = self.bond_encoder(G.edge_attr, None)
+        row, col = G.edge_index[:, G.e_pad_mask]
+        edge_feat[G.e_pad_mask] = self.feat_ext(torch.relu(
+            torch.cat([node_feat[row], node_feat[col]], dim=-1)
+        ))
 
         if self.n_class is not None:
             n_cls_emb = self.node_cls_emb(graph.node_rxn)
@@ -122,7 +130,6 @@ class MixDecoder(torch.nn.Module):
                 node_feat=node_feats, edge_feat=edge_feats,
                 edge_index=graph.edge_index, batch_mask=graph.batch_mask,
                 attn_mask=graph.get('attn_mask', None),
-                org_mask=graph.get('e_org_mask', None)
             ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
@@ -139,14 +146,9 @@ class MixDecoder(torch.nn.Module):
 
             node_feats = torch.relu(self.ln2[i](cross_res))[graph.batch_mask]
 
-            if graph.get('e_org_mask', None) is not None:
-                useful_edges = graph.edge_index[:, graph.e_org_mask]
-            else:
-                useful_edges = graph.edge_index
-
             edge_feats = torch.relu(self.edge_update[i](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=graph.edge_index
             ))
 
         return node_feats, edge_feats
@@ -198,7 +200,6 @@ class GATDecoder(torch.nn.Module):
             conv_res = self.ln1[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index,
-                org_mask=graph.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
 
@@ -215,14 +216,9 @@ class GATDecoder(torch.nn.Module):
             node_feats = torch.relu(self.ln2[layer](cross_res))
             node_feats = node_feats[graph.batch_mask]
 
-            if graph.get('e_org_mask', None) is not None:
-                useful_edges = graph.edge_index[:, graph.e_org_mask]
-            else:
-                useful_edges = graph.edge_index
-
             edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=graph.edge_index
             ))
 
         return node_feats, edge_feats
@@ -267,7 +263,6 @@ class GINDecoder(torch.nn.Module):
             conv_res = self.ln1[layer](self.convs[layer](
                 x=node_feats, edge_attr=edge_feats,
                 edge_index=graph.edge_index,
-                org_mask=graph.get('e_org_mask', None)
             ))
             node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
             node_feats = graph2batch(
@@ -282,13 +277,8 @@ class GINDecoder(torch.nn.Module):
             node_feats = torch.relu(self.ln2[layer](cross_res))
             node_feats = node_feats[graph.batch_mask]
 
-            if graph.get('e_org_mask', None) is not None:
-                useful_edges = graph.edge_index[:, graph.e_org_mask]
-            else:
-                useful_edges = graph.edge_index
-
             edge_feats = torch.relu(self.edge_update[layer](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=graph.edge_index
             ))
         return node_feats, edge_feats

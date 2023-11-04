@@ -34,12 +34,11 @@ class MixConv(torch.nn.Module):
     def forward(
         self, node_feat: torch.Tensor, edge_index: torch.Tensor,
         edge_feat: torch.Tensor, batch_mask: torch.Tensor,
-        org_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         conv_res = self.gnn_conv(
             x=node_feat, edge_attr=edge_feat,
-            edge_index=edge_index, org_mask=org_mask
+            edge_index=edge_index,
         )
         batch_size, max_node = batch_mask.shape
         attn_input = torch.zeros(batch_size, max_node, node_feat.shape[-1])
@@ -99,20 +98,14 @@ class MixFormer(torch.nn.Module):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats,
                 edge_index=G.edge_index, batch_mask=G.batch_mask,
-                attn_mask=G.get('attn_mask', None),
-                org_mask=G.get('e_org_mask', None)
+                attn_mask=G.get('attn_mask', None)
             ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
 
-            if G.get('e_org_mask', None) is not None:
-                useful_edges = G.edge_index[:, G.e_org_mask]
-            else:
-                useful_edges = G.edge_index
-
             edge_feats = torch.relu(self.edge_update[i](
                 edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=useful_edges
+                edge_index=G.edge_index
             ))
 
         return node_feats, edge_feats
