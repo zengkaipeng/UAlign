@@ -187,7 +187,7 @@ class DecoderOnly(torch.nn.Module):
             mod='softmax', return_dict=True
         )
 
-        pad_e_pred = {k: v for k, v in pad_e_pred.items() if v != 0}
+        # pad_e_pred = {k: v for k, v in pad_e_pred.items() if v != 0}
 
         edge_res = seperate_dict(
             label_dict=pad_e_pred, num_nodes=graph.num_nodes,

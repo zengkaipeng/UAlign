@@ -56,12 +56,12 @@ class SelfLoopGATConv(MessagePassing):
     def forward(self, x, edge_index, edge_attr, org_mask=None, size=None):
         num_nodes, num_edges = x.shape[0], edge_index.shape[1]
         if org_mask is not None:
-            real_edge_attr = torch.zeros(num_edges, self.edge_dim)
+            real_edge_attr = torch.zeros(num_edges, self.in_channels)
             real_edge_attr = real_edge_attr.to(edge_attr)
-            real_edge_attr[org_mask] = edge_attr
-            real_edge_attr[~org_mask] = self.padding_edge
+            real_edge_attr[org_mask] = self.lin_edge(edge_attr)
+            real_edge_attr[~org_mask] = self.lin_edge(self.padding_edge)
         else:
-            real_edge_attr = edge_attr
+            real_edge_attr = self.lin_edge(edge_attr)
 
         # add self loop
 
@@ -70,14 +70,13 @@ class SelfLoopGATConv(MessagePassing):
 
         # print(org_mask)
 
-        # print('[before]', edge_index.shape, real_edge_attr.shape)
+        print('[before]', edge_index.shape, real_edge_attr.shape)
 
         edge_index = torch.cat([edge_index, self_edges], dim=1)
-        real_edge_attr = torch.cat([
-            real_edge_attr, self.self_edge.repeat(num_nodes, 1)
-        ], dim=0)
+        self_e_attr = self.lin_edge(self.self_edge).repeat(num_nodes, 1)
+        real_edge_attr = torch.cat([real_edge_attr, self_e_attr], dim=0)
 
-        # print('[after]', edge_index.shape, real_edge_attr.shape)
+        print('[after]', edge_index.shape, real_edge_attr.shape)
         # print(num_nodes)
         # exit()
 
@@ -86,18 +85,20 @@ class SelfLoopGATConv(MessagePassing):
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)
         x_dst = self.lin_dst(x).view(-1, H, C)
-        edge_attr = self.lin_edge(real_edge_attr)
+        # edge_attr = self.lin_edge(real_edge_attr)
 
         x = (x_src, x_dst)
         alpha_src = (x_src * self.att_src).sum(dim=-1)
         alpha_dst = (x_dst * self.att_dst).sum(dim=-1)
         alpha = (alpha_src, alpha_dst)
 
-        alpha = self.edge_updater(edge_index, alpha=alpha, edge_attr=edge_attr)
+        alpha = self.edge_updater(
+            edge_index, alpha=alpha, edge_attr=real_edge_attr
+        )
 
         out = self.propagate(
             edge_index, x=x, alpha=alpha, size=size,
-            edge_attr=edge_attr.view(-1, H, C)
+            edge_attr=real_edge_attr.view(-1, H, C)
         )
         out = out.view(-1, H * C) + self.bias
         return out

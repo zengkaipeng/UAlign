@@ -184,7 +184,8 @@ def eval_overall(model, loader, device, mode='edge'):
         for i in range(batch_size):
             result = convert_res_into_smiles(
                 synthon_nodes[i], synthon_edges[i],
-                pad_n_pred[i], pad_e_pred[i]
+                {k: v for k, v in pad_n_pred[i].items() if v != 0},
+                {k: v for k, v in pad_e_pred[i].items() if v != 0}
             )
             # print(result, smi[i])
             acc += (smi[i] == result)
