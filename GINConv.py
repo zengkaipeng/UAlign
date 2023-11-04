@@ -1,28 +1,38 @@
 import torch
+from typing import Optional
 
 
 class MyGINConv(torch.nn.Module):
-    def __init__(self, embedding_dim: int = 64):
+    def __init__(self, in_channels: int, out_channels: int, edge_dim: int):
         super(MyGINConv, self).__init__()
         self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(embedding_dim, 2 * embedding_dim),
-            torch.nn.LayerNorm(2 * embedding_dim),
+            torch.nn.Linear(in_channels, 2 * in_channels),
+            torch.nn.LayerNorm(2 * in_channels),
             torch.nn.ReLU(),
-            torch.nn.Linear(2 * embedding_dim, embedding_dim)
+            torch.nn.Linear(2 * in_channels, out_channels)
         )
         self.eps = torch.nn.Parameter(torch.Tensor([0]))
+        self.padding_edge = torch.nn.Parameter(torch.randn(edge_dim))
+        self.lin_edge = torch.nn.Linear(edge_dim, in_channels)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.edge_dim = edge_dim
 
     def forward(
         self, x: torch.Tensor, edge_index: torch.Tensor,
-        edge_attr: torch.Tensor,
+        edge_attr: torch.Tensor, org_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        num_nodes = x.shape[0]
-        message_node = torch.index_select(input=x, dim=0, index=edge_index[1])
-        message = torch.relu(message_node + edge_attr)
-        dim = message.shape[-1]
+        num_nodes, num_edges = x.shape[0], edge_index.shape[1]
+        if org_mask is not None:
+            real_edge_attr = torch.zeros(num_edges, self.edge_dim)
+            real_edge_attr = real_edge_attr.to(edge_attr)
+            real_edge_attr[org_mask] = edge_attr
+            real_edge_attr[~org_mask] = self.padding_edge
+        else:
+            real_edge_attr = edge_attr
 
-        message_reduce = torch.zeros(num_nodes, dim).to(message)
-        index = edge_index[0].unsqueeze(-1).repeat(1, dim)
-        message_reduce.scatter_add_(dim=0, index=index, src=message)
+        message = torch.relu(x[edge_index[1]] + self.lin_edge(real_edge_attr))
+        message_reduce = torch.zeros(num_nodes, self.in_channels).to(message)
+        message_reduce.index_add_(dim=0, index=edge_index[0], source=message)
 
-        return self.mlp((1 + self.eps) * x + torch.relu(message_reduce))
+        return self.mlp((1 + self.eps) * x + message_reduce)

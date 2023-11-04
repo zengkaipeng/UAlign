@@ -7,16 +7,20 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
-from Dataset import edit_col_fn
-from model import BinaryGraphEditModel
-from training import train_sparse_edit, eval_sparse_edit
+from Dataset import overall_col_fn, inference_col_fn
+from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
 from data_utils import (
-    create_edit_dataset, load_data, fix_seed,
-    check_early_stop
+    create_overall_dataset, load_data, fix_seed,
+    check_early_stop, create_infernece_dataset
 )
+from utils.chemistry_parse import canonical_smiles
+from decoder import MixDecoder, GINDecoder, GATDecoder
+from training import train_overall, eval_overall
+from utils.chemistry_parse import ATOM_TPYE_TO_IDX
 
 
 def create_log_model(args):
+
     timestamp = time.time()
     detail_log_folder = os.path.join(
         args.base_log, 'with_class' if args.use_class else 'wo_class',
@@ -25,9 +29,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'node-{timestamp}.pth')
-    fit_dir = os.path.join(detail_log_folder, f'edge-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir, fit_dir
+    model_dir = os.path.join(detail_log_folder, f'model-{timestamp}.pth')
+    return detail_log_dir, model_dir
 
 
 if __name__ == '__main__':
@@ -88,7 +91,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--base_log', default='log_edit', type=str,
+        '--base_log', default='log_overall', type=str,
         help='the base dir of logging'
     )
 
@@ -109,17 +112,35 @@ if __name__ == '__main__':
         '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
+    parser.add_argument('--pos_weight', default=1, type=float)
 
     # training
     parser.add_argument(
-        '--pos_weight', default=1, type=float,
-        help='the weight for positive samples'
+        '--pad_num', type=int, default=35,
+        help='the number of padding'
+    )
+    parser.add_argument(
+        '--alpha', type=float, default=1,
+        help='the prop of known part for loss'
+    )
+
+    parser.add_argument('--matching', action='store_true')
+
+    parser.add_argument('--use_aug', action='store_true')
+    parser.add_argument(
+        '--extend_order', choices=['bfs', 'dfs'], default='dfs',
+        help='the method to extend label '
+    )
+
+    parser.add_argument(
+        '--inference_mode', choices=['node', 'edge'],
+        default='edge', help='the method to choices'
     )
 
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, fit_dir = create_log_model(args)
+    log_dir, model_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -132,30 +153,32 @@ if __name__ == '__main__':
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    train_set = create_edit_dataset(
+    train_set = create_overall_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
         rxn_class=train_rxn if args.use_class else None,
+        label_method=args.extend_order
     )
 
-    valid_set = create_edit_dataset(
+    valid_set = create_infernece_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
         rxn_class=val_rxn if args.use_class else None,
     )
-    test_set = create_edit_dataset(
+    test_set = create_infernece_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
         rxn_class=test_rxn if args.use_class else None,
     )
 
+    col_fn = overall_col_fn(pad_num=args.pad_num)
+
     train_loader = DataLoader(
-        train_set, collate_fn=edit_col_fn,
-        batch_size=args.bs, shuffle=True
+        train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=edit_col_fn,
+        valid_set, collate_fn=inference_col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=edit_col_fn,
+        test_set, collate_fn=inference_col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -182,11 +205,21 @@ if __name__ == '__main__':
             n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
+        GNN_dec = MixDecoder(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
+            gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
+        )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout,
                 embedding_dim=args.dim, n_class=11 if args.use_class else None
+            )
+            GNN_dec = GINDecoder(
+                num_layers=args.n_layer, embedding_dim=args.dim,
+                dropout=args.dropout, n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
@@ -195,15 +228,29 @@ if __name__ == '__main__':
                 negative_slope=args.negative_slope,
                 n_class=11 if args.use_class else None
             )
+            GNN_dec = GATDecoder(
+                num_heads=args.heads, num_layers=args.n_layer,
+                dropout=args.dropout, embedding_dim=args.dim,
+                negative_slope=args.negative_slope,
+                n_class=11 if args.use_class else None
+            )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
-    model = model.to(device)
+    encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+
+    decoder = DecoderOnly(
+        backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
+        node_class=len(ATOM_TPYE_TO_IDX) + 1, pad_num=args.pad_num,
+        edge_class=4 if args.kekulize else 5
+    )
+
+    model = EncoderDecoder(encoder, decoder).to(device)
+
+    print('[INFO] model built')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    best_node, node_ep, best_edge, edge_ep = [None] * 4
-
+    best_perf, best_epoch = None, None
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
@@ -213,37 +260,39 @@ if __name__ == '__main__':
         json.dump(log_info, Fout, indent=4)
 
     for ep in range(args.epoch):
-        print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device, verbose=True,
-            warmup=(ep == 0),  pos_weight=args.pos_weight
+        print(f'[INFO] traning for ep {ep}')
+        train_loss = train_overall(
+            model, train_loader, optimizer, device, pos_weight=args.pos_weight,
+            alpha=args.alpha, matching=args.matching, warmup=(ep < 2),
+            aug_mode=args.inference_mode if args.use_aug else 'none',
+
         )
-        log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
+        print('[INFO] train_loss:', train_loss)
 
-        print('[TRAIN]', log_info['train_loss'][-1])
-        valid_results = eval_sparse_edit(valid_loader, model, device, True)
-        log_info['valid_metric'].append(valid_results)
+        valid_acc = eval_overall(
+            model, valid_loader, device, mode=args.inference_mode
+        )
+        test_acc = eval_overall(
+            model, test_loader, device, mode=args.inference_mode
+        )
 
-        print('[VALID]', log_info['valid_metric'][-1])
-
-        test_results = eval_sparse_edit(test_loader, model, device, True)
-        log_info['test_metric'].append(test_results)
-
-        print('[TEST]', log_info['test_metric'][-1])
-
+        print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
+        log_info['train_loss'].append(train_loss)
+        log_info['valid_metric'].append(valid_acc)
+        log_info['test_metric'].append(test_acc)
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_node is None or valid_results['by_node']['fit'] > best_node:
-            best_node, node_ep = valid_results['by_node']['fit'], ep
+        if best_perf is None or valid_acc > best_perf:
+            best_perf, best_epoch = valid_acc, ep
             torch.save(model.state_dict(), model_dir)
-        if best_edge is None or valid_results['by_edge']['fit'] > best_edge:
-            best_edge, edge_ep = valid_results['by_edge']['fit'], ep
-            torch.save(model.state_dict(), fit_dir)
-        if args.early_stop > 5 and ep > max(20, args.early_stop):
-            val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['by_node']['fit'] for x in val_his]
-            ef = [x['by_edge']['fit'] for x in val_his]
 
-            if check_early_stop(nf, ef):
+        if args.early_stop > 5 and ep > max(15, args.early_stop):
+            val_his = log_info['valid_metric'][-args.early_stop:]
+            if check_early_stop(val_his):
                 break
+
+    print('[Overall]')
+    print('[bset_ep]', best_epoch)
+    print('[best valid]', best_perf)
+    print('[bset test]', log_info['test_metric'][best_epoch])

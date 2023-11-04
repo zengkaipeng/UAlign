@@ -40,7 +40,7 @@ def remove_amap_not_in_product(rxn_smi):
     for atom in rmol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
         if amap_num not in pmol_amaps:
-            atom.SetAtomMapNum(max_amap+1)
+            atom.SetAtomMapNum(max_amap + 1)
             max_amap += 1
 
     r_updated = Chem.MolToSmiles(rmol)

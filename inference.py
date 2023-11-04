@@ -6,8 +6,9 @@ import os
 
 from Mix_backbone import MixFormer
 from Dataset import edit_col_fn
-from model import BinaryGraphEditModel
+from model import BinaryGraphEditModel, convert_graphs_into_decoder
 from data_utils import create_edit_dataset
+from utils.chemistry_parse import convert_res_into_smiles
 
 
 def make_format_logits(node_logits, edge_index, useful_mask, edge_logits):
@@ -96,3 +97,25 @@ if __name__ == '__main__':
 
             print(node_res, edge_res)
             print(out_graphs)
+
+            result = convert_graphs_into_decoder(out_graphs, 10)
+            print(result)
+
+    print('[Making moles]')
+
+    org_node_type = {
+        0: 7, 1: 15, 2: 15, 3: 15, 4: 15, 5: 17, 6: 17,
+        7: 17, 8: 17, 9: 2, 10: 15, 11: 15
+    }
+    org_edge_type = {
+        (0, 1): 1, (1, 2): 2, (2, 3): 1, (3, 4): 2, (4, 5): 1,
+        (7, 8): 1, (8, 9): 1, (4, 10): 1, (10, 11): 2, (11, 1): 1
+    }
+
+    pred_node_type = {12: 35}
+    pred_edge_type = {(7, 12): 1, (5, 6): 2}
+
+    print(convert_res_into_smiles(
+        org_node_type, org_edge_type,
+        pred_node_type, pred_edge_type
+    ))

@@ -3,10 +3,11 @@ import os
 from utils.chemistry_parse import (
     get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
     BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_node_types, get_edge_types
+    get_reac_infos, clear_map_number, extend_by_bfs,
+    extend_by_dfs, get_edge_types, get_node_types
 )
 from utils.graph_utils import smiles2graph
-from Dataset import OverallDataset
+from Dataset import OverallDataset, InferenceDataset
 from Dataset import BinaryEditDataset
 import random
 import torch
@@ -15,67 +16,23 @@ from tqdm import tqdm
 from typing import Any, Dict, List, Tuple, Optional, Union
 
 
-def get_lap_pos_encoding(
-    matrix: np.ndarray, dim: int, num_nodes: Optional[int] = None
-) -> torch.Tensor:
-    if num_nodes is None:
-        num_nodes = matrix.shape[0]
-    N = np.diag(matrix.sum(axis=-1).clip(1) ** -0.5)
-    L = np.eye(num_nodes) - np.matmul(np.matmul(N, matrix), N)
-    EigVal, EigVec = np.linalg.eig(L)
-    EigVec = EigVec[:, EigVal.argsort()]
-    t_result = EigVec[:, 1: dim + 1]
-    result, rdim = torch.zeros(num_nodes, dim), t_result.shape[1]
-    if rdim > 0:
-        result[:, -rdim:] = torch.from_numpy(t_result.real).float()
-    return result
-
-
-def add_pos_enc(graph, method='none', **kwargs):
-    assert method in ['none', 'Lap'], f'Invalid node pos enc {method}'
-    if method == 'Lap':
-        matrix = np.zeros((graph['num_nodes'], graph['num_nodes']))
-        matrix[graph['edge_index'][0], graph['edge_index'][1]] = 1
-        matrix[graph['edge_index'][1], graph['edge_index'][0]] = 1
-        graph['lap_pos_enc'] = get_lap_pos_encoding(
-            matrix=matrix, num_nodes=graph['num_nodes'], **kwargs
-        )
-        return graph
-    else:
-        return graph
-
-
 def create_edit_dataset(
-    reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, pos_enc='none', **kwargs
+    reacts, prods, rxn_class=None, kekulize=False, verbose=True,
 ):
-    amaps, graphs, nodes, edges = [], [], [], []
+    graphs, nodes, edges = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
-        graph = add_pos_enc(graph, method=pos_enc, **kwargs)
         graphs.append(graph)
-        amaps.append(amap)
         nodes.append([amap[t] for t in x])
         edges.append([(amap[i], amap[j]) for i, j in y])
 
     return BinaryEditDataset(graphs, nodes, edges, rxn_class=rxn_class)
 
 
-def extend_amap(amap, node_list):
-    result, max_node = {}, max(amap.values())
-    for node in node_list:
-        if node not in amap:
-            result[node] = max_node + 1
-            max_node += 1
-        else:
-            result[node] = amap[node]
-    return result
-
-
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, pos_enc='none', **kwargs
+    verbose=True, label_method='dfs'
 ):
     graphs, nodes, edges = [], [], []
     node_types, edge_types = [], []
@@ -85,14 +42,20 @@ def create_overall_dataset(
         encoder_graph, prod_amap = smiles2graph(
             prod, with_amap=True, kekulize=kekulize
         )
-        encoder_graph = add_pos_enc(encoder_graph, method=pos_enc, **kwargs)
         graphs.append(encoder_graph)
         nodes.append([prod_amap[t] for t in x])
         edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
-        node_type = get_node_types(reacts[idx])
-        extended_amap = extend_amap(prod_amap, node_type.keys())
-        edge_type = get_edge_types(reacts[idx], kekulize=kekulize)
+        # print('activate_nodes', x)
+
+        node_type, edge_type = get_reac_infos(
+            prod, reacts[idx], return_idx=True, kekulize=kekulize
+        )
+
+        if label_method == 'dfs':
+            extended_amap = extend_by_dfs(reacts[idx], x, prod_amap)
+        elif label_method == 'bfs':
+            extended_amap = extend_by_bfs(reacts[idx], x, prod_amap)
 
         real_n_types = {extended_amap[k]: v for k, v in node_type.items()}
         real_e_types = {
@@ -101,10 +64,40 @@ def create_overall_dataset(
         }
         node_types.append(real_n_types)
         edge_types.append(real_e_types)
+
     return OverallDataset(
         graphs=graphs, activate_nodes=nodes, changed_edges=edges,
         decoder_node_type=node_types, decoder_edge_type=edge_types,
         rxn_class=rxn_class
+    )
+
+
+def create_infernece_dataset(
+    reacts, prods, rxn_class=None, kekulize=False,
+    verbose=True,
+):
+    graphs, node_types, edge_types, smis = [], [], [], []
+    for idx, prod in enumerate(tqdm(prods) if verbose else prods):
+        # encoder_part
+        encoder_graph, prod_amap = smiles2graph(
+            prod, with_amap=True, kekulize=kekulize
+        )
+        graphs.append(encoder_graph)
+        node_type = get_node_types(prods[idx])
+        edge_type = get_edge_types(prods[idx], kekulize=kekulize)
+
+        real_n_types = {prod_amap[k]: v for k, v in node_type.items()}
+        real_e_types = {
+            (prod_amap[x], prod_amap[y]): v
+            for (x, y), v in edge_type.items()
+        }
+        node_types.append(real_n_types)
+        edge_types.append(real_e_types)
+        smis.append(clear_map_number(reacts[idx]))
+
+    return InferenceDataset(
+        reac_graph=graphs, prod_smiles=smis, rxn_class=rxn_class,
+        reac_node_type=node_types, reac_edge_type=edge_types
     )
 
 
@@ -133,6 +126,38 @@ def check_early_stop(*args):
     for x in args:
         answer &= all(t <= x[0] for t in x[1:])
     return answer
+
+
+def eval_by_graph(
+    node_pred, edge_pred, node_label, edge_label,
+    node_batch, edge_batch,
+):
+    node_fit, node_cover, edge_fit, edge_cover = [0] * 4
+    batch_size = node_batch.max().item() + 1
+    for i in range(batch_size):
+        this_node_mask = node_batch == i
+        this_edge_mask = edge_batch == i
+
+        this_elb = edge_label[this_edge_mask] > 0
+        this_epd = edge_pred[this_edge_mask] > 0
+
+        e_inters = torch.logical_and(this_elb, this_epd)
+        ef = torch.all(this_elb == this_epd).item()
+        ec = torch.all(this_elb == e_inters).item()
+
+        edge_fit += ef
+        edge_cover += ec
+
+        this_nlb = node_label[this_node_mask] > 0
+        this_npd = node_pred[this_node_mask] > 0
+
+        inters = torch.logical_and(this_nlb, this_npd)
+        nf = torch.all(this_nlb == this_npd).item()
+        nc = torch.all(this_nlb == inters).item()
+
+        node_fit += nf
+        node_cover += nc
+    return node_fit, node_cover, edge_fit, edge_cover
 
 
 def eval_by_node(
@@ -204,46 +229,178 @@ def eval_by_edge(
     return cover, fit
 
 
-def eval_by_graph(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch,
-):
-    node_fit, node_cover, edge_fit, edge_cover = [0] * 4
-    batch_size = node_batch.max().item() + 1
-    for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-
-        this_elb = edge_label[this_edge_mask] > 0
-        this_epd = edge_pred[this_edge_mask] > 0
-
-        e_inters = torch.logical_and(this_elb, this_epd)
-        ef = torch.all(this_elb == this_epd).item()
-        ec = torch.all(this_elb == e_inters).item()
-
-        edge_fit += ef
-        edge_cover += ec
-
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
-
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        node_fit += nf
-        node_cover += nc
-    return node_fit, node_cover, edge_fit, edge_cover
-
-
 def convert_log_into_label(logits, mod='sigmoid'):
     if mod == 'sigmoid':
         pred = torch.zeros_like(logits)
         pred[logits >= 0] = 1
         pred[logits < 0] = 0
-    else:
+    elif mod == 'softmax':
         pred = torch.argmax(logits, dim=-1)
+    else:
+        raise NotImplementedError(f'Invalid mode {mod}')
     return pred
+
+
+def convert_edge_log_into_labels(
+    logits, edge_index, mod='sigmoid', return_dict=False
+):
+    def covert_into_dict(edge_logs, mode):
+        result = {}
+        if mode == 'sigmoid':
+            for (row, col), v in edge_logs.items():
+                if (row, col) not in result and (col, row) not in result:
+                    result[(row, col)] = 1 if v >= 0.5 else 0
+        else:
+            for (row, col), v in edge_logs.items():
+                if (row, col) not in result and (col, row) not in result:
+                    result[(row, col)] = v.argmax().item()
+        return result
+
+    def convert_into_tensor(edge_logs, edge_index, mode):
+        num_edges = edge_index.shape[1]
+        result = torch.zeros(num_edges).long().to(edge_index.device)
+        if mode == 'sigmoid':
+            for idx, (row, col) in enumerate(edge_index.T):
+                row, col = row.item(), col.item()
+                result[idx] = 1 if edge_logs[(row, col)] >= 0.5 else 0
+        else:
+            for idx, (row, col) in enumerate(edge_index.T):
+                row, col = row.item(), col.item()
+                result[idx] = edge_logs[(row, col)].argmax().item()
+        return result
+
+    if mod == 'sigmoid':
+        edge_logs = {}
+        for idx, p in enumerate(logits):
+            row, col = edge_index[:, idx]
+            row, col = row.item(), col.item()
+            p = p.sigmoid().item()
+            if (row, col) not in edge_logs:
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
+            else:
+                real_log = (edge_logs[(row, col)] + p) / 2
+                edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
+
+        edge_pred = covert_into_dict(edge_logs, mode=mod) if return_dict\
+            else convert_into_tensor(edge_logs, edge_index, mode=mod)
+
+    else:
+        edge_logs = {}
+        logits = torch.softmax(logits, dim=-1)
+        for idx, p in enumerate(logits):
+            row, col = edge_index[:, idx]
+            row, col = row.item(), col.item()
+            if (row, col) not in edge_logs:
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
+            else:
+                real_log = (edge_logs[(row, col)] + p) / 2
+                edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
+
+        edge_pred = covert_into_dict(edge_logs, mode=mod) if return_dict\
+            else convert_into_tensor(edge_logs, edge_index, mode=mod)
+
+    return edge_pred
+
+
+def seperate_encoder_graphs(G):
+    batch_size = G.batch.max().item() + 1
+    graphs, rxns = [], []
+    for idx in range(batch_size):
+        this_graph = {}
+        this_node_mask = G.batch == idx
+        this_edge_mask = G.e_batch == idx
+        this_eidx = G.edge_index[:, this_edge_mask]
+        this_eidx = (this_eidx - G.ptr[idx]).cpu().numpy()
+
+        graphs.append({
+            'node_feat': G.x[this_node_mask].cpu().numpy(),
+            'edge_index': this_eidx, 'num_nodes': G.x[this_node_mask].shape[0],
+            'edge_feat': G.edge_attr[this_edge_mask].cpu().numpy()
+        })
+
+        if G.get('node_rxn', None) is not None:
+            rxns.append(G.node_rxn[G.ptr[idx]].item())
+    return (graphs, rxns) if len(rxns) != 0 else graphs
+
+
+def seperate_pred(pred, batch_size, batch):
+    preds = []
+    for idx in range(batch_size):
+        this_mask = batch == idx
+        preds.append(pred[this_mask])
+    return preds
+
+
+def seperate_dict(label_dict, num_nodes, batch, ptr):
+    device = batch.device
+    all_idx = torch.arange(num_nodes).to(device)
+    batch2single = all_idx - ptr[batch]
+    batch_size = batch.max().item() + 1
+    e_labels = [{} for _ in range(batch_size)]
+
+    for (row, col), v in label_dict.items():
+        b_idx = batch[row].item()
+        x = batch2single[row].item()
+        y = batch2single[col].item()
+        e_labels[b_idx][(x, y)] = v
+
+    return e_labels
+
+
+def filter_label_by_node(node_pred, edge_pred, edge_index):
+    useful_node = node_pred > 0
+    useful_edges = useful_node[edge_index[0]] & useful_node[edge_index[1]]
+    edge_pred[~useful_edges] = 0
+    return node_pred, edge_pred
+
+
+def extend_label_by_edge(node_pred, edge_pred, edge_index):
+    useful_node = torch.zeros_like(node_pred).bool()
+    useful_edge = edge_pred > 0
+
+    useful_node[edge_index[0, useful_edge]] = True
+    useful_node[edge_index[1, useful_edge]] = True
+    node_pred[useful_node] = 1
+    return node_pred, edge_pred
+
+
+# def predict_synthon(batch_size, n_pred, e_pred, graph, n_types, e_types):
+#     answer_n, answer_e = [], []
+#     for idx in range(batch_size):
+#         this_n_mask = graph.batch == idx
+#         this_e_mask = graph.e_batch == idx
+#         num_nodes = n_pred[this_n_mask].shape[0]
+#         answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
+#         edge_res = {}
+#         this_edge = graph.edge_index[this_e_mask].T
+#         this_epd = e_pred[this_e_mask]
+#         for edx, res in enumerate(this_epd):
+#             if res.item() == 1:
+#                 continue
+#             row, col = this_edge[:, edx].tolist()
+#             row -= graph.ptr[idx].item()
+#             col -= graph.ptr[idx].item()
+#             if (row, col) not in edge_res and (col, row not in edge_res):
+#                 edge_res[(row, col)] = e_types[idx][(row, col)]
+#         answer_e.append(edge_res)
+#     return answer_n, answer_e
+
+def predict_synthon(n_pred, e_pred, graph, n_types, e_types):
+    answer_n, answer_e = [], []
+    for idx, this_n in enumerate(n_pred):
+        this_e_idx = graph.edge_index[:, graph.e_batch == idx]
+        num_nodes, offset = this_n.shape[0], graph.ptr[idx].item()
+        answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
+        edge_res = {}
+        for edx, res in enumerate(e_pred[idx]):
+            if res.item() == 1:
+                continue
+            row, col = this_e_idx[:, edx].tolist()
+            row, col = row - offset, col - offset
+            if (row, col) not in edge_res and (col, row) not in edge_res:
+                edge_res[(row, col)] = e_types[idx][(row, col)]
+        answer_e.append(edge_res)
+    return answer_n, answer_e
 
 
 if __name__ == '__main__':
