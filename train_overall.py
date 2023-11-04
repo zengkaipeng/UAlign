@@ -287,7 +287,7 @@ if __name__ == '__main__':
             best_perf, best_epoch = valid_acc, ep
             torch.save(model.state_dict(), model_dir)
 
-        if args.early_stop > 5 and ep > max(15, args.early_stop):
+        if args.early_stop > 4 and ep > max(10, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
             if check_early_stop(val_his):
                 break
