@@ -39,7 +39,7 @@ if __name__ == '__main__':
             best_idx = np.argmax(INFO['valid_metric'])
             best_node_fit = INFO['test_metric'][best_idx]
 
-            if bpref is None or best_node_fit > bpref['by_node']['fit']:
+            if bpref is None or best_node_fit > bpref:
                 bpref = INFO['test_metric'][best_idx]
                 btime, bargs, bep = timestamp, INFO['args'], best_idx
 
