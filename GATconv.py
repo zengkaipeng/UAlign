@@ -56,8 +56,9 @@ class SelfLoopGATConv(MessagePassing):
     def forward(self, x, edge_index, edge_attr, org_mask=None, size=None):
         num_nodes, num_edges = x.shape[0], edge_index.shape[1]
         if org_mask is not None:
-            real_edge_attr = torch.zeros(num_edges, self.in_channels)
-            real_edge_attr = real_edge_attr.to(edge_attr)
+            real_edge_attr = torch.zeros(
+                num_edges, self.heads * self.out_channels
+            ).to(edge_attr)
             real_edge_attr[org_mask] = self.lin_edge(edge_attr)
             real_edge_attr[~org_mask] = self.lin_edge(self.padding_edge)
         else:
@@ -70,13 +71,13 @@ class SelfLoopGATConv(MessagePassing):
 
         # print(org_mask)
 
-        print('[before]', edge_index.shape, real_edge_attr.shape)
+        # print('[before]', edge_index.shape, real_edge_attr.shape)
 
         edge_index = torch.cat([edge_index, self_edges], dim=1)
         self_e_attr = self.lin_edge(self.self_edge).repeat(num_nodes, 1)
         real_edge_attr = torch.cat([real_edge_attr, self_e_attr], dim=0)
 
-        print('[after]', edge_index.shape, real_edge_attr.shape)
+        # print('[after]', edge_index.shape, real_edge_attr.shape)
         # print(num_nodes)
         # exit()
 
