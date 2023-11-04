@@ -43,7 +43,6 @@ if __name__ == '__main__':
                 bpref = INFO['test_metric'][best_idx]
                 btime, bargs, bep = timestamp, INFO['args'], best_idx
 
-    print('[BEST BY NODE]')
     print('[args]\n', bargs)
     print('[TIME]', btime)
     print('[EPOCH]', bep)
