@@ -185,7 +185,8 @@ class GATDecoder(torch.nn.Module):
                 embedding_dim, embedding_dim, residual=True
             ))
             self.cross_attns.append(MultiheadAttention(
-                emb_dim, num_heads=heads, batch_first=True, dropout=dropout
+                embedding_dim, num_heads=heads,
+                batch_first=True, dropout=dropout
             ))
 
         self.feat_init = Feat_init(
@@ -250,6 +251,10 @@ class GINDecoder(torch.nn.Module):
             self.ln2.append(torch.nn.LayerNorm(embedding_dim))
             self.edge_update.append(SparseEdgeUpdateLayer(
                 embedding_dim, embedding_dim, residual=True
+            ))
+            self.cross_attns.append(MultiheadAttention(
+                embedding_dim, num_heads=heads,
+                batch_first=True, dropout=dropout
             ))
         self.feat_init = Feat_init(
             n_pad, emb_dim, heads=heads, dropout=dropout, n_class=n_class,
