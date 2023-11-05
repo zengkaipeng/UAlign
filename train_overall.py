@@ -125,6 +125,10 @@ if __name__ == '__main__':
     )
 
     parser.add_argument('--matching', action='store_true')
+    parser.add_argument(
+        '--encoder_ckpt', default='', type=str,
+        help='the checkpoint of encoder'
+    )
 
     parser.add_argument('--use_aug', action='store_true')
     parser.add_argument(
@@ -246,6 +250,10 @@ if __name__ == '__main__':
     )
 
     model = EncoderDecoder(encoder, decoder).to(device)
+
+    if args.encoder_ckpt != '':
+        weight = torch.load(args.encoder_ckpt, map_location=device)
+        model.encoder.load_state_dict(weight, strict=False)
 
     print('[INFO] model built')
 

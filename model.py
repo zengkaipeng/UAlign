@@ -342,6 +342,7 @@ class EncoderDecoder(torch.nn.Module):
                     decoder_graph.node_class, batch_size,
                     decoder_graph.batch
                 )
+                # print(type(org_graphs))
 
                 paras = {
                     'graphs': [org_graphs[x] for x in valid_idx],
@@ -355,10 +356,11 @@ class EncoderDecoder(torch.nn.Module):
                     'edge_types': [sep_edges[x] for x in valid_idx]
                 }
 
-                aug_dec_G = make_decoder_graph(**paras)
+                aug_dec_G, aug_type = make_decoder_graph(**paras)
                 a, b, c, d = self.decoder(
-                    decoder_graph, memory, edge_types, matching=use_matching,
-                    mem_pad_mask=memory_pad_mask
+                    aug_dec_G, memory[valid_idx], aug_type,
+                    mem_pad_mask=memory_pad_mask[valid_idx],
+                    matching=use_matching,
                 )
 
                 org_n_loss += a
