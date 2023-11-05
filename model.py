@@ -357,6 +357,7 @@ class EncoderDecoder(torch.nn.Module):
                 }
 
                 aug_dec_G, aug_type = make_decoder_graph(**paras)
+                aug_dec_G = aug_dec_G.to(enc_n_pred.device)
                 a, b, c, d = self.decoder(
                     aug_dec_G, memory[valid_idx], aug_type,
                     mem_pad_mask=memory_pad_mask[valid_idx],
