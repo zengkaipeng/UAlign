@@ -17,6 +17,7 @@ from utils.chemistry_parse import canonical_smiles
 from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
 from utils.chemistry_parse import ATOM_TPYE_TO_IDX
+from torch.optim.lr_scheduler import ExponentialLR
 
 
 def create_log_model(args):
@@ -140,6 +141,15 @@ if __name__ == '__main__':
         '--inference_mode', choices=['node', 'edge'],
         default='edge', help='the method to choices'
     )
+    parser.add_argument(
+        '--warmup', default=2, type=int,
+        help='the num of epoch for warmup'
+    )
+
+    parser.add_argument(
+        '--lrgamma', default=1, type=float,
+        help='the gamma for lr step'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -258,6 +268,7 @@ if __name__ == '__main__':
     print('[INFO] model built')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
     best_perf, best_epoch = None, None
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -271,7 +282,7 @@ if __name__ == '__main__':
         print(f'[INFO] traning for ep {ep}')
         train_loss = train_overall(
             model, train_loader, optimizer, device, pos_weight=args.pos_weight,
-            alpha=args.alpha, matching=args.matching, warmup=(ep < 2),
+            alpha=args.alpha, matching=args.matching, warmup=ep < args.warmup,
             aug_mode=args.inference_mode if args.use_aug else 'none',
 
         )
@@ -299,6 +310,9 @@ if __name__ == '__main__':
             val_his = log_info['valid_metric'][-args.early_stop:]
             if check_early_stop(val_his):
                 break
+
+        if ep >= args.warmup:
+            scher.step()
 
     print('[Overall]')
     print('[bset_ep]', best_epoch)
