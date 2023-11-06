@@ -150,6 +150,10 @@ if __name__ == '__main__':
         '--lrgamma', default=1, type=float,
         help='the gamma for lr step'
     )
+    parser.add_argument(
+        '--checkpoint', default='', type=str,
+        help='the path of encoder'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -261,7 +265,10 @@ if __name__ == '__main__':
 
     model = EncoderDecoder(encoder, decoder).to(device)
 
-    if args.encoder_ckpt != '':
+    if args.checkpoint != '':
+        weight = torch.load(args.checkpoint, map_location=device)
+        model.load_state_dict(weight)
+    elif args.encoder_ckpt != '':
         weight = torch.load(args.encoder_ckpt, map_location=device)
         model.encoder.load_state_dict(weight, strict=False)
 
