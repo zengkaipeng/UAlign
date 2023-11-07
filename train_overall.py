@@ -227,7 +227,7 @@ if __name__ == '__main__':
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
             gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
-            update_gate=args.update_gate
+            update_gate=args.update_gate, with_PE=not args.matching
         )
     else:
         if args.gnn_type == 'gin':
@@ -237,7 +237,8 @@ if __name__ == '__main__':
             )
             GNN_dec = GINDecoder(
                 num_layers=args.n_layer, embedding_dim=args.dim,
-                dropout=args.dropout, n_class=11 if args.use_class else None
+                dropout=args.dropout, with_PE=not args.matching,
+                n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
@@ -250,7 +251,8 @@ if __name__ == '__main__':
                 num_heads=args.heads, num_layers=args.n_layer,
                 dropout=args.dropout, embedding_dim=args.dim,
                 negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
+                n_class=11 if args.use_class else None,
+                with_PE=not args.matching
             )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
