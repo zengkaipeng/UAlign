@@ -3,3 +3,6 @@ tmp_figs
 __pycache__
 log
 log_edit
+data_validation
+mix_base.pth
+log_overall

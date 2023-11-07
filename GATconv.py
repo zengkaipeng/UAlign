@@ -1,21 +1,20 @@
 from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.utils import softmax as sp_softmax
-from torch_geometric.utils import add_self_loops, remove_self_loops
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
 from torch.nn import Parameter
+import torch_geometric
 
 
-class MyGATConv(MessagePassing):
+class SelfLoopGATConv(MessagePassing):
     def __init__(
         self, in_channels, out_channels, edge_dim, heads=1,
-        negative_slope=0.2, dropout=0.1, add_self_loop=True,
-        **kwargs,
+        negative_slope=0.2, dropout=0.1, **kwargs,
     ):
         kwargs.setdefault('aggr', 'add')
-        super(MyGATConv, self).__init__(node_dim=0, **kwargs)
+        super(SelfLoopGATConv, self).__init__(node_dim=0, **kwargs)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.heads = heads
@@ -28,7 +27,6 @@ class MyGATConv(MessagePassing):
             in_channels, out_channels * heads,
             bias=False, weight_initializer='glorot'
         )
-        self.add_self_loop = add_self_loop
 
         self.att_src = Parameter(torch.zeros(1, heads, out_channels))
         self.att_dst = Parameter(torch.zeros(1, heads, out_channels))
@@ -37,38 +35,58 @@ class MyGATConv(MessagePassing):
         self.bias = Parameter(torch.zeros(heads * out_channels))
         self.lin_edge = Linear(
             edge_dim, out_channels * heads,
-            bias=False, weight_initializer='glorot'
-        )
-        self.lin_message = Linear(
-            edge_dim, out_channels * heads,
             bias=True, weight_initializer='glorot'
         )
+        self.self_edge = torch.nn.Parameter(torch.randn(1, edge_dim))
+        self.padding_edge = torch.nn.Parameter(torch.randn(edge_dim))
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        super(MyGATConv, self).reset_parameters()
+        if torch_geometric.__version__.startswith('2.3'):
+            super(SelfLoopGATConv, self).reset_parameters()
         self.lin_src.reset_parameters()
         self.lin_dst.reset_parameters()
         self.lin_edge.reset_parameters()
-        self.lin_message.reset_parameters()
         glorot(self.att_src)
         glorot(self.att_dst)
         glorot(self.att_edge)
         zeros(self.bias)
 
-    def forward(self, x, edge_index, edge_attr, size=None):
-        num_nodes = x.shape[0]
-        if self.add_self_loop:
-            edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
-            edge_index, edge_attr = add_self_loops(
-                edge_index, edge_attr, fill_value='mean', num_nodes=num_nodes
-            )
+    def forward(self, x, edge_index, edge_attr, org_mask=None, size=None):
+        num_nodes, num_edges = x.shape[0], edge_index.shape[1]
+        if org_mask is not None:
+            real_edge_attr = torch.zeros(num_edges, self.edge_dim)
+            real_edge_attr = real_edge_attr.to(edge_attr)
+            real_edge_attr[org_mask] = edge_attr
+            real_edge_attr[~org_mask] = self.padding_edge
+        else:
+            real_edge_attr = edge_attr
+
+        # add self loop
+
+        self_edges = torch.Tensor([(i, i) for i in range(num_nodes)])
+        self_edges = self_edges.T.to(edge_index)
+
+        # print(org_mask)
+
+        # print('[before]', edge_index.shape, real_edge_attr.shape)
+
+        edge_index = torch.cat([edge_index, self_edges], dim=1)
+        real_edge_attr = torch.cat([
+            real_edge_attr, self.self_edge.repeat(num_nodes, 1)
+        ], dim=0)
+
+        # print('[after]', edge_index.shape, real_edge_attr.shape)
+        # print(num_nodes)
+        # exit()
+
+        # old prop
 
         H, C = self.heads, self.out_channels
         x_src = self.lin_src(x).view(-1, H, C)
         x_dst = self.lin_dst(x).view(-1, H, C)
-        e_message = self.lin_message(edge_attr).view(-1, H, C)
+        edge_attr = self.lin_edge(real_edge_attr)
 
         x = (x_src, x_dst)
         alpha_src = (x_src * self.att_src).sum(dim=-1)
@@ -78,14 +96,13 @@ class MyGATConv(MessagePassing):
         alpha = self.edge_updater(edge_index, alpha=alpha, edge_attr=edge_attr)
 
         out = self.propagate(
-            edge_index, x=x, alpha=alpha,
-            size=size, edge_attr=e_message
+            edge_index, x=x, alpha=alpha, size=size,
+            edge_attr=edge_attr.view(-1, H, C)
         )
         out = out.view(-1, H * C) + self.bias
         return out
 
     def edge_update(self, alpha_j, alpha_i, edge_attr, index, ptr, size_i):
-        edge_attr = self.lin_edge(edge_attr)
         edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
         alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
         alpha = alpha_i + alpha_j + alpha_edge

@@ -17,6 +17,32 @@ BOND_FLOAT_TO_TYPE = {
 }
 
 BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
+# ATOM_TPYE_TO_IDX = {
+#     'S_1_SP3': 1, 'O_0_SP3': 2, 'S_0_SP3D2': 3, 'Cu_0_SP3D2': 4, 'N_1_SP3': 5,
+#     'S_0_SP3D': 6, 'Br_0_SP3': 7, 'C_0_SP': 8, 'N_0_SP2': 9, 'S_0_SP3': 10,
+#     'P_0_SP3': 11, 'Sn_0_SP3': 12, 'I_0_SP3': 13, 'S_0_SP2': 14, 'C_0_SP3': 15,
+#     'P_0_SP2': 16, 'C_0_SP2': 17, 'S_-1_SP2': 18, 'C_-1_SP': 19, 'F_0_SP3': 20,
+#     'O_-1_SP3': 21, 'Mg_1_S': 22, 'Mg_0_SP': 23, 'N_-1_SP2': 24, 'O_-1_SP2': 25,
+#     'S_1_SP2': 26, 'Zn_0_SP': 27, 'Se_0_SP2': 28, 'Zn_1_S': 29, 'Si_0_SP3': 30,
+#     'N_0_SP': 31, 'N_1_SP2': 32, 'P_1_SP3': 33, 'P_0_SP3D': 34, 'O_0_SP2': 35,
+#     'N_1_SP': 36, 'S_-1_SP3': 37, 'Se_0_SP3': 38, 'Cl_0_SP3': 39, 'P_1_SP2': 40,
+#     'B_0_SP2': 41, 'N_0_SP3': 42
+# }
+
+ATOM_TPYE_TO_IDX = {
+    'Zn_1': 1, 'S_-1': 2, 'Mg_1': 3, 'C_0_SP2': 4, 'Si_0': 5,
+    'S_0': 6, 'Mg_0': 7, 'N_1': 8, 'Cu_0': 9, 'Zn_0': 10, 'P_1': 11,
+    'O_0': 12, 'O_-1': 13, 'C_-1_SP': 14, 'S_1': 15, 'Br_0': 16, 'P_0': 17,
+    'C_0_SP': 18, 'Sn_0': 19, 'B_0': 20, 'Se_0': 21, 'F_0': 22, 'I_0': 23,
+    'N_-1': 24, 'N_0': 25, 'C_0_SP3': 26, 'Cl_0': 27
+}
+
+ATOM_IDX_TO_TYPE = {v: k for k, v in ATOM_TPYE_TO_IDX.items()}
+
+ATOM_REMAP = {
+    'B': 5, 'Br': 35, 'C': 6, 'Cl': 17, 'Cu': 29, 'F': 9, 'I': 53, 'Mg': 12,
+    'N': 7, 'O': 8, 'P': 15, 'S': 16, 'Si': 14, 'Se': 34, 'Sn': 50, 'Zn': 30
+}
 
 
 def clear_map_number(smi):
@@ -219,6 +245,134 @@ def get_reaction_core(
     return rxn_core, core_edits
 
 
+def get_modified_atoms_bonds(
+    reac: str, prod: str, kekulize: bool
+) -> Tuple[Set, List]:
+    reac_mol = get_mol(reac)
+    prod_mol = get_mol(prod)
+
+    if reac_mol is None or prod_mol is None:
+        return set(), []
+    if kekulize:
+        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+
+    prod_bonds = get_bond_info(prod_mol)
+    prod_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in prod_mol.GetAtoms()
+    }
+    max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
+    for atom in reac_mol.GetAtoms():
+        if atom.GetAtomMapNum() == 0:
+            atom.SetAtomMapNum(max_reac_amap + 1)
+            max_reac_amap += 1
+
+    reac_bonds = get_bond_info(reac_mol)
+    reac_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in reac_mol.GetAtoms()
+    }
+
+    atom_edit, edge_edit = set(), []
+    for bond in prod_bonds:
+        if bond not in reac_bonds:
+            edge_edit.append(bond)
+            atom_edit.update(bond)
+        else:
+            reac_bond_type = reac_bonds[bond][0]
+            prod_bond_type = prod_bonds[bond][0]
+            if reac_bond_type != prod_bond_type:
+                edge_edit.append(bond)
+                atom_edit.update(bond)
+
+    for bond in reac_bonds:
+        if bond not in prod_bonds:
+            start, end = bond
+            if start in prod_amap_idx:
+                atom_edit.add(start)
+            if end in prod_amap_idx:
+                atom_edit.add(end)
+
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+
+        numHs_prod = atom.GetTotalNumHs()
+        numHs_reac = reac_mol.GetAtomWithIdx(
+            reac_amap_idx[amap_num]
+        ).GetTotalNumHs()
+        if numHs_prod != numHs_reac:
+            atom_edit.add(amap_num)
+
+    return atom_edit, edge_edit
+
+
+def get_reac_infos(prod, reac, return_idx=True, kekulize=False):
+    prod_mol, reac_mol = get_mol(prod), get_mol(reac)
+    if kekulize:
+        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+
+    node_res = {}
+    for atom in reac_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        hyb = atom.GetHybridization()
+        sym = atom.GetSymbol()
+        chg = atom.GetFormalCharge()
+        if sym == 'C':
+            node_res[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            node_res[amap_num] = f'{sym}_{chg}'
+
+    if return_idx:
+        node_res = {
+            k: ATOM_TPYE_TO_IDX[v]
+            for k, v in node_res.items()
+        }
+
+    bond_res = {}
+    for bond in reac_mol.GetBonds():
+        a_start = bond.GetBeginAtom().GetAtomMapNum()
+        a_end = bond.GetEndAtom().GetAtomMapNum()
+        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
+        bond_res[(a_start, a_end)] = bond_type
+        bond_res[(a_end, a_start)] = bond_type
+
+    return node_res, bond_res
+
+
+def get_node_types(smiles, return_idx=True):
+    mol = get_mol(smiles)
+    result = {}
+    for atom in mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        hyb = atom.GetHybridization()
+        sym = atom.GetSymbol()
+        chg = atom.GetFormalCharge()
+        if sym == 'C':
+            result[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            result[amap_num] = f'{sym}_{chg}'
+
+    if return_idx:
+        result = {
+            k: ATOM_TPYE_TO_IDX[v]
+            for k, v in result.items()
+        }
+
+    return result
+
+
+def get_edge_types(smiles, kekulize=False):
+    mol = get_mol(smiles, kekulize=kekulize)
+    result = {}
+    for bond in mol.GetBonds():
+        a_start = bond.GetBeginAtom().GetAtomMapNum()
+        a_end = bond.GetEndAtom().GetAtomMapNum()
+        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
+        result[(a_start, a_end)] = bond_type
+        result[(a_end, a_start)] = bond_type
+    return result
+
+
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
         content = Fin.readlines()
@@ -256,3 +410,149 @@ if __name__ == '__main__':
     print([x.GetSymbol() for x in p_mol.GetAtoms()])
     p_mol = Chem.AddHs(p_mol)
     print([x.GetSymbol() for x in p_mol.GetAtoms()])
+
+
+def convert_res_into_smiles(
+    org_node_types, org_edge_types, node_pred, edge_pred
+):
+    mol = Chem.RWMol()
+    atom_reidx = {}
+    for k, v in org_node_types.items():
+        symbol, charge = ATOM_IDX_TO_TYPE[v].split('_')[:2]
+        new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
+        atom_reidx[k] = new_idx
+        this_atom = mol.GetAtomWithIdx(new_idx)
+        this_atom.SetFormalCharge(int(charge))
+
+    for k, v in node_pred.items():
+        symbol, charge = ATOM_IDX_TO_TYPE[v].split('_')[:2]
+        new_idx = mol.AddAtom(Chem.Atom(ATOM_REMAP[symbol]))
+        atom_reidx[k] = new_idx
+        this_atom = mol.GetAtomWithIdx(new_idx)
+        this_atom.SetFormalCharge(int(charge))
+
+    for (src, dst), v in org_edge_types.items():
+        mol.AddBond(atom_reidx[src], atom_reidx[dst], BOND_TYPES[v])
+
+    for (src, dst), v in edge_pred.items():
+        mol.AddBond(atom_reidx[src], atom_reidx[dst], BOND_TYPES[v])
+
+    mol = mol.GetMol()
+    t_str = Chem.MolToSmiles(mol)
+    return canonical_smiles(t_str)
+
+
+def clear_map_number(smi):
+    """Clear the atom mapping number of a SMILES sequence"""
+    mol = Chem.MolFromSmiles(smi)
+    for atom in mol.GetAtoms():
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+    return canonical_smiles(Chem.MolToSmiles(mol))
+
+
+def canonical_smiles(smi):
+    """Canonicalize a SMILES without atom mapping"""
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return smi
+    else:
+        canonical_smi = Chem.MolToSmiles(mol)
+        # print('>>', canonical_smi)
+        if '.' in canonical_smi:
+            canonical_smi_list = canonical_smi.split('.')
+            canonical_smi_list = sorted(
+                canonical_smi_list, key=lambda x: (len(x), x)
+            )
+            canonical_smi = '.'.join(canonical_smi_list)
+        return canonical_smi
+
+
+def extend_by_dfs(reac, activate_nodes, prod_amap):
+    def dfs(mol, x, vis, curr_nodes):
+        curr = mol.GetAtomWithIdx(x)
+        curr_amap = curr.GetAtomMapNum()
+        if curr_amap in vis:
+            return
+        curr_nodes.append(curr_amap)
+        vis.add(curr_amap)
+        for nei in curr.GetNeighbors():
+            dfs(mol, nei.GetIdx(), vis, curr_nodes)
+
+    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
+    for k, v in prod_amap.items():
+        curr_nodes[v] = k
+
+    vis = set(prod_amap.keys())
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
+
+    mol = Chem.MolFromSmiles(reac)
+    if mol is None:
+        raise ValueError(f'Invalid smiles {reac}')
+
+    # mark connected parts
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am in activate_nodes:
+            for nei in atom.GetNeighbors():
+                dfs(mol, nei.GetIdx(), vis, curr_nodes)
+
+    # mark isolated part
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am not in vis:
+            dfs(mol, atom.GetIdx(), vis, curr_nodes)
+
+    return {v: idx for idx, v in enumerate(curr_nodes)}
+
+
+def extend_by_bfs(reac, activate_nodes, prod_amap):
+
+    def bfs_with_Q(Q, lf, mol, vis):
+        while lf < len(Q):
+            top = Q[lf]
+            top_atom = mol.GetAtomWithIdx(top)
+            # print('[top atom]', lf, top_atom.GetAtomMapNum())
+            for nei in top_atom.GetNeighbors():
+                nei_amap = nei.GetAtomMapNum()
+                if nei_amap not in vis:
+                    vis.add(nei_amap)
+                    curr_nodes.append(nei_amap)
+                    Q.append(nei.GetIdx())
+            lf += 1
+
+        # print('\n[done]\n')
+
+    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
+    for k, v in prod_amap.items():
+        curr_nodes[v] = k
+    vis = set(prod_amap.keys())
+    # print(vis)
+
+    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
+
+    mol = Chem.MolFromSmiles(reac)
+    if mol is None:
+        raise ValueError(f'Invalid smiles {reac}')
+
+    # mark connected part
+    Q, lf = [], 0
+
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am in activate_nodes:
+            Q.append(atom.GetIdx())
+
+    bfs_with_Q(Q, lf, mol, vis)
+
+    # mark isolated part
+
+    for atom in mol.GetAtoms():
+        am = atom.GetAtomMapNum()
+        if am not in vis:
+            Q = [atom.GetIdx()]
+            vis.add(am)
+            curr_nodes.append(am)
+            bfs_with_Q(Q, 0, mol, vis)
+
+    return {v: idx for idx, v in enumerate(curr_nodes)}
