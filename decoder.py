@@ -9,6 +9,7 @@ from Mix_backbone import MixConv
 from typing import Any, Dict, List, Tuple, Optional, Union
 
 from torch.nn import MultiheadAttention
+import math
 
 
 def graph2batch(
@@ -82,11 +83,12 @@ class Feat_init(torch.nn.Module):
             query=Qval, key=memory, value=memory,
             key_padding_mask=mem_pad_mask
         )
-        # [B, pad, dim]
-        node_feat[G.n_pad_mask] = pad_node_feat.reshape(-1, self.dim)
 
         if self.with_PE:
-            node_feat = self.pos_enc(node_feat)
+            pad_node_feat = self.pos_enc(pad_node_feat)
+
+        # [B, pad, dim]
+        node_feat[G.n_pad_mask] = pad_node_feat.reshape(-1, self.dim)
 
         # edge_feat
         num_edges = G.e_org_mask.shape[0]
