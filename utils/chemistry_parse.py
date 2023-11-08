@@ -528,3 +528,9 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
             bfs_with_Q(Q, 0, mol, vis)
 
     return {v: idx for idx, v in enumerate(curr_nodes)}
+
+
+def predict_synthons(node_types, edge_types, edge_label_dict):
+    mol, atom_reidx = Chem.RWMol(), {}
+    for k, v in node_types:
+        pass
