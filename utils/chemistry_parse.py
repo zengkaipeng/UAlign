@@ -556,3 +556,12 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
             bfs_with_Q(Q, 0, mol, vis)
 
     return {v: idx for idx, v in enumerate(curr_nodes)}
+
+
+def add_random_Amap(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    for x in mol.GetAtoms():
+        x.ClearProp('molAtomMapNumber')
+    for idx, x in enumerate(mol.GetAtoms()):
+        x.SetAtomMapNum(idx + 1)
+    return Chem.MolToSmiles(mol)
