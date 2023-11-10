@@ -306,12 +306,12 @@ def get_modified_atoms_bonds(
     return atom_edit, edge_edit
 
 
-def get_synthons(prod: str, reac: str):
+def get_synthons(prod: str, reac: str, kekulize: bool = False):
     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
     if reac_mol is None or prod_mol is None:
-        return {}, []
-
-    reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+        return {}, {}
+    if kekulize:
+        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
     prod_bonds = get_bond_info(prod_mol)
     prod_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
@@ -339,9 +339,8 @@ def get_synthons(prod: str, reac: str):
     # We have omitted the formation of new bonds between the product atoms
     # during the reaction process, as this situation occurs
     # only to a small extent.
-    
-    return  atom2deltaH, edges2typechange
 
+    return atom2deltaH, edges2typechange
 
 
 if __name__ == '__main__':
