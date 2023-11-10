@@ -3,6 +3,7 @@ from rdkit import Chem
 from utils.chemistry_parse import clear_map_number, canonical_smiles
 from utils.chemistry_parse import convert_res_into_smiles
 from draws import mol2svg
+from utils.chemistry_parse import add_random_Amap
 
 
 omol = '[CH3:1][C:2]1([c:3]2[cH:4][cH:5][cH:6][o:7]2)[O:8][CH2:9][CH2:10][O:11]1'
@@ -90,23 +91,50 @@ mol = tmol.GetMol()
 print('final', canonical_smiles(Chem.MolToSmiles(mol)))
 
 
-for atom in Chem.MolFromSmiles(omol).GetAtoms():
-    idx = atom.GetIdx()
-    print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
-
-print()
-for atom in Chem.MolFromSmiles(std_mol_s).GetAtoms():
-    idx = atom.GetIdx()
-    print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
-print()
-
-for atom in mol.GetAtoms():
-    idx = atom.GetIdx()
-    print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
-print()
 
 
-r_mol = Chem.MolFromSmiles(Chem.MolToSmiles(mol))
-for atom in r_mol.GetAtoms():
-    idx = atom.GetIdx()
-    print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
+std_mol_r = add_random_Amap(std_mol_s)
+std_mol = Chem.MolFromSmiles(std_mol_r)
+tmol = Chem.RWMol(std_mol)
+
+print(std_mol_r)
+
+for bond in std_mol.GetBonds():
+    beg_idx = bond.GetBeginAtom().GetIdx()
+    end_idx = bond.GetEndAtom().GetIdx()
+    print(beg_idx, end_idx, bond.GetIdx())
+
+    if (beg_idx, end_idx) == (10, 1):
+        tmol.RemoveBond(beg_idx, end_idx)
+    if (beg_idx, end_idx) == (7, 8):
+        tmol.RemoveBond(beg_idx, end_idx)
+    if (beg_idx, end_idx) == (1, 7):
+        tmol.RemoveBond(beg_idx, end_idx)
+        tmol.AddBond(beg_idx, end_idx, Chem.rdchem.BondType.DOUBLE)
+
+
+print([Chem.MolToSmiles(x) for x in Chem.GetMolFrags(tmol, asMols=True)])
+
+print(clear_map_number(Chem.MolToSmiles(tmol.GetMol())))
+
+
+# for atom in Chem.MolFromSmiles(omol).GetAtoms():
+#     idx = atom.GetIdx()
+#     print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
+
+# print()
+# for atom in Chem.MolFromSmiles(std_mol_s).GetAtoms():
+#     idx = atom.GetIdx()
+#     print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
+# print()
+
+# for atom in mol.GetAtoms():
+#     idx = atom.GetIdx()
+#     print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())
+# print()
+
+
+# r_mol = Chem.MolFromSmiles(Chem.MolToSmiles(mol))
+# for atom in r_mol.GetAtoms():
+#     idx = atom.GetIdx()
+#     print(idx, atom.GetNumExplicitHs(), atom.GetNumImplicitHs(), atom.GetTotalNumHs())

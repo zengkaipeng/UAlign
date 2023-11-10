@@ -565,3 +565,35 @@ def add_random_Amap(smiles):
     for idx, x in enumerate(mol.GetAtoms()):
         x.SetAtomMapNum(idx + 1)
     return Chem.MolToSmiles(mol)
+
+
+def predict_synthons(smiles, break_edges, canonicalize=False):
+    """ 
+
+    break a smilse into synthons according to the given break edges
+    the break edges is a Iterable of tuples. tuple contains the amap 
+    numbers of end atoms.
+    """
+
+    Mol = Chem.MolFromSmiles(smiles)
+
+    assert all(x.GetAtomMapNum() != 0 for x in Mol.GetAtoms()), \
+        'Invalid atom mapping is founded, please correct it'
+
+    tmol = Chem.RWMol(Mol)
+
+    for bond in Mol.GetBonds():
+        start_atom = bond.GetBeginAtom()
+        end_atom = bond.GetEndAtom()
+        start_idx = start_atom.GetIdx()
+        end_idx = end_atom.GetIdx()
+        start_amap = start_atom.GetAtomMapNum()
+        end_amap = start_amap.GetAtomMapNum()
+
+        if (start_amap, end_amap) in break_edges:
+            tmol.RemoveBond(start_idx, end_idx)
+
+    answer = Chem.MolToSmiles(tmol.GetMol())
+    if canonicalize:
+        answer = clear_map_number(answer)
+    return answer
