@@ -1,14 +1,11 @@
 import pandas
 import os
 from utils.chemistry_parse import (
-    get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
-    BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_reac_infos, clear_map_number, extend_by_bfs,
-    extend_by_dfs, get_edge_types, get_node_types
+    get_synthons, ACHANGE_TO_IDX
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
-from Dataset import BinaryEditDataset
+from Dataset import SynthonDataset
 import random
 import torch
 import numpy as np
@@ -17,17 +14,29 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 
 
 def create_edit_dataset(
-    reacts, prods, rxn_class=None, kekulize=False, verbose=True,
+    reacts: List[str], prods: List[str], rxn_class: Optional[List[int]] = None,
+    kekulize: bool = False, verbose: bool = True,
 ):
     graphs, nodes, edges = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
-        nodes.append([amap[t] for t in x])
-        edges.append([(amap[i], amap[j]) for i, j in y])
 
-    return BinaryEditDataset(graphs, nodes, edges, rxn_class=rxn_class)
+        deltaH, deltaE = get_synthons(prod, reacs[idx])
+
+        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
+        this_edge = {}
+        for (src, dst), (otype, ntype) in deltaE.items():
+            src, dst = amap[src], amap[dst]
+            if otype == ntype:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
+            elif ntype == 0:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
+            else:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 3
+        edges.append(this_edge)
+
+    return SynthonDataset(graphs, nodes, edges, rxn_class=rxn_class)
 
 
 def create_overall_dataset(

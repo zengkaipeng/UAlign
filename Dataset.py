@@ -5,38 +5,28 @@ import torch_geometric
 from numpy import concatenate as npcat
 
 
-class BinaryEditDataset(torch.utils.data.Dataset):
+class SynthonDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], activate_nodes: List[List[int]],
-        changed_edges: List[List[Union[List[int], Tuple[int]]]],
+        self, graphs: List[Dict], nodes_label: List[Dict],
+        edges_label: List[Dict[Tuple[int, int], int]],
         rxn_class: Optional[List[int]] = None
     ):
-        super(BinaryEditDataset, self).__init__()
+        super(SynthonDataset, self).__init__()
         self.graphs = graphs
-        self.activate_nodes = activate_nodes
-        self.changed_edges = changed_edges
+        self.node_labels = nodes_label
+        self.edge_labels = edges_label
         self.rxn_class = rxn_class
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        node_labels = torch.zeros(self.graphs[index]['num_nodes'])
-        node_labels[self.activate_nodes[index]] = 1
-        edges = self.graphs[index]['edge_index']
-        edge_labels = torch.zeros(edges.shape[1])
-        for idx, src in enumerate(edges[0]):
-            src, dst = src.item(), edges[1][idx].item()
-            if (src, dst) in self.changed_edges[index]:
-                edge_labels[idx] = 1
-            if (dst, src) in self.changed_edges[index]:
-                edge_labels[idx] = 1
-
         if self.rxn_class is None:
-            return self.graphs[index], node_labels, edge_labels
+            return self.graphs[index], self.node_labels[index], \
+                self.edge_labels[index]
         else:
-            return self.graphs[index], node_labels, \
-                edge_labels, self.rxn_class[index]
+            return self.graphs[index], self.node_labels[index], \
+                self.edge_labels[index], self.rxn_class[index]
 
 
 def edit_col_fn(batch):

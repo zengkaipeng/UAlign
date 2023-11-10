@@ -339,73 +339,9 @@ def get_synthons(prod: str, reac: str):
     # We have omitted the formation of new bonds between the product atoms
     # during the reaction process, as this situation occurs
     # only to a small extent.
+    
+    return  atom2deltaH, edges2typechange
 
-
-def get_reac_infos(prod, reac, return_idx=True, kekulize=False):
-    prod_mol, reac_mol = get_mol(prod), get_mol(reac)
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
-
-    node_res = {}
-    for atom in reac_mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-        hyb = atom.GetHybridization()
-        sym = atom.GetSymbol()
-        chg = atom.GetFormalCharge()
-        if sym == 'C':
-            node_res[amap_num] = f'{sym}_{chg}_{hyb}'
-        else:
-            node_res[amap_num] = f'{sym}_{chg}'
-
-    if return_idx:
-        node_res = {
-            k: ATOM_TPYE_TO_IDX[v]
-            for k, v in node_res.items()
-        }
-
-    bond_res = {}
-    for bond in reac_mol.GetBonds():
-        a_start = bond.GetBeginAtom().GetAtomMapNum()
-        a_end = bond.GetEndAtom().GetAtomMapNum()
-        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
-        bond_res[(a_start, a_end)] = bond_type
-        bond_res[(a_end, a_start)] = bond_type
-
-    return node_res, bond_res
-
-
-def get_node_types(smiles, return_idx=True):
-    mol = get_mol(smiles)
-    result = {}
-    for atom in mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-        hyb = atom.GetHybridization()
-        sym = atom.GetSymbol()
-        chg = atom.GetFormalCharge()
-        if sym == 'C':
-            result[amap_num] = f'{sym}_{chg}_{hyb}'
-        else:
-            result[amap_num] = f'{sym}_{chg}'
-
-    if return_idx:
-        result = {
-            k: ATOM_TPYE_TO_IDX[v]
-            for k, v in result.items()
-        }
-
-    return result
-
-
-def get_edge_types(smiles, kekulize=False):
-    mol = get_mol(smiles, kekulize=kekulize)
-    result = {}
-    for bond in mol.GetBonds():
-        a_start = bond.GetBeginAtom().GetAtomMapNum()
-        a_end = bond.GetEndAtom().GetAtomMapNum()
-        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
-        result[(a_start, a_end)] = bond_type
-        result[(a_end, a_start)] = bond_type
-    return result
 
 
 if __name__ == '__main__':
