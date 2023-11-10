@@ -22,7 +22,7 @@ def create_edit_dataset(
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
 
-        deltaH, deltaE = get_synthons(prod, reacs[idx])
+        deltaH, deltaE = get_synthons(prod, reacs[idx], kekulize=kekulize)
 
         nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
         this_edge = {}
