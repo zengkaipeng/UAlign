@@ -306,6 +306,41 @@ def get_modified_atoms_bonds(
     return atom_edit, edge_edit
 
 
+def get_synthons(prod: str, reac: str):
+    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+    if reac_mol is None or prod_mol is None:
+        return {}, []
+
+    reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+    prod_bonds = get_bond_info(prod_mol)
+    prod_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in prod_mol.GetAtoms()
+    }
+
+    reac_bonds = get_bond_info(reac_mol)
+    reac_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in reac_mol.GetAtoms()
+    }
+
+    atom2deltaH, edges2typechange = {}, {}
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        numHs_prod = atom.GetTotalNumHs()
+        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+        numHs_reac = reac_atom.GetTotalNumHs()
+        atom2deltaH[amap_num] = numHs_prod - numHs_reac
+
+    for bond in prod_bonds:
+        target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
+        edges2typechange[bond] = (prod_bonds[bond][0], target_type)
+
+    # We have omitted the formation of new bonds between the product atoms
+    # during the reaction process, as this situation occurs
+    # only to a small extent.
+
+
 def get_reac_infos(prod, reac, return_idx=True, kekulize=False):
     prod_mol, reac_mol = get_mol(prod), get_mol(reac)
     if kekulize:
@@ -567,7 +602,7 @@ def add_random_Amap(smiles):
     return Chem.MolToSmiles(mol)
 
 
-def predict_synthons(smiles, break_edges, canonicalize=False):
+def break_fragements(smiles, break_edges, canonicalize=False):
     """ 
 
     break a smilse into synthons according to the given break edges
@@ -597,3 +632,15 @@ def predict_synthons(smiles, break_edges, canonicalize=False):
     if canonicalize:
         answer = clear_map_number(answer)
     return answer
+
+
+def get_block(reactants):
+    reactants = reactants.split('.')
+    amap2block = {}
+    for idx, reac in enumerate(reactants):
+        xmol = Chem.MolFromSmiles(reac)
+        assert xmol is not None, 'Invalid reactant'
+        for x in xmol.GetAtoms():
+            amap2block[x.GetAtomMapNum()] = idx
+
+    return amap2block
