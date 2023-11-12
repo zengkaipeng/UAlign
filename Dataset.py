@@ -21,12 +21,22 @@ class SynthonDataset(torch.utils.data.Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
+        num_nodes = graph['x'].shape[0]
+        num_edges = graph['edge_index'].shape[1]
+        node_labels = torch.zeros(num_nodes).long()
+        edge_labels = torch.zeros(num_edges).long()
+
+        for k, v in self.node_labels[index].items():
+            node_labels[k] = v
+        for idx in range(num_edges):
+            row, col = self.graphs[index]['edge_index'][:, idx].tolist()
+            edge_labels[idx] = self.edge_labels[index][(row, col)]
+
         if self.rxn_class is None:
-            return self.graphs[index], self.node_labels[index], \
-                self.edge_labels[index]
+            return self.graphs[index], node_labels, edge_labels
         else:
-            return self.graphs[index], self.node_labels[index], \
-                self.edge_labels[index], self.rxn_class[index]
+            return self.graphs[index], node_labels, edge_labels, \
+                self.rxn_class[index]
 
 
 def edit_col_fn(batch):
