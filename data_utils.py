@@ -33,7 +33,7 @@ def create_edit_dataset(
             elif ntype == 0:
                 this_edge[(src, dst)] = this_edge[(dst, src)] = 2
             else:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 3
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
         edges.append(this_edge)
 
     return SynthonDataset(graphs, nodes, edges, rxn_class=rxn_class)
@@ -139,103 +139,35 @@ def check_early_stop(*args):
 
 def eval_by_graph(
     node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch,
+    node_batch, edge_batch
 ):
-    node_fit, node_cover, edge_fit, edge_cover = [0] * 4
+    node_acc, break_acc, break_cover = 0, 0, 0
     batch_size = node_batch.max().item() + 1
     for i in range(batch_size):
         this_node_mask = node_batch == i
         this_edge_mask = edge_batch == i
 
-        this_elb = edge_label[this_edge_mask] > 0
-        this_epd = edge_pred[this_edge_mask] > 0
+        this_nlb = node_label[this_node_mask]
+        this_npd = node_pred[this_node_mask]
+        node_acc += torch.all(this_nlb == this_npd).item()
 
-        e_inters = torch.logical_and(this_elb, this_epd)
-        ef = torch.all(this_elb == this_epd).item()
-        ec = torch.all(this_elb == e_inters).item()
+        this_elb = edge_label[this_edge_mask]
+        this_epd = edge_pred[this_edge_mask]
 
-        edge_fit += ef
-        edge_cover += ec
+        p_break = this_epd == 2
+        g_break = this_elb == 2
+        bf = torch.all(p_break == g_break).item()
 
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
+        p_break = this_epd == 0
+        g_break = this_elb == 0
+        inters = torch.logical_and(p_break, g_break)
+        cf = torch.all(p_break == g_break).item()
+        cc = torch.all(inters == g_break).item()
 
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
+        break_acc += (bf & cf)
+        break_cover += (bf & cc)
 
-        node_fit += nf
-        node_cover += nc
-    return node_fit, node_cover, edge_fit, edge_cover
-
-
-def eval_by_node(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index
-):
-    cover, fit = 0, 0
-    batch_size = node_batch.max().item() + 1
-    for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-        this_edge_index = edge_index[:, this_edge_mask]
-        this_src, this_dst = this_edge_index
-
-        useful_mask = torch.logical_and(
-            node_pred[this_src] > 0, node_pred[this_dst] > 0
-        )
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
-
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        if torch.any(useful_mask):
-            this_elb = edge_label[this_edge_mask][useful_mask] > 0
-            this_epd = edge_pred[this_edge_mask][useful_mask] > 0
-            e_inters = torch.logical_and(this_elb, this_epd)
-            ef = torch.all(this_elb == this_epd).item()
-            ec = torch.all(this_elb == e_inters).item()
-        else:
-            ec = ef = True
-
-        cover += (nc & ec)
-        fit += (nf & ef)
-    return cover, fit
-
-
-def eval_by_edge(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index, node_ptr
-):
-    cover, fit = 0, 0
-    batch_size = node_batch.max().item() + 1
-    for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-        this_edge_index = edge_index[:, this_edge_mask]
-        this_src, this_dst = this_edge_index
-
-        this_elb = edge_label[this_edge_mask] > 0
-        this_epd = edge_pred[this_edge_mask] > 0
-
-        e_inters = torch.logical_and(this_elb, this_epd)
-        ef = torch.all(this_elb == this_epd).item()
-        ec = torch.all(this_elb == e_inters).item()
-
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
-        if torch.any(this_epd).item():
-            this_npd[this_src[this_epd] - node_ptr[i]] = True
-            this_npd[this_dst[this_epd] - node_ptr[i]] = True
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        cover += (nc & ec)
-        fit += (nf & ef)
-    return cover, fit
+    return node_acc, break_acc, break_cover, batch_size
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
