@@ -49,5 +49,7 @@ if __name__ == '__main__':
     # rxn = '[CH:1]1=[CH:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[CH2:10]1>>[cH:1]1[cH:2][cH:3][c:4]2[cH:5][cH:6][cH:7][cH:8][c:9]2[cH:10]1'
     # rxn = '[CH3:14][C:15]([CH3:16])([CH3:17])[O:18][C:19](=[O:20])[N:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1>>[NH:1]1[CH2:2][CH2:3][c:4]2[cH:5][cH:6][cH:7][c:8]3[nH:9][cH:10][c:11]([c:12]23)[CH2:13]1'
     # rxn2svg(rxn, 'tmp_figs/rxn_4.svg')
-    mol = 'C1(C)(C)CC[C@@H](CC(=O)C)C(=[C@@H]C2CC(=O)OC(C)(C)C2(OC(=O)c3ccccc3))C1'
-    mol2svg(mol, f'tmp_figs/comp-prod.svg')
+    # mol = 'C1(C)(C)CC[C@@H](CC(=O)C)C(=[C@@H]C2CC(=O)OC(C)(C)C2(OC(=O)c3ccccc3))C1'
+    # mol2svg(mol, f'tmp_figs/comp-prod.svg')
+    mol = '[CH3:1][O:2][C:3](=[O:4])[c:5]1[cH:6][c:7]([C:8]([F:9])([F:10])[F:11])[n:12][n:13]1[CH2:14][CH2:15][Br:16]'
+    mol2svg(mol, 'tmp_figs/errmol1.svg')

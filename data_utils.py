@@ -1,7 +1,7 @@
 import pandas
 import os
 from utils.chemistry_parse import (
-    get_synthons, ACHANGE_TO_IDX
+    get_synthons, ACHANGE_TO_IDX, break_fragements
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -41,44 +41,33 @@ def create_edit_dataset(
 
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, label_method='dfs'
+    verbose=True,
 ):
-    graphs, nodes, edges = [], [], []
-    node_types, edge_types = [], []
+    graphs, nodes, edges, inv_amap = [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        # encoder_part
-        x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize)
-        encoder_graph, prod_amap = smiles2graph(
-            prod, with_amap=True, kekulize=kekulize
-        )
-        graphs.append(encoder_graph)
-        nodes.append([prod_amap[t] for t in x])
-        edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
+        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
+        graphs.append(graph)
 
-        # print('activate_nodes', x)
+        deltaH, deltaE = get_synthons(prod, reacs[idx], kekulize=kekulize)
 
-        node_type, edge_type = get_reac_infos(
-            prod, reacts[idx], return_idx=True, kekulize=kekulize
-        )
+        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
+        this_edge, break_edges = {}, set()
+        for (src, dst), (otype, ntype) in deltaE.items():
+            os, od = src, dst
+            src, dst = amap[src], amap[dst]
+            if otype == ntype:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
+            elif ntype == 0:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
+                break_edges.update([(od, os), (os, od)])
+            else:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
 
-        if label_method == 'dfs':
-            extended_amap = extend_by_dfs(reacts[idx], x, prod_amap)
-        elif label_method == 'bfs':
-            extended_amap = extend_by_bfs(reacts[idx], x, prod_amap)
+        edges.append(this_edge)
 
-        real_n_types = {extended_amap[k]: v for k, v in node_type.items()}
-        real_e_types = {
-            (extended_amap[x], extended_amap[y]): v
-            for (x, y), v in edge_type.items()
-        }
-        node_types.append(real_n_types)
-        edge_types.append(real_e_types)
+        synthon_str = break_fragements(prod, break_edges, canonicalize=False)
+        
 
-    return OverallDataset(
-        graphs=graphs, activate_nodes=nodes, changed_edges=edges,
-        decoder_node_type=node_types, decoder_edge_type=edge_types,
-        rxn_class=rxn_class
-    )
 
 
 def create_infernece_dataset(

@@ -50,6 +50,9 @@ ACHANGE_TO_IDX = {0: 0, 1: 1, 2: 2, 3: 3, -1: 4, -2: 5, - 3: 6}
 def clear_map_number(smi):
     """Clear the atom mapping number of a SMILES sequence"""
     mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        print(smi)
+        return smi
     for atom in mol.GetAtoms():
         if atom.HasProp('molAtomMapNumber'):
             atom.ClearProp('molAtomMapNumber')
@@ -414,31 +417,6 @@ def convert_res_into_smiles(
     return canonical_smiles(t_str)
 
 
-def clear_map_number(smi):
-    """Clear the atom mapping number of a SMILES sequence"""
-    mol = Chem.MolFromSmiles(smi)
-    for atom in mol.GetAtoms():
-        if atom.HasProp('molAtomMapNumber'):
-            atom.ClearProp('molAtomMapNumber')
-    return canonical_smiles(Chem.MolToSmiles(mol))
-
-
-def canonical_smiles(smi):
-    """Canonicalize a SMILES without atom mapping"""
-    mol = Chem.MolFromSmiles(smi)
-    if mol is None:
-        return smi
-    else:
-        canonical_smi = Chem.MolToSmiles(mol)
-        # print('>>', canonical_smi)
-        if '.' in canonical_smi:
-            canonical_smi_list = canonical_smi.split('.')
-            canonical_smi_list = sorted(
-                canonical_smi_list, key=lambda x: (len(x), x)
-            )
-            canonical_smi = '.'.join(canonical_smi_list)
-        return canonical_smi
-
 
 def extend_by_dfs(reac, activate_nodes, prod_amap):
     def dfs(mol, x, vis, curr_nodes):
@@ -548,6 +526,9 @@ def break_fragements(smiles, break_edges, canonicalize=False):
     """
 
     Mol = Chem.MolFromSmiles(smiles)
+    Chem.Kekulize(Mol, True)
+    # The kekulize is required otherwise you can not get the 
+    # correct synthons
 
     assert all(x.GetAtomMapNum() != 0 for x in Mol.GetAtoms()), \
         'Invalid atom mapping is founded, please correct it'
@@ -560,15 +541,51 @@ def break_fragements(smiles, break_edges, canonicalize=False):
         start_idx = start_atom.GetIdx()
         end_idx = end_atom.GetIdx()
         start_amap = start_atom.GetAtomMapNum()
-        end_amap = start_amap.GetAtomMapNum()
+        end_amap = end_atom.GetAtomMapNum()
 
         if (start_amap, end_amap) in break_edges:
             tmol.RemoveBond(start_idx, end_idx)
 
     answer = Chem.MolToSmiles(tmol.GetMol())
+    if Chem.MolFromSmiles(answer) is None:
+        print('\n[smi]', smiles)
     if canonicalize:
         answer = clear_map_number(answer)
     return answer
+
+
+def get_node_types(smiles, return_idx=True):
+    mol = get_mol(smiles)
+    result = {}
+    for atom in mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        hyb = atom.GetHybridization()
+        sym = atom.GetSymbol()
+        chg = atom.GetFormalCharge()
+        if sym == 'C':
+            result[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            result[amap_num] = f'{sym}_{chg}'
+
+    if return_idx:
+        result = {
+            k: ATOM_TPYE_TO_IDX[v]
+            for k, v in result.items()
+        }
+
+    return result
+
+
+def get_edge_types(smiles, kekulize=False):
+    mol = get_mol(smiles, kekulize=kekulize)
+    result = {}
+    for bond in mol.GetBonds():
+        a_start = bond.GetBeginAtom().GetAtomMapNum()
+        a_end = bond.GetEndAtom().GetAtomMapNum()
+        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
+        result[(a_start, a_end)] = bond_type
+        result[(a_end, a_start)] = bond_type
+    return result
 
 
 def get_block(reactants):
