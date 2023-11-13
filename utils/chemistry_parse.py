@@ -44,6 +44,8 @@ ATOM_REMAP = {
     'N': 7, 'O': 8, 'P': 15, 'S': 16, 'Si': 14, 'Se': 34, 'Sn': 50, 'Zn': 30
 }
 
+ACHANGE_TO_IDX = {0: 0, 1: 1, 2: 2, 3: 3, -1: 4, -2: 5, - 3: 6}
+
 
 def clear_map_number(smi):
     """Clear the atom mapping number of a SMILES sequence"""

@@ -17,14 +17,14 @@ from data_utils import (
 from Dataset import make_decoder_graph
 
 
-class BinaryGraphEditModel(torch.nn.Module):
+class SynthonPredictionModel(torch.nn.Module):
     def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
-        super(BinaryGraphEditModel, self).__init__()
+        super(SynthonPredictionModel, self).__init__()
         self.base_model = base_model
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 1)
+            torch.nn.Linear(edge_dim, 3)
         )
 
         self.node_predictor = torch.nn.Sequential(
@@ -35,27 +35,25 @@ class BinaryGraphEditModel(torch.nn.Module):
 
     def calc_loss(
         self, node_logits, node_label, edge_logits, edge_label,
-        node_batch, edge_batch, pos_weight=1
+        node_batch, edge_batch,
     ):
         max_node_batch = node_batch.max().item() + 1
         node_loss = torch.zeros(max_node_batch).to(node_logits)
-        node_loss_src = binary_cross_entropy_with_logits(
-            node_logits, node_label, reduction='none',
-            pos_weight=torch.tensor(pos_weight)
+        node_loss_src = cross_entropy(
+            node_logits, node_label, reduction='none'
         )
         node_loss.scatter_add_(0, node_batch, node_loss_src)
 
         max_edge_batch = edge_batch.max().item() + 1
         edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
-        edge_loss_src = binary_cross_entropy_with_logits(
+        edge_loss_src = cross_entropy(
             edge_logits, edge_label, reduction='none',
-            pos_weight=torch.tensor(pos_weight)
         )
         edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
 
         return node_loss.mean(), edge_loss.mean()
 
-    def forward(self, graph, ret_loss=True, ret_feat=False, pos_weight=1):
+    def forward(self, graph, ret_loss=True, ret_feat=False):
         node_feat, edge_feat = self.base_model(graph)
 
         node_logits = self.node_predictor(node_feat)
@@ -68,8 +66,7 @@ class BinaryGraphEditModel(torch.nn.Module):
             n_loss, e_loss = self.calc_loss(
                 node_logits=node_logits, edge_logits=edge_logits,
                 node_label=graph.node_label, node_batch=graph.batch,
-                edge_label=graph.edge_label, edge_batch=graph.e_batch,
-                pos_weight=pos_weight
+                edge_label=graph.edge_label, edge_batch=graph.e_batch
             )
 
         answer = (node_logits, edge_logits)
@@ -78,18 +75,6 @@ class BinaryGraphEditModel(torch.nn.Module):
         if ret_feat:
             answer += (node_feat, edge_feat)
         return answer
-
-    def make_memory(self, graph):
-        node_feat, edge_feat = self.base_model(graph)
-        return make_memory_from_feat(node_feat, graph.batch_mask)
-
-
-def make_memory_from_feat(node_feat, batch_mask):
-    batch_size, max_node = batch_mask.shape
-    memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
-    memory = memory.to(node_feat.device)
-    memory[batch_mask] = node_feat
-    return memory, ~batch_mask
 
 
 class DecoderOnly(torch.nn.Module):
