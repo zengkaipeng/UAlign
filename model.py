@@ -94,10 +94,6 @@ class DecoderOnly(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(node_dim, edge_class)
         )
-        self.feat_extracter = torch.nn.Sequential(
-            torch.nn.Linear(node_dim * 2, edge_dim),
-            torch.nn.ReLU()
-        )
         self.node_class = node_class
         self.edge_class = edge_class
         self.pad_num = pad_num
@@ -108,7 +104,7 @@ class DecoderOnly(torch.nn.Module):
     ):
         node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_logits = self.node_predictor(node_feat)
-        org_edge_logits = self.edge_predictor(edge_feat)
+        edge_logits = self.edge_predictor(edge_feat)
         device = node_logits.device
         batch_size = graph.batch.max().item() + 1
         all_node_index = torch.arange(graph.num_nodes).to(device)
@@ -119,23 +115,24 @@ class DecoderOnly(torch.nn.Module):
             edge_batch=graph.e_batch[graph.e_org_mask],
             org_n_logs=node_logits[graph.n_org_mask],
             org_n_cls=graph.node_class[graph.n_org_mask],
-            org_e_logs=org_edge_logits,
+            org_e_logs=edge_logits[graph.e_org_mask],
             org_e_cls=graph.org_edge_class
         )
         pad_n_loss, pad_e_loss = self.calc_pad_loss(
-            batch_size=batch_size, node_feat=node_feat,
+            batch_size=batch_size,
             pad_n_logs=node_logits[graph.n_pad_mask],
             pad_n_cls=graph.node_class[graph.n_pad_mask],
             pad_n_idx=all_node_index[graph.n_pad_mask],
             pad_e_index=graph.edge_index[:, graph.e_pad_mask],
             pad_e_batch=graph.e_batch[graph.e_pad_mask],
+            pad_e_logs=edge_logits[graph.e_pad_mask],
             all_edge_types=all_edge_types, use_matching=matching
         )
 
         return org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
 
     def predict(self, graph, memory, mem_pad_mask=None):
-        node_feat, _ = self.backbone(graph, memory, mem_pad_mask)
+        node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
         node_logits = self.node_predictor(node_feat)
         device = node_logits.device
         batch_size = graph.batch.max().item() + 1
@@ -163,10 +160,7 @@ class DecoderOnly(torch.nn.Module):
         useful_edge &= useful_node[graph.edge_index[1]]
         # padded edges between useful nodes are useful
 
-        row, col = graph.edge_index[:, useful_edge]
-        e_feat = torch.cat([node_feat[row], node_feat[col]], dim=-1)
-        e_feat = self.feat_extracter(e_feat)
-        edge_logits = self.edge_predictor(e_feat)
+        edge_logits = self.edge_predictor(edge_feat[useful_edge])
         pad_e_pred = convert_edge_log_into_labels(
             edge_logits, graph.edge_index[:, useful_edge],
             mod='softmax', return_dict=True
@@ -206,7 +200,7 @@ class DecoderOnly(torch.nn.Module):
         return row_id, col_id
 
     def calc_pad_loss(
-        self, batch_size, pad_n_logs, pad_n_cls, node_feat,
+        self, batch_size, pad_n_logs, pad_n_cls, pad_e_logs,
         pad_n_idx, pad_e_index, pad_e_batch, all_edge_types,
         use_matching
     ):
@@ -219,6 +213,7 @@ class DecoderOnly(torch.nn.Module):
         total_e_loss = torch.zeros(batch_size).to(device)
         for idx in range(batch_size):
             this_edges = pad_e_index[:, pad_e_batch == idx]
+            this_e_logs = pad_e_logs[pad_e_batch == idx]
             if use_matching:
                 with torch.no_grad():
                     row_id, col_id = self.get_matching(
@@ -249,17 +244,13 @@ class DecoderOnly(torch.nn.Module):
                 row = node_remap.get(x, x)
                 col = node_remap.get(y, y)
                 if row in useless_nodes or col in useless_nodes:
-                    continue
-                useful_edges.append((x, y))
-                e_labs.append(all_edge_types.get((row, col), 0))
+                    useful_edges.append(False)
+                else:
+                    useful_edges.append(True)
+                    e_labs.append(all_edge_types.get((row, col), 0))
 
-            useful_edges = torch.LongTensor(useful_edges).to(device)
+            e_logs = this_e_logs[useful_edges]
             e_labs = torch.LongTensor(e_labs).to(device)
-
-            idx_i, idx_j = useful_edges[:, 0], useful_edges[:, 1]
-            e_feat = torch.cat([node_feat[idx_i], node_feat[idx_j]], dim=-1)
-            e_logs = self.edge_predictor(self.feat_extracter(e_feat))
-
             # print(useful_edges)
 
             total_e_loss[idx] = cross_entropy(e_logs, e_labs, reduction='sum')
@@ -336,6 +327,7 @@ class EncoderDecoder(torch.nn.Module):
                     decoder_graph.node_class, batch_size,
                     decoder_graph.batch
                 )
+                # print(type(org_graphs))
 
                 paras = {
                     'graphs': [org_graphs[x] for x in valid_idx],
@@ -349,10 +341,12 @@ class EncoderDecoder(torch.nn.Module):
                     'edge_types': [sep_edges[x] for x in valid_idx]
                 }
 
-                aug_dec_G = make_decoder_graph(**paras)
+                aug_dec_G, aug_type = make_decoder_graph(**paras)
+                aug_dec_G = aug_dec_G.to(enc_n_pred.device)
                 a, b, c, d = self.decoder(
-                    decoder_graph, memory, edge_types, matching=use_matching,
-                    mem_pad_mask=memory_pad_mask
+                    aug_dec_G, memory[valid_idx], aug_type,
+                    mem_pad_mask=memory_pad_mask[valid_idx],
+                    matching=use_matching,
                 )
 
                 org_n_loss += a

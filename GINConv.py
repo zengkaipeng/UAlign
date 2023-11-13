@@ -20,18 +20,10 @@ class MyGINConv(torch.nn.Module):
 
     def forward(
         self, x: torch.Tensor, edge_index: torch.Tensor,
-        edge_attr: torch.Tensor, org_mask: Optional[torch.Tensor] = None
+        edge_attr: torch.Tensor,
     ) -> torch.Tensor:
-        num_nodes, num_edges = x.shape[0], edge_index.shape[1]
-        if org_mask is not None:
-            real_edge_attr = torch.zeros(num_edges, self.edge_dim)
-            real_edge_attr = real_edge_attr.to(edge_attr)
-            real_edge_attr[org_mask] = edge_attr
-            real_edge_attr[~org_mask] = self.padding_edge
-        else:
-            real_edge_attr = edge_attr
-
-        message = torch.relu(x[edge_index[1]] + self.lin_edge(real_edge_attr))
+        num_nodes = x.shape[0]
+        message = torch.relu(x[edge_index[1]] + self.lin_edge(edge_attr))
         message_reduce = torch.zeros(num_nodes, self.in_channels).to(message)
         message_reduce.index_add_(dim=0, index=edge_index[0], source=message)
 

@@ -17,6 +17,7 @@ from utils.chemistry_parse import canonical_smiles
 from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
 from utils.chemistry_parse import ATOM_TPYE_TO_IDX
+from torch.optim.lr_scheduler import ExponentialLR
 
 
 def create_log_model(args):
@@ -125,6 +126,10 @@ if __name__ == '__main__':
     )
 
     parser.add_argument('--matching', action='store_true')
+    parser.add_argument(
+        '--encoder_ckpt', default='', type=str,
+        help='the checkpoint of encoder'
+    )
 
     parser.add_argument('--use_aug', action='store_true')
     parser.add_argument(
@@ -135,6 +140,19 @@ if __name__ == '__main__':
     parser.add_argument(
         '--inference_mode', choices=['node', 'edge'],
         default='edge', help='the method to choices'
+    )
+    parser.add_argument(
+        '--warmup', default=2, type=int,
+        help='the num of epoch for warmup'
+    )
+
+    parser.add_argument(
+        '--lrgamma', default=1, type=float,
+        help='the gamma for lr step'
+    )
+    parser.add_argument(
+        '--checkpoint', default='', type=str,
+        help='the path of encoder'
     )
 
     args = parser.parse_args()
@@ -209,7 +227,7 @@ if __name__ == '__main__':
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
             gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
-            update_gate=args.update_gate
+            update_gate=args.update_gate, with_PE=not args.matching
         )
     else:
         if args.gnn_type == 'gin':
@@ -219,7 +237,8 @@ if __name__ == '__main__':
             )
             GNN_dec = GINDecoder(
                 num_layers=args.n_layer, embedding_dim=args.dim,
-                dropout=args.dropout, n_class=11 if args.use_class else None
+                dropout=args.dropout, with_PE=not args.matching,
+                n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
@@ -232,7 +251,8 @@ if __name__ == '__main__':
                 num_heads=args.heads, num_layers=args.n_layer,
                 dropout=args.dropout, embedding_dim=args.dim,
                 negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
+                n_class=11 if args.use_class else None,
+                with_PE=not args.matching
             )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
@@ -242,14 +262,22 @@ if __name__ == '__main__':
     decoder = DecoderOnly(
         backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
         node_class=len(ATOM_TPYE_TO_IDX) + 1, pad_num=args.pad_num,
-        edge_class=4 if args.kekulize else 5
+        edge_class=4 if args.kekulize else 5,
     )
 
     model = EncoderDecoder(encoder, decoder).to(device)
 
+    if args.checkpoint != '':
+        weight = torch.load(args.checkpoint, map_location=device)
+        model.load_state_dict(weight)
+    elif args.encoder_ckpt != '':
+        weight = torch.load(args.encoder_ckpt, map_location=device)
+        model.encoder.load_state_dict(weight, strict=False)
+
     print('[INFO] model built')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
     best_perf, best_epoch = None, None
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -263,7 +291,7 @@ if __name__ == '__main__':
         print(f'[INFO] traning for ep {ep}')
         train_loss = train_overall(
             model, train_loader, optimizer, device, pos_weight=args.pos_weight,
-            alpha=args.alpha, matching=args.matching, warmup=(ep < 2),
+            alpha=args.alpha, matching=args.matching, warmup=ep < args.warmup,
             aug_mode=args.inference_mode if args.use_aug else 'none',
 
         )
@@ -291,6 +319,9 @@ if __name__ == '__main__':
             val_his = log_info['valid_metric'][-args.early_stop:]
             if check_early_stop(val_his):
                 break
+
+        if ep >= args.warmup:
+            scher.step()
 
     print('[Overall]')
     print('[bset_ep]', best_epoch)
