@@ -4,10 +4,10 @@ import numpy as np
 import torch
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
-    eval_by_edge, eval_by_node, eval_by_graph,
-    convert_log_into_label, convert_edge_log_into_labels
+    eval_by_graph,
+    convert_log_into_label,
+    convert_edge_log_into_labels
 )
-from sklearn import metrics
 from data_utils import predict_synthon
 
 
@@ -50,67 +50,28 @@ def train_sparse_edit(
 
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
-    node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
-    # node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
-    g_nfit, g_ncov, g_efit, g_ecov = [0] * 4
-    node_pd, node_lb, edge_pd, edge_lb = [], [], [], []
+    node_acc, break_acc, break_cover, tot = [0] * 4
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
         with torch.no_grad():
             node_logs, edge_logs = model(graph, ret_loss=False)
-            node_pred = convert_log_into_label(node_logs)
+            node_pred = convert_log_into_label(node_logs, mod='softmax')
             edge_pred = convert_edge_log_into_labels(
                 edge_logs, graph.edge_index, mod='sigmoid', return_dict=False
             )
 
-        node_pd.append(node_logs.sigmoid().cpu().numpy())
-        node_lb.append(graph.node_label.cpu().numpy())
-        edge_pd.append(edge_logs.sigmoid().cpu().numpy())
-        edge_lb.append(graph.edge_label.cpu().numpy())
-
-        batch_size = graph.batch.max().item() + 1
+        na, ba, bc, batch_size = eval_by_graph(
+            node_pred, edge_pred, graph.node_label,
+            graph.edge_label, graph.batch, graph.e_batch
+        )
+        node_acc += na
+        break_acc += ba
+        break_cover += bc
         tot += batch_size
 
-        cover, fit = eval_by_node(
-            node_pred, edge_pred, graph.node_label, graph.edge_label,
-            graph.batch, graph.e_batch, graph.edge_index
-        )
-        node_cov += cover
-        node_fit += fit
-
-        cover, fit = eval_by_edge(
-            node_pred, edge_pred, graph.node_label, graph.edge_label,
-            graph.batch, graph.e_batch, graph.edge_index, graph.ptr
-        )
-        edge_cov += cover
-        edge_fit += fit
-
-        g_metric = eval_by_graph(
-            node_pred, edge_pred, graph.node_label,
-            graph.edge_label, graph.batch, graph.e_batch,
-        )
-
-        g_nfit += g_metric[0]
-        g_ncov += g_metric[1]
-        g_efit += g_metric[2]
-        g_ecov += g_metric[3]
-
-    node_pd = np.concatenate(node_pd, axis=0)
-    node_lb = np.concatenate(node_lb, axis=0)
-    edge_pd = np.concatenate(edge_pd, axis=0)
-    edge_lb = np.concatenate(edge_lb, axis=0)
-
     result = {
-        'common': {
-            'node_roc': metrics.roc_auc_score(node_lb, node_pd),
-            'edge_roc': metrics.roc_auc_score(edge_lb, edge_pd)
-        },
-        'by_graph': {
-            'node_cover': g_ncov / tot, 'node_fit': g_nfit / tot,
-            'edge_cover': g_ecov / tot, 'edge_fit': g_efit / tot
-        },
-        'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
-        'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}
+        'node_acc': node_acc / tot, 'break_acc': break_acc / tot,
+        'break_cover': break_cover / tot,
     }
     return result
 

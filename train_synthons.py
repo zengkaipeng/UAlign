@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
 from Dataset import edit_col_fn
-from model import BinaryGraphEditModel
+from model import SynthonPredictionModel
 from training import train_sparse_edit, eval_sparse_edit
 from data_utils import (
     create_edit_dataset, load_data, fix_seed,
@@ -25,9 +25,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'node-{timestamp}.pth')
-    fit_dir = os.path.join(detail_log_folder, f'edge-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir, fit_dir
+    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
+    return detail_log_dir, detail_model_dir
 
 
 if __name__ == '__main__':
