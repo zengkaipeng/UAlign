@@ -118,7 +118,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, fit_dir = create_log_model(args)
+    log_dir, model_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -197,11 +197,11 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+    model = SynthonPredictionModel(GNN, args.dim, args.dim, args.dropout)
     model = model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    best_node, node_ep, best_edge, edge_ep = [None] * 4
+    best_cov, best_ep = None, None
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -233,16 +233,11 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_node is None or valid_results['by_node']['fit'] > best_node:
-            best_node, node_ep = valid_results['by_node']['fit'], ep
+        if best_node is None or valid_results['break_cover'] > best_cov:
+            best_cov, best_ep = valid_results['break_cover'], ep
             torch.save(model.state_dict(), model_dir)
-        if best_edge is None or valid_results['by_edge']['fit'] > best_edge:
-            best_edge, edge_ep = valid_results['by_edge']['fit'], ep
-            torch.save(model.state_dict(), fit_dir)
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['by_node']['fit'] for x in val_his]
-            ef = [x['by_edge']['fit'] for x in val_his]
-
-            if check_early_stop(nf, ef):
+            nf = [x['break_cover'] for x in val_his]
+            if check_early_stop(nf):
                 break
