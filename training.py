@@ -23,7 +23,7 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_sparse_edit(
     loader, model, optimizer, device, verbose=True,
-    warmup=True, pos_weight=1
+    warmup=True,
 ):
     model = model.train()
     node_loss, edge_loss = [], []
@@ -32,9 +32,7 @@ def train_sparse_edit(
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for graph in tqdm(loader, ascii=True) if verbose else loader:
         graph = graph.to(device)
-        _, _, loss_node, loss_edge = model(
-            graph, ret_loss=True, pos_weight=pos_weight
-        )
+        _, _, loss_node, loss_edge = model(graph, ret_loss=True)
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()
@@ -57,7 +55,8 @@ def eval_sparse_edit(loader, model, device, verbose=True):
             node_logs, edge_logs = model(graph, ret_loss=False)
             node_pred = convert_log_into_label(node_logs, mod='softmax')
             edge_pred = convert_edge_log_into_labels(
-                edge_logs, graph.edge_index, mod='sigmoid', return_dict=False
+                edge_logs, graph.edge_index,
+                mod='softmax', return_dict=False
             )
 
         na, ba, bc, batch_size = eval_by_graph(

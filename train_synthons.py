@@ -110,10 +110,6 @@ if __name__ == '__main__':
     )
 
     # training
-    parser.add_argument(
-        '--pos_weight', default=1, type=float,
-        help='the weight for positive samples'
-    )
 
     args = parser.parse_args()
     print(args)
@@ -215,7 +211,7 @@ if __name__ == '__main__':
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss = train_sparse_edit(
             train_loader, model, optimizer, device, verbose=True,
-            warmup=(ep == 0),  pos_weight=args.pos_weight
+            warmup=(ep == 0),  
         )
         log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 
@@ -233,7 +229,7 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_node is None or valid_results['break_cover'] > best_cov:
+        if best_cov is None or valid_results['break_cover'] > best_cov:
             best_cov, best_ep = valid_results['break_cover'], ep
             torch.save(model.state_dict(), model_dir)
         if args.early_stop > 5 and ep > max(20, args.early_stop):

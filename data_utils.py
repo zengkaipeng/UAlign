@@ -22,7 +22,7 @@ def create_edit_dataset(
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
 
-        deltaH, deltaE = get_synthons(prod, reacs[idx], kekulize=kekulize)
+        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
 
         nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
         this_edge = {}
@@ -66,8 +66,6 @@ def create_overall_dataset(
         edges.append(this_edge)
 
         synthon_str = break_fragements(prod, break_edges, canonicalize=False)
-        
-
 
 
 def create_infernece_dataset(

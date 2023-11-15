@@ -21,8 +21,8 @@ class SynthonDataset(torch.utils.data.Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        num_nodes = graph['x'].shape[0]
-        num_edges = graph['edge_index'].shape[1]
+        num_nodes = self.graphs[index]['node_feat'].shape[0]
+        num_edges = self.graphs[index]['edge_index'].shape[1]
         node_labels = torch.zeros(num_nodes).long()
         edge_labels = torch.zeros(num_edges).long()
 

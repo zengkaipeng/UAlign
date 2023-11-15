@@ -30,7 +30,7 @@ class SynthonPredictionModel(torch.nn.Module):
         self.node_predictor = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
+            torch.nn.Linear(node_dim, 7)
         )
 
     def calc_loss(
