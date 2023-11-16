@@ -67,3 +67,37 @@ if __name__ == '__main__':
 
     with open('train_lgs.txt', 'w') as Fout:
         json.dump(train_lg, Fout, indent=4)
+
+    val_syns, val_lg = [], []
+    for idx, prod in enumerate(tqdm(val_prod)):
+        syn, lg = get_synthon_lg(val_rec[idx], prod)
+        val_syns.append(syn)
+        val_lg.append(lg)
+        syn_tokens.update(smi_tokenizer(syn))
+        lg_tokens.update(smi_tokenizer(lg))
+
+    with open('val_synthons.txt', 'w') as Fout:
+        json.dump(val_syns, Fout, indent=4)
+
+    with open('val_lgs.txt', 'w') as Fout:
+        json.dump(val_lg, Fout, indent=4)
+
+    test_syns, test_lg = [], []
+    for idx, prod in enumerate(tqdm(test_prod)):
+        syn, lg = get_synthon_lg(test_rec[idx], prod)
+        test_syns.append(syn)
+        test_lg.append(lg)
+        syn_tokens.update(smi_tokenizer(syn))
+        lg_tokens.update(smi_tokenizer(lg))
+
+    with open('test_synthons.txt', 'w') as Fout:
+        json.dump(test_syns, Fout, indent=4)
+
+    with open('test_lgs.txt', 'w') as Fout:
+        json.dump(test_lg, Fout, indent=4)
+
+    with open('synthon_token.json', 'w') as Fout:
+        json.dump(list(syn_tokens), Fout)
+
+    with open('lg_tokens.json', 'w') as Fout:
+        json.dump(list(lg_tokens), Fout)
