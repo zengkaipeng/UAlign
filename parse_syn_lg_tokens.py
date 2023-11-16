@@ -16,7 +16,7 @@ from data_utils import load_data
 
 def get_synthon_lg(reac, prod):
     deltaH, deltaE = get_synthons(prod, reac)
-    break_edges = {}
+    break_edges = set()
     for (src, dst), (otype, ntype) in deltaE.items():
         if otype != ntype and ntype == 0:
             break_edges.update([(src, dst), (dst, src)])
@@ -47,6 +47,11 @@ if __name__ == '__main__':
     train_rec, train_prod, train_rxn = load_data(args.dir, 'train')
     val_rec, val_prod, val_rxn = load_data(args.dir, 'val')
     test_rec, test_prod, test_rxn = load_data(args.dir, 'test')
+
+    # print(get_synthon_lg(
+    #     '[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]=[O:7])[cH:11][cH:12]1.[CH2:8]([CH2:9][OH:10])[OH:13]',
+    #     '[Br:1][c:2]1[cH:3][cH:4][c:5]([CH:6]2[O:7][CH2:8][CH2:9][O:10]2)[cH:11][cH:12]1'
+    # ))
 
     syn_tokens, lg_tokens = set(), set()
     train_syns, train_lg = [], []
