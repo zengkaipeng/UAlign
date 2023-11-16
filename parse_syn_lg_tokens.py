@@ -101,3 +101,6 @@ if __name__ == '__main__':
 
     with open('lg_tokens.json', 'w') as Fout:
         json.dump(list(lg_tokens), Fout)
+
+    print('[SYN TOKEN]', len(syn_tokens))
+    print('[LG TOKEN]', len(lg_tokens))

@@ -100,45 +100,46 @@ def edit_col_fn(batch):
 
 class OverallDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], activate_nodes: List[List[int]],
-        changed_edges: List[List[Union[List[int], Tuple[int]]]],
-        decoder_node_type: List[Dict], decoder_edge_type: List[Dict],
+        self, graphs: List[Dict], enc_nodes: List[List[int]],
+        enc_edges: List[Dict[Tuple[int, int], int]],
+        lg_graphs: List[Dict], lg_labels: List[List[int]],
+        conn_edges: List[List[List[int]]], conn_labels: List[List[int]]
         rxn_class: Optional[List[int]] = None
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
-        self.activate_nodes = activate_nodes
-        self.changed_edges = changed_edges
+        self.node_labels = nodes_label
+        self.edge_labels = edges_label
         self.rxn_class = rxn_class
-        self.decoder_node_class = decoder_node_type
-        self.decoder_edge_class = decoder_edge_type
-        # print(decoder_edge_type)
-        # print(decoder_node_type)
+        self.lg_graphs = lg_graphs
+        self.lg_labels = lg_labels
+        self.conn_edges = conn_edges
+        self.conn_labels = conn_labels
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        this_graph = self.graphs[index]
-        node_labels = torch.zeros(this_graph['num_nodes'])
-        node_labels[self.activate_nodes[index]] = 1
-        edges = this_graph['edge_index']
-        edge_labels = torch.zeros(edges.shape[1])
-        for idx, src in enumerate(edges[0]):
-            src, dst = src.item(), edges[1][idx].item()
-            if (src, dst) in self.changed_edges[index]:
-                edge_labels[idx] = 1
-            if (dst, src) in self.changed_edges[index]:
-                edge_labels[idx] = 1
+        num_nodes = self.graphs[index]['node_feat'].shape[0]
+        num_edges = self.graphs[index]['edge_index'].shape[1]
+        node_labels = torch.zeros(num_nodes).long()
+        edge_labels = torch.zeros(num_edges).long()
+
+        for k, v in self.node_labels[index].items():
+            node_labels[k] = v
+        for idx in range(num_edges):
+            row, col = self.graphs[index]['edge_index'][:, idx].tolist()
+            edge_labels[idx] = self.edge_labels[index][(row, col)]
 
         if self.rxn_class is None:
-            return this_graph, node_labels, edge_labels,\
-                self.decoder_node_class[index], self.decoder_edge_class[index]
-
+            return self.graphs[index], node_labels, edge_labels, \
+                self.lg_graphs[index], self.lg_labels[index],\
+                self.conn_edges[index], self.conn_labels[index]
         else:
-            return this_graph, node_labels, edge_labels,\
-                self.rxn_class[index], self.decoder_node_class[index],\
-                self.decoder_edge_class[index]
+            return self.graphs[index], node_labels, edge_labels, \
+                self.lg_graphs[index], self.lg_labels[index],\
+                self.conn_edges[index], self.conn_labels[index],\
+                self.rxn_class[index]
 
 
 def make_decoder_graph(
