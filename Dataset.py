@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 import torch_geometric
 from numpy import concatenate as npcat
+from tokenlizer import smi_tokenizer
 
 
 class SynthonDataset(torch.utils.data.Dataset):
@@ -103,7 +104,8 @@ class OverallDataset(torch.utils.data.Dataset):
         self, graphs: List[Dict], enc_nodes: List[List[int]],
         enc_edges: List[Dict[Tuple[int, int], int]],
         lg_graphs: List[Dict], lg_labels: List[List[int]],
-        conn_edges: List[List[List[int]]], conn_labels: List[List[int]]
+        conn_edges: List[List[List[int]]], conn_labels: List[List[int]],
+        trans_input: List[str], trans_output: List[str],
         rxn_class: Optional[List[int]] = None
     ):
         super(OverallDataset, self).__init__()
@@ -115,6 +117,8 @@ class OverallDataset(torch.utils.data.Dataset):
         self.lg_labels = lg_labels
         self.conn_edges = conn_edges
         self.conn_labels = conn_labels
+        self.trans_input = trans_input
+        self.trans_output = trans_output
 
     def __len__(self):
         return len(self.graphs)
@@ -131,15 +135,25 @@ class OverallDataset(torch.utils.data.Dataset):
             row, col = self.graphs[index]['edge_index'][:, idx].tolist()
             edge_labels[idx] = self.edge_labels[index][(row, col)]
 
+        if self.rxn_class is not None:
+            trans_output = [f'<RXN_{rxn_class}>']
+        else:
+            trans_output = [f'<CLS>']
+
+        trans_input = smi_tokenizer(self.trans_input[index])
+        trans_output.extend(smi_tokenizer(self.trans_output[index]))
+        trans_output.append('<END>')
+
         if self.rxn_class is None:
             return self.graphs[index], node_labels, edge_labels, \
                 self.lg_graphs[index], self.lg_labels[index],\
-                self.conn_edges[index], self.conn_labels[index]
+                self.conn_edges[index], self.conn_labels[index],\
+                trans_input, trans_output
         else:
             return self.graphs[index], node_labels, edge_labels, \
                 self.lg_graphs[index], self.lg_labels[index],\
                 self.conn_edges[index], self.conn_labels[index],\
-                self.rxn_class[index]
+                trans_input, trans_output, self.rxn_class[index]
 
 
 def make_decoder_graph(

@@ -146,7 +146,10 @@ def create_overall_dataset(
             if rxn_class is not None:
                 real_rxns.append(rxn_class[idx])
 
-    return OverallDataset()
+    return OverallDataset(
+        graphs, nodes, edges, lg_graphs, lg_act,
+        
+    )
 
 
 def create_infernece_dataset(
