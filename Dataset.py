@@ -156,6 +156,82 @@ class OverallDataset(torch.utils.data.Dataset):
                 trans_input, trans_output, self.rxn_class[index]
 
 
+def overall_col_fn(batch):
+    encoder = {
+        'node_feat': [], 'edge_feat': [], 'node_label': [],
+        'edge_label': [], 'edge_index': [], 'node_batch': [],
+        'edge_batch': [], 'lstnode': 0, 'lstedge': 0,
+        'node_ptr': [0], 'edge_ptr': [0], 'node_rxn': [],
+        'edge_rxn': []
+    }
+
+    LG = {
+        'node_feat': [], 'edge_feat': [], 'node_label': [],
+        'edge_label': [], 'edge_index': [], 'node_batch': [],
+        'edge_batch': [], 'lstnode': 0, 'lstedge': 0,
+        'node_ptr': [0], 'edge_ptr': [0], 'node_rxn': [],
+        'edge_rxn': []
+    }
+
+    batch_size, graph_rxn = len(batch), []
+
+    encoder['max_node'] = max(x[0]['num_nodes'] for x in batch)
+    encoder['batch_mask'] = torch.zeros(batch_size, encoder['max_node']).bool()
+
+    LG['max_node'] = max(x[4]['num_nodes'] for x in batch)
+    LG['batch_mask'] = torch.zeros(batch_size, LG['max_node']).bool()
+
+    for idx, data in enumerate(batch):
+        if len(data) == 4:
+            gp, nlb, elb, rxn = data
+        else:
+            (gp, nlb, elb), rxn = data, None
+
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_node.append(nlb)
+        all_edge.append(elb)
+
+        batch_mask[idx, :node_cnt] = True
+
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+    result = {
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'node_label': torch.cat(all_node, dim=0),
+        'edge_label': torch.cat(all_edge, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
+    }
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return torch_geometric.data.Data(**result)
+
+
 def make_decoder_graph(
     graphs, activate_nodes, changed_edges, pad_num, rxns=None,
     node_types=None, edge_types=None
