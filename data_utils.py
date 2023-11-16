@@ -2,7 +2,8 @@ import pandas
 import os
 from utils.chemistry_parse import (
     get_synthons, ACHANGE_TO_IDX, break_fragements,
-    get_all_amap, get_leaving_group, get_mol_belong
+    get_all_amap, get_leaving_group, get_mol_belong,
+    clear_map_number
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -58,7 +59,7 @@ def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     verbose=True,
 ):
-    graphs, nodes, edges = [], [], []
+    graphs, nodes, edges, real_rxns = [], [], [], []
     lg_graphs, conn_cands, conn_labels = [], [], []
     trans_input, trans_output, lg_act = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
@@ -98,12 +99,12 @@ def create_overall_dataset(
         syh_ips, lg_ops = [0] * len(this_reac), [[] for _ in len(this_reac)]
 
         for x in synthon_str:
-            syh_ips[get_mol_belong(x, belong)] = x
+            syh_ips[get_mol_belong(x, belong)] = clear_map_number(x)
 
         for x in lgs:
             lg_ops[get_mol_belong(x, belong)].append(x)
 
-        lg_ops = ['.'.join(x) for x in lg_ops]
+        lg_ops = [clear_map_number('.'.join(x)) for x in lg_ops]
 
         this_cog, this_clb = [], []
         for tdx, x in enumerate(syh_ips):
@@ -140,6 +141,10 @@ def create_overall_dataset(
             # trans
             trans_input.append(t_input)
             trans_output.append(t_output)
+
+            if rxn_class is not None:
+                real_rxns.append(rxn_class[idx])
+            
 
     return OverallDataset()
 
