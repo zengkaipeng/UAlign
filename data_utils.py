@@ -1,7 +1,8 @@
 import pandas
 import os
 from utils.chemistry_parse import (
-    get_synthons, ACHANGE_TO_IDX, break_fragements
+    get_synthons, ACHANGE_TO_IDX, break_fragements,
+    get_all_amap
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -39,6 +40,19 @@ def create_edit_dataset(
     return SynthonDataset(graphs, nodes, edges, rxn_class=rxn_class)
 
 
+def check_useful_synthons(synthons, belong):
+    snythons = synthons.split('.')
+    for syn in synthons:
+        all_amap = get_all_amap(syn)
+        this_belong = None
+        for x in all_amap:
+            if this_belong is None:
+                this_belong = belong[x]
+            elif this_belong != belong[x]:
+                return False
+    return True
+
+
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     verbose=True,
@@ -46,11 +60,9 @@ def create_overall_dataset(
     graphs, nodes, edges, inv_amap = [], [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
-        graphs.append(graph)
 
         deltaH, deltaE = get_synthons(prod, reacs[idx], kekulize=kekulize)
 
-        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
         this_edge, break_edges = {}, set()
         for (src, dst), (otype, ntype) in deltaE.items():
             os, od = src, dst
@@ -63,9 +75,26 @@ def create_overall_dataset(
             else:
                 this_edge[(src, dst)] = this_edge[(dst, src)] = 0
 
-        edges.append(this_edge)
+        this_reac, belong = reacts[idx].split('.'), {}
+        for tdx, reac in enumerate(this_reac):
+            belong.update({k: tdx for k in get_all_amap(reac)})
 
         synthon_str = break_fragements(prod, break_edges, canonicalize=False)
+        synthon_str = synthon_str.split('.')
+        if len(synthon_str) != len(this_reac) or \
+                not check_useful_synthons(synthon_str, belong):
+            print('[INFO] synthons mismatch reactants')
+            print(f'[SMI] {reacts[idx]}>>{prod}')
+            continue
+
+
+
+
+        # data adding
+
+        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
+        graphs.append(graph)
+        edges.append(this_edge)
 
 
 def create_infernece_dataset(

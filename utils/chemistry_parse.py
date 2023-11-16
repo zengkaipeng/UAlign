@@ -47,6 +47,23 @@ ATOM_REMAP = {
 ACHANGE_TO_IDX = {0: 0, 1: 1, 2: 2, 3: 3, -1: 4, -2: 5, - 3: 6}
 
 
+def get_all_amap(smi):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return set()
+    answer = set(x.GetAtomMapNum() for x in mol.GetAtoms)
+    return answer
+
+
+def get_mol_belong(smi, belong):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        raise NotImplementedError(f'Invalid smiles {smi}')
+    for atom in mol.GetAtoms():
+        return belong[atom.GetAtomMapNum()]
+    return -1
+
+
 def clear_map_number(smi):
     """Clear the atom mapping number of a SMILES sequence"""
     mol = Chem.MolFromSmiles(smi)
@@ -250,65 +267,37 @@ def get_reaction_core(
     return rxn_core, core_edits
 
 
-def get_modified_atoms_bonds(
-    reac: str, prod: str, kekulize: bool
-) -> Tuple[Set, List]:
-    reac_mol = get_mol(reac)
-    prod_mol = get_mol(prod)
+def get_leaving_group(prod: str, reac: str):
+    prod_amap = get_all_amap(prod)
+    reac_amap = get_all_amap(reac)
 
-    if reac_mol is None or prod_mol is None:
-        return set(), []
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+    r_mol = get_mol(reac)
+    if r_mol is None:
+        return []
+    break_edges = []
+    for bond in r_mol.GetBonds():
+        start_atom = bond.GetBeginAtom()
+        end_atom = bond.GetEndAtom()
+        start_amap = start_atom.GetAtomMapNum()
+        end_amap = end_atom.GetAtomMapNum()
 
-    prod_bonds = get_bond_info(prod_mol)
-    prod_amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in prod_mol.GetAtoms()
-    }
-    max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
-    for atom in reac_mol.GetAtoms():
-        if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_reac_amap + 1)
-            max_reac_amap += 1
+        if start_amap in prod_amap and end_amap not in prod_amap:
+            break_edges.append((start_amap, end_amap))
+            break_edges.append((end_amap, start_amap))
+        if start_amap not in prod_amap and end_amap in prod_amap:
+            break_edges.append((start_amap, end_amap))
+            break_edges.append((end_amap, start_amap))
 
-    reac_bonds = get_bond_info(reac_mol)
-    reac_amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in reac_mol.GetAtoms()
-    }
-
-    atom_edit, edge_edit = set(), []
-    for bond in prod_bonds:
-        if bond not in reac_bonds:
-            edge_edit.append(bond)
-            atom_edit.update(bond)
+    frgs = break_fragements(reac, break_edges)
+    answer = []
+    for lg in frgs:
+        all_amap = get_all_amap(lg)
+        if len(all_amap & prod_amap) == 0:
+            answer.append(lg)
         else:
-            reac_bond_type = reac_bonds[bond][0]
-            prod_bond_type = prod_bonds[bond][0]
-            if reac_bond_type != prod_bond_type:
-                edge_edit.append(bond)
-                atom_edit.update(bond)
-
-    for bond in reac_bonds:
-        if bond not in prod_bonds:
-            start, end = bond
-            if start in prod_amap_idx:
-                atom_edit.add(start)
-            if end in prod_amap_idx:
-                atom_edit.add(end)
-
-    for atom in prod_mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-
-        numHs_prod = atom.GetTotalNumHs()
-        numHs_reac = reac_mol.GetAtomWithIdx(
-            reac_amap_idx[amap_num]
-        ).GetTotalNumHs()
-        if numHs_prod != numHs_reac:
-            atom_edit.add(amap_num)
-
-    return atom_edit, edge_edit
+            assert len(all_amap & prod_amap) == len(all_amap), \
+                f'The breaking is not correct, {reac}>>{prod}'
+    return answer
 
 
 def get_synthons(prod: str, reac: str, kekulize: bool = False):
@@ -415,7 +404,6 @@ def convert_res_into_smiles(
     mol = mol.GetMol()
     t_str = Chem.MolToSmiles(mol)
     return canonical_smiles(t_str)
-
 
 
 def extend_by_dfs(reac, activate_nodes, prod_amap):
@@ -527,7 +515,7 @@ def break_fragements(smiles, break_edges, canonicalize=False):
 
     Mol = Chem.MolFromSmiles(smiles)
     Chem.Kekulize(Mol, True)
-    # The kekulize is required otherwise you can not get the 
+    # The kekulize is required otherwise you can not get the
     # correct synthons
 
     assert all(x.GetAtomMapNum() != 0 for x in Mol.GetAtoms()), \
