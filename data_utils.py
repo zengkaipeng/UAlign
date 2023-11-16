@@ -96,7 +96,8 @@ def create_overall_dataset(
             '.'.join(lgs), with_amap=True, kekulize=kekulize
         )
 
-        syh_ips, lg_ops = [0] * len(this_reac), [[] for _ in len(this_reac)]
+        syh_ips = [0] * len(this_reac),
+        lg_ops = [[] for _ in range(len(this_reac))]
 
         for x in synthon_str:
             syh_ips[get_mol_belong(x, belong)] = clear_map_number(x)
@@ -144,7 +145,6 @@ def create_overall_dataset(
 
             if rxn_class is not None:
                 real_rxns.append(rxn_class[idx])
-            
 
     return OverallDataset()
 

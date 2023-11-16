@@ -51,7 +51,7 @@ def get_all_amap(smi):
     mol = Chem.MolFromSmiles(smi)
     if mol is None:
         return set()
-    answer = set(x.GetAtomMapNum() for x in mol.GetAtoms)
+    answer = set(x.GetAtomMapNum() for x in mol.GetAtoms())
     return answer
 
 
@@ -290,7 +290,7 @@ def get_leaving_group(prod: str, reac: str):
             break_edges.append((end_amap, start_amap))
             conn_egs.append((end_amap, start_amap))
 
-    frgs = break_fragements(reac, break_edges)
+    frgs = break_fragements(reac, break_edges).split('.')
     answer = []
     for lg in frgs:
         all_amap = get_all_amap(lg)

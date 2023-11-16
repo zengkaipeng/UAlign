@@ -2,7 +2,8 @@ import rdkit
 from rdkit import Chem
 from utils.chemistry_parse import (
     clear_map_number, canonical_smiles, get_synthons,
-    break_fragements, get_leaving_group
+    break_fragements, get_leaving_group, get_all_amap,
+    get_mol_belong
 )
 from draws import mol2svg
 from utils.chemistry_parse import add_random_Amap
@@ -14,20 +15,20 @@ from data_utils import load_data
 
 
 def get_synthon_lg(reac, prod):
-    deltaH, deltaE = get_synthons(prod, reacs[idx])
+    deltaH, deltaE = get_synthons(prod, reac)
     break_edges = {}
     for (src, dst), (otype, ntype) in deltaE.items():
         if otype != ntype and ntype == 0:
             break_edges.update([(src, dst), (dst, src)])
 
     synthon_str = break_fragements(prod, break_edges, canonicalize=True)
-    lgs, conn_edgs = get_leaving_group(prod, reacts[idx])
+    lgs, conn_edgs = get_leaving_group(prod, reac)
 
-    this_reac, belong = reacts[idx].split('.'), {}
+    this_reac, belong = reac.split('.'), {}
     for tdx, rx in enumerate(this_reac):
         belong.update({k: tdx for k in get_all_amap(rx)})
 
-    lg_ops = [[] for _ in len(this_reac)]
+    lg_ops = [[] for _ in range(len(this_reac))]
 
     for x in lgs:
         lg_ops[get_mol_belong(x, belong)].append(x)

@@ -1,4 +1,5 @@
 import json
+import re
 
 DEFAULT_SP = {'<CLS>', '<UNK>', '<PAD>', "<END>"}
 
