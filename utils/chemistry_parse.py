@@ -273,8 +273,8 @@ def get_leaving_group(prod: str, reac: str):
 
     r_mol = get_mol(reac)
     if r_mol is None:
-        return []
-    break_edges = []
+        return [], []
+    break_edges, conn_egs = [], []
     for bond in r_mol.GetBonds():
         start_atom = bond.GetBeginAtom()
         end_atom = bond.GetEndAtom()
@@ -284,9 +284,11 @@ def get_leaving_group(prod: str, reac: str):
         if start_amap in prod_amap and end_amap not in prod_amap:
             break_edges.append((start_amap, end_amap))
             break_edges.append((end_amap, start_amap))
+            conn_egs.append((start_amap, end_amap))
         if start_amap not in prod_amap and end_amap in prod_amap:
             break_edges.append((start_amap, end_amap))
             break_edges.append((end_amap, start_amap))
+            conn_egs.append((end_amap, start_amap))
 
     frgs = break_fragements(reac, break_edges)
     answer = []
@@ -297,7 +299,7 @@ def get_leaving_group(prod: str, reac: str):
         else:
             assert len(all_amap & prod_amap) == len(all_amap), \
                 f'The breaking is not correct, {reac}>>{prod}'
-    return answer
+    return answer, conn_egs
 
 
 def get_synthons(prod: str, reac: str, kekulize: bool = False):
