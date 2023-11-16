@@ -2,7 +2,7 @@ import pandas
 import os
 from utils.chemistry_parse import (
     get_synthons, ACHANGE_TO_IDX, break_fragements,
-    get_all_amap
+    get_all_amap, get_leaving_group, get_mol_belong
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -12,6 +12,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from typing import Any, Dict, List, Tuple, Optional, Union
+from itertools import permutations
 
 
 def create_edit_dataset(
@@ -57,7 +58,9 @@ def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     verbose=True,
 ):
-    graphs, nodes, edges, inv_amap = [], [], [], []
+    graphs, nodes, edges = [], [], []
+    lg_graphs, conn_cands, conn_labels = [], [], []
+    trans_input, trans_output, lg_act = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
 
@@ -87,14 +90,58 @@ def create_overall_dataset(
             print(f'[SMI] {reacts[idx]}>>{prod}')
             continue
 
+        lgs, conn_edgs = get_leaving_group(prod, reacts[idx])
+        lg_graph, lg_amap = smiles2graph(
+            '.'.join(lgs), with_amap=True, kekulize=kekulize
+        )
 
+        syh_ips, lg_ops = [0] * len(this_reac), [[] for _ in len(this_reac)]
 
+        for x in synthon_str:
+            syh_ips[get_mol_belong(x, belong)] = x
 
-        # data adding
+        for x in lgs:
+            lg_ops[get_mol_belong(x, belong)].append(x)
 
-        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
-        graphs.append(graph)
-        edges.append(this_edge)
+        lg_ops = ['.'.join(x) for x in lg_ops]
+
+        this_cog, this_clb = [], []
+        for tdx, x in enumerate(syh_ips):
+            syh_amap = get_all_amap(x)
+            lg_amap = get_all_amap(lg_ops[tdx])
+            for a in syn_amap:
+                for b in lg_amap:
+                    this_cog.append((amap[a], lg_amap[b]))
+                    this_clb.append(1 if (a, b) in conn_edgs else 0)
+
+        act_lbs = [0] * len(lg_amap)
+        for a, b in conn_edgs:
+            act_lbs[lg_amap[b]] = 1
+
+        for peru in permutations(range(len(this_reac))):
+            t_input = '.'.join([syh_ips[x] for x in peru])
+            t_output = '`'.join([lg_ops[x] for x in peru])
+
+            # data adding encoder
+
+            nodes.append({
+                amap[k]: ACHANGE_TO_IDX[v]
+                for k, v in deltaH.items()
+            })
+            graphs.append(graph)
+            edges.append(this_edge)
+
+            # data adding lgs
+            lg_graphs.append(lg_graph)
+            lg_act.append(act_lbs)
+            conn_cands.append(this_cog)
+            conn_labels.append(this_clb)
+
+            # trans
+            trans_input.append(t_input)
+            trans_output.append(t_output)
+
+    return OverallDataset()
 
 
 def create_infernece_dataset(
