@@ -2,7 +2,7 @@ import torch
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, get_col_fc, PositionalEncoding
+from model import Graph2Seq, col_fn_unloop, PositionalEncoding
 from model import OnFlyDataset
 from inference_tools import beam_search_one, check_valid
 import pickle
@@ -81,16 +81,12 @@ if __name__ == '__main__':
     fix_seed(args.seed)
     test_rec, test_prod, test_rxn, test_target =\
         load_ext_data(args.data_path)
-    if args.backbone in ['GAT', 'MIX']:
-        col_fn = get_col_fc(self_loop=True)
-    else:
-        col_fn = get_col_fc(self_loop=False)
     test_set = OnFlyDataset(
         prod_sm=test_prod, reat_sm=test_rec, target=test_target,
         aug_prob=0, randomize=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn,
+        test_set, collate_fn=col_fn_unloop,
         batch_size=1, shuffle=False
     )
 
@@ -103,17 +99,18 @@ if __name__ == '__main__':
         GNN = GATBase(
             num_layers=args.layer_encoder, dropout=args.dropout,
             embedding_dim=args.dim, negative_slope=args.negative_slope,
-            num_heads=args.heads, add_self_loop=False
+            num_heads=args.heads,
         )
     else:
         GNN = MixFormer(
             emb_dim=args.dim, num_layer=args.layer_encoder,
             heads=args.heads, dropout=args.dropout,
-            negative_slope=args.negative_slope,  add_self_loop=True,
+            negative_slope=args.negative_slope,
         )
 
+    trans_head = args.heads if args.backbone != 'MIX' else args.heads * 2
     decode_layer = TransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
+        d_model=args.dim, nhead=trans_head, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
     Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
