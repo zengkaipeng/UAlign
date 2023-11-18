@@ -68,6 +68,10 @@ if __name__ == '__main__':
         '--max_len', default=200, type=int,
         help='the max length for decoding'
     )
+    parser.add_argument(
+        '--kekulize', action='store_true', 
+        help='kekulize the mole'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -83,7 +87,7 @@ if __name__ == '__main__':
         load_ext_data(args.data_path)
     test_set = OnFlyDataset(
         prod_sm=test_prod, reat_sm=test_rec, target=test_target,
-        aug_prob=0, randomize=False
+        aug_prob=0, randomize=False, kekulize=args.kekulize
     )
     test_loader = DataLoader(
         test_set, collate_fn=col_fn_unloop,
