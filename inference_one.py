@@ -63,6 +63,6 @@ example_smile = 'C[Si](C)(C)OC(=O)/C=C/CBr'
 graph_input = smiles_to_graph_input(example_smile).to(device)
 
 print(beam_search_one(
-    model, tokenizer, graphs, device, args.max_len, size=10,
+    model, tokenizer, graph_input, device, 300, size=10,
     begin_token='<CLS>', validate=True, end_token='<END>'
 ))
