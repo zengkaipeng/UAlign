@@ -87,8 +87,8 @@ class SynthonPredictionModel(torch.nn.Module):
 
 class OverallModel(torch.nn.Module):
     def __init__(
-        self, GNN, trans_enc, trans_dec,
-        node_dim, edge_dim, use_sim=False,
+        self, GNN, trans_enc, trans_dec, node_dim, 
+        edge_dim, use_sim=False, pre_graph=True
     ):
         super(OverallModel, self).__init__()
         self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
@@ -115,6 +115,7 @@ class OverallModel(torch.nn.Module):
         self.reac_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
         self.prod_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
         self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
+        self.use_sim, self.pre_graph = use_sim, pre_graph
 
     def add_type_emb(self, x, is_reac):
         batch_size, max_len = x.shape[:2]
@@ -125,11 +126,11 @@ class OverallModel(torch.nn.Module):
 
         return self.emb_trans(torch.cat([x, type_emb], dim=-1)) + x
 
-    def trans_enc_forward(self, pre_graph, word_emb, word_pad, graph_emb, graph_pad):
+    def trans_enc_forward(self, word_emb, word_pad, graph_emb, graph_pad):
         word_emb = self.add_type_emb(word_emb, is_reac=True)
         graph_emb = self.add_type_emb(graph_emb, is_reac=False)
 
-        if pre_graph:
+        if self.pre_graph:
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
             memory = self.trans_enc(trans_input, key_padding_mask=memory_pad)
