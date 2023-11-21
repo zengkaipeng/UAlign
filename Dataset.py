@@ -174,7 +174,7 @@ def overall_col_fn(batch):
     }
 
     batch_size, graph_rxn = len(batch), []
-    conn_edges, conn_labels = [], []
+    conn_edges, conn_labels, conn_batch = [], [], []
     trans_input, trans_output = [], []
 
     encoder['max_node'] = max(x[0]['num_nodes'] for x in batch)
@@ -222,6 +222,7 @@ def overall_col_fn(batch):
             (a + encoder['lstnode'], b + LG['lstnode']) for a, b in coe
         ])
         conn_labels.extend(col)
+        conn_batch.extend([idx] * len(col))
 
         # trans
         trans_input.append(tin)
@@ -302,6 +303,7 @@ def overall_col_fn(batch):
 
     conn_edges = torch.LongTensor(conn_edges)
     conn_labels = torch.FloatTensor(conn_labels)
+    conn_batch = torch.LongTensor(conn_batch)
 
     return torch_geometric.data.Data(**enc_graph), \
         torch_geometric.data.Data(**lg_graph),\

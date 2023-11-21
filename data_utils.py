@@ -148,7 +148,8 @@ def create_overall_dataset(
 
     return OverallDataset(
         graphs, nodes, edges, lg_graphs, lg_act,
-
+        conn_cands, conn_labels, trans_input, trans_output,
+        rxn_class=None if len(real_rxns) == 0 else real_rxns
     )
 
 

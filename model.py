@@ -17,6 +17,14 @@ from data_utils import (
 from Dataset import make_decoder_graph
 
 
+def make_memory_from_feat(node_feat, batch_mask):
+    batch_size, max_node = batch_mask.shape
+    memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+    memory = memory.to(node_feat.device)
+    memory[batch_mask] = node_feat
+    return memory, ~batch_mask
+
+
 class SynthonPredictionModel(torch.nn.Module):
     def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
         super(SynthonPredictionModel, self).__init__()
@@ -77,184 +85,59 @@ class SynthonPredictionModel(torch.nn.Module):
         return answer
 
 
-class DecoderOnly(torch.nn.Module):
+class OverallModel(torch.nn.Module):
     def __init__(
-        self, backbone, node_dim, edge_dim,
-        node_class, edge_class, pad_num
+        self, GNN, trans_enc, trans_dec,
+        node_dim, edge_dim, use_sim=False,
     ):
-        super(DecoderOnly, self).__init__()
-        self.backbone = backbone
-        self.node_predictor = torch.nn.Sequential(
+        super(OverallModel, self).__init__()
+        self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
+        self.syn_e_pred = torch.nn.Sequential(
+            torch.nn.Linear(edge_dim, edge_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(edge_dim, 3)
+        )
+        self.syn_n_pred = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, node_class)
+            torch.nn.Linear(node_dim, 7)
         )
-        self.edge_predictor = torch.nn.Sequential(
+        self.lg_activate = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, edge_class)
+            torch.nn.Linear(node_dim, 1)
         )
-        self.node_class = node_class
-        self.edge_class = edge_class
-        self.pad_num = pad_num
-
-    def forward(
-        self, graph, memory, all_edge_types,
-        mem_pad_mask=None, matching=True
-    ):
-        node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
-        node_logits = self.node_predictor(node_feat)
-        edge_logits = self.edge_predictor(edge_feat)
-        device = node_logits.device
-        batch_size = graph.batch.max().item() + 1
-        all_node_index = torch.arange(graph.num_nodes).to(device)
-
-        org_n_loss, org_e_loss = self.calc_org_loss(
-            batch_size=batch_size,
-            node_batch=graph.batch[graph.n_org_mask],
-            edge_batch=graph.e_batch[graph.e_org_mask],
-            org_n_logs=node_logits[graph.n_org_mask],
-            org_n_cls=graph.node_class[graph.n_org_mask],
-            org_e_logs=edge_logits[graph.e_org_mask],
-            org_e_cls=graph.org_edge_class
+        self.conn_pred = torch.nn.Sequential(
+            torch.nn.Linear(edge_dim + edge_dim, edge_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(edge_dim, 1)
         )
-        pad_n_loss, pad_e_loss = self.calc_pad_loss(
-            batch_size=batch_size,
-            pad_n_logs=node_logits[graph.n_pad_mask],
-            pad_n_cls=graph.node_class[graph.n_pad_mask],
-            pad_n_idx=all_node_index[graph.n_pad_mask],
-            pad_e_index=graph.edge_index[:, graph.e_pad_mask],
-            pad_e_batch=graph.e_batch[graph.e_pad_mask],
-            pad_e_logs=edge_logits[graph.e_pad_mask],
-            all_edge_types=all_edge_types, use_matching=matching
-        )
+        self.reac_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
+        self.prod_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
+        self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
 
-        return org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
+    def add_type_emb(self, x, is_reac):
+        batch_size, max_len = x.shape[:2]
+        if is_reac:
+            type_emb = self.reac_embedding.repeat(batch_size, max_len, 1)
+        else:
+            type_emb = self.prod_embedding.repeat(batch_size, max_len, 1)
 
-    def predict(self, graph, memory, mem_pad_mask=None):
-        node_feat, edge_feat = self.backbone(graph, memory, mem_pad_mask)
-        node_logits = self.node_predictor(node_feat)
-        device = node_logits.device
-        batch_size = graph.batch.max().item() + 1
-        all_node_index = torch.arange(graph.num_nodes).to(device)
+        return self.emb_trans(torch.cat([x, type_emb], dim=-1)) + x
 
-        node_pred = convert_log_into_label(node_logits, mod='softmax')
-        org_node_index = all_node_index - graph.ptr[graph.batch]
+    def trans_enc_forward(self, pre_graph, word_emb, word_pad, graph_emb, graph_pad):
+        word_emb = self.add_type_emb(word_emb, is_reac=True)
+        graph_emb = self.add_type_emb(graph_emb, is_reac=False)
 
-        # solving nodes
-        pad_n_pred = node_pred[graph.n_pad_mask]
-        pad_n_idx = org_node_index[graph.n_pad_mask]
-
-        pad_n_pred = pad_n_pred.reshape(batch_size, -1)
-        pad_n_idx = pad_n_idx.reshape(batch_size, -1)
-
-        node_res = [{
-            pad_n_idx[idx][i].item(): v.item()
-            for i, v in enumerate(pad_n_pred[idx])
-        } for idx in range(batch_size)]
-
-        useful_node = (node_pred != 0) | graph.n_org_mask
-        # unpadded nodes and nodes are not None are useful
-        useful_edge = graph.e_pad_mask
-        useful_edge &= useful_node[graph.edge_index[0]]
-        useful_edge &= useful_node[graph.edge_index[1]]
-        # padded edges between useful nodes are useful
-
-        edge_logits = self.edge_predictor(edge_feat[useful_edge])
-        pad_e_pred = convert_edge_log_into_labels(
-            edge_logits, graph.edge_index[:, useful_edge],
-            mod='softmax', return_dict=True
-        )
-
-        # pad_e_pred = {k: v for k, v in pad_e_pred.items() if v != 0}
-
-        edge_res = seperate_dict(
-            label_dict=pad_e_pred, num_nodes=graph.num_nodes,
-            batch=graph.batch, ptr=graph.ptr
-        )
-        return node_res, edge_res
-
-    def calc_org_loss(
-        self, batch_size, node_batch, edge_batch,
-        org_n_logs, org_n_cls, org_e_logs, org_e_cls
-    ):
-        node_loss = torch.zeros(batch_size).to(org_n_logs)
-        org_node_loss = cross_entropy(
-            org_n_logs, org_n_cls, reduction='none'
-        )
-        node_loss.scatter_add_(0, node_batch, org_node_loss)
-
-        edge_loss = torch.zeros(batch_size).to(org_e_logs)
-        org_edge_loss = cross_entropy(
-            org_e_logs, org_e_cls, reduction='none'
-        )
-        edge_loss.scatter_add_(0, edge_batch, org_edge_loss)
-
-        return node_loss.mean(), edge_loss.mean()
-
-    def get_matching(self, pad_logits, pad_cls):
-        neg_prob = -torch.log_softmax(pad_logits, dim=-1)
-        val_matrix = neg_prob[:, pad_cls]
-        val_matrix = val_matrix.cpu().numpy()
-        row_id, col_id = linear_sum_assignment(val_matrix)
-        return row_id, col_id
-
-    def calc_pad_loss(
-        self, batch_size, pad_n_logs, pad_n_cls, pad_e_logs,
-        pad_n_idx, pad_e_index, pad_e_batch, all_edge_types,
-        use_matching
-    ):
-        pad_n_logs = pad_n_logs.reshape(batch_size, -1, self.node_class)
-        pad_n_cls = pad_n_cls.reshape(batch_size, -1)
-        pad_n_idx = pad_n_idx.reshape(batch_size, -1)
-        device = pad_n_logs.device
-
-        total_n_loss = torch.zeros(batch_size).to(device)
-        total_e_loss = torch.zeros(batch_size).to(device)
-        for idx in range(batch_size):
-            this_edges = pad_e_index[:, pad_e_batch == idx]
-            this_e_logs = pad_e_logs[pad_e_batch == idx]
-            if use_matching:
-                with torch.no_grad():
-                    row_id, col_id = self.get_matching(
-                        pad_logits=pad_n_logs[idx],
-                        pad_cls=pad_n_cls[idx]
-                    )
-                node_remap = {
-                    pad_n_idx[idx][x].item(): pad_n_idx[idx][col_id[i]].item()
-                    for i, x in enumerate(row_id)
-                }
-            else:
-                row_id = col_id = list(range(self.pad_num))
-                node_remap = {}
-
-            total_n_loss[idx] = cross_entropy(
-                pad_n_logs[idx][row_id], pad_n_cls[idx][col_id],
-                reduction='sum'
-            )
-
-            useless_nodes = set(
-                pad_n_idx[idx][i].item() for i, v in
-                enumerate(pad_n_cls[idx]) if v.item() == 0
-            )
-
-            useful_edges, e_labs = [], []
-            for ex, (row, col) in enumerate(this_edges.T):
-                x, y = row.item(), col.item()
-                row = node_remap.get(x, x)
-                col = node_remap.get(y, y)
-                if row in useless_nodes or col in useless_nodes:
-                    useful_edges.append(False)
-                else:
-                    useful_edges.append(True)
-                    e_labs.append(all_edge_types.get((row, col), 0))
-
-            e_logs = this_e_logs[useful_edges]
-            e_labs = torch.LongTensor(e_labs).to(device)
-            # print(useful_edges)
-
-            total_e_loss[idx] = cross_entropy(e_logs, e_labs, reduction='sum')
-        return total_n_loss.mean(), total_e_loss.mean()
+        if pre_graph:
+            trans_input = torch.cat([word_emb, graph_emb], dim=1)
+            memory_pad = torch.cat([word_pad, graph_pad], dim=1)
+            memory = self.trans_enc(trans_input, key_padding_mask=memory_pad)
+        else:
+            memory = self.trans_enc(word_emb, key_padding_mask=word_pad)
+            memory = torch.cat([memory, graph_pad], dim=1)
+            memory_pad = torch.cat([word_pad, graph_pad], dim=1)
+        return memory, memory_pad
 
 
 class EncoderDecoder(torch.nn.Module):
