@@ -148,7 +148,7 @@ def create_overall_dataset(
 
     return OverallDataset(
         graphs, nodes, edges, lg_graphs, lg_act,
-        
+
     )
 
 
@@ -210,17 +210,20 @@ def check_early_stop(*args):
 
 def eval_by_graph(
     node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch
+    node_batch, edge_batch, return_tensor=False
 ):
-    node_acc, break_acc, break_cover = 0, 0, 0
     batch_size = node_batch.max().item() + 1
+    node_acc = torch.zeros(batch_size).bool()
+    break_acc = torch.zeros(batch_size).bool()
+    break_cover = torch.zeros(batch_size).bool()
+
     for i in range(batch_size):
         this_node_mask = node_batch == i
         this_edge_mask = edge_batch == i
 
         this_nlb = node_label[this_node_mask]
         this_npd = node_pred[this_node_mask]
-        node_acc += torch.all(this_nlb == this_npd).item()
+        node_acc[i] = torch.all(this_nlb == this_npd).item()
 
         this_elb = edge_label[this_edge_mask]
         this_epd = edge_pred[this_edge_mask]
@@ -235,10 +238,14 @@ def eval_by_graph(
         cf = torch.all(p_break == g_break).item()
         cc = torch.all(inters == g_break).item()
 
-        break_acc += (bf & cf)
-        break_cover += (bf & cc)
+        break_acc[i] = bf & cf
+        break_cover[i] = bf & cc
 
-    return node_acc, break_acc, break_cover, batch_size
+    if not return_tensor:
+        return node_acc.sum().item(), break_acc.sum().item(),\
+            break_cover.sum().item(), batch_size
+    else:
+        return node_acc, break_acc, break_cover
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
