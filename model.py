@@ -85,10 +85,29 @@ class SynthonPredictionModel(torch.nn.Module):
         return answer
 
 
+class PositionalEncoding(torch.nn.Module):
+    def __init__(self, emb_size: int, dropout: float, maxlen: int = 2000):
+        super(PositionalEncoding, self).__init__()
+        den = torch.exp(
+            - torch.arange(0, emb_size, 2) * math.log(10000) / emb_size
+        )
+        pos = torch.arange(0, maxlen).reshape(maxlen, 1)
+        pos_embedding = torch.zeros((maxlen, emb_size))
+        pos_embedding[:, 0::2] = torch.sin(pos * den)
+        pos_embedding[:, 1::2] = torch.cos(pos * den)
+
+        self.dropout = torch.nn.Dropout(dropout)
+        self.register_buffer('pos_embedding', pos_embedding)
+
+    def forward(self, token_embedding: torch.Tensor):
+        token_len = token_embedding.shape[1]
+        return self.dropout(token_embedding + self.pos_embedding[:token_len])
+
+
 class OverallModel(torch.nn.Module):
     def __init__(
-        self, GNN, trans_enc, trans_dec, node_dim, edge_dim,
-        use_sim=False, pre_graph=True, heads=1, dropout=0.0
+        self, GNN, trans_enc, trans_dec, node_dim, edge_dim, num_token,
+        use_sim=False, pre_graph=True, heads=1, dropout=0.0, maxlen=2000
     ):
         super(OverallModel, self).__init__()
         self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
@@ -120,6 +139,10 @@ class OverallModel(torch.nn.Module):
             self.SIM_G = SIM(node_dim, node_dim, heads, dropout)
             self.SIM_L = SIM(node_dim, node_dim, heads, dropout)
 
+        self.token_embeddings = torch.nn.Embedding(num_token, node_dim)
+        self.PE = PositionalEncoding(node_dim, dropout, maxlen)
+        self.trans_pred = torch.nn.Linear(node_dim, num_token)
+
     def add_type_emb(self, x, is_reac):
         batch_size, max_len = x.shape[:2]
         if is_reac:
@@ -131,6 +154,7 @@ class OverallModel(torch.nn.Module):
 
     def trans_enc_forward(self, word_emb, word_pad, graph_emb, graph_pad):
         word_emb = self.add_type_emb(word_emb, is_reac=True)
+        word_emb = self.PE(word_emb)
         graph_emb = self.add_type_emb(graph_emb, is_reac=False)
 
         if self.pre_graph:
@@ -150,17 +174,60 @@ class OverallModel(torch.nn.Module):
         conn_embs = torch.cat(conn_embs, dim=-1)
         conn_logits = self.conn_pred(conn_embs)
 
-        return lg_act_logits, conn_logits, useful_edges_mask
+        return conn_logits, useful_edges_mask
 
     def update_via_sim(self, graph_emb, graph_mask, lg_emb, lg_mask):
-        graph_emb = make_memory_from_feat(graph_emb, graph_mask)
-        lg_emb = make_memory_from_feat(lg_emb, lg_mask)
+        graph_emb, g_pad_mask = make_memory_from_feat(graph_emb, graph_mask)
+        lg_emb, l_pad_mask = make_memory_from_feat(lg_emb, lg_mask)
 
-        new_graph_emb = self.SIM_G(graph_emb, lg_emb, ~lg_mask)
-        new_lg_emb = self.SIM_L(lg_emb, graph_emb, ~graph_mask)
+        new_graph_emb = self.SIM_G(graph_emb, lg_emb, l_pad_mask)
+        new_lg_emb = self.SIM_L(lg_emb, graph_emb, g_pad_mask)
         return new_graph_emb[graph_mask], new_lg_emb[lg_mask]
 
-    
+    def forward(
+        self, prod_graph, lg_graph, trans_ip, conn_edges, conn_batch,
+        trans_op, pad_idx=None, trans_ip_key_padding=None,
+        trans_op_key_padding=None, trans_op_mask=None,
+        trans_label=None, conn_label=None, mode='train'
+    ):
+        prod_n_emb, prod_e_emb = self.GNN(prod_graph)
+        lg_n_emb, lg_e_emb = self.GNN(lg_graph)
+
+        prod_n_logits = self.syn_n_pred(prod_n_emb)
+        prod_e_logits = self.syn_e_pred(prod_e_emb)
+
+        trans_ip = self.token_embeddings(trans_ip)
+        trans_op = self.token_embeddings(trans_op)
+
+        batched_prod_emb, prod_padding_mask = \
+            make_memory_from_feat(prod_n_emb, prod_graph.batch_mask)
+        memory, memory_pad = self.trans_enc_forward(
+            trans_ip, trans_ip_key_padding,
+            batched_prod_emb, prod_padding_mask
+        )
+
+        trans_pred = self.trans_pred(self.trans_dec(
+            tgt=trans_op, memory=memory, tgt_mask=trans_op_mask,
+            memory_key_padding_mask=prod_padding_mask,
+            tgt_key_padding_mask=trans_op_key_padding
+        ))
+
+        lg_act_logits = self.lg_activate(lg_n_emb)
+        if mode == 'train':
+            lg_useful = (lg_graph.node_label > 0) | (lg_act_logits > 0)
+        else:
+            lg_useful = (lg_act_logits > 0)
+
+        if self.use_sim:
+            n_prod_emb, n_lg_emb = self.update_via_sim(
+                prod_n_emb, prod_graph.batch_mask,
+                lg_n_emb, lg_graph.batch_mask
+            )
+        else:
+            n_prod_emb, n_lg_emb = prod_n_emb, lg_n_emb
+        conn_logits, conn_mask = self.conn_forward(
+            n_prod_emb, n_lg_emb, conn_edges, lg_useful
+        )
 
     # def lg_forward(self, lg_emb, graph_emb, conn_edges, lg_label=None, mode='train'):
     #     if mode == 'train' and lg_label is None:
