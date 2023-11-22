@@ -87,8 +87,8 @@ class SynthonPredictionModel(torch.nn.Module):
 
 class OverallModel(torch.nn.Module):
     def __init__(
-        self, GNN, trans_enc, trans_dec, node_dim, 
-        edge_dim, use_sim=False, pre_graph=True
+        self, GNN, trans_enc, trans_dec, node_dim, edge_dim,
+        use_sim=False, pre_graph=True, heads=1, dropout=0.0
     ):
         super(OverallModel, self).__init__()
         self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
@@ -116,6 +116,9 @@ class OverallModel(torch.nn.Module):
         self.prod_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
         self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
         self.use_sim, self.pre_graph = use_sim, pre_graph
+        if self.use_sim:
+            self.SIM_G = SIM(node_dim, node_dim, heads, dropout)
+            self.SIM_L = SIM(node_dim, node_dim, heads, dropout)
 
     def add_type_emb(self, x, is_reac):
         batch_size, max_len = x.shape[:2]
@@ -139,6 +142,64 @@ class OverallModel(torch.nn.Module):
             memory = torch.cat([memory, graph_pad], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
         return memory, memory_pad
+
+    def conn_forward(self, lg_emb, graph_emb, conn_edges, node_mask):
+        useful_edges_mask = node_mask[conn_edges[:, 1]]
+        useful_src, useful_dst = conn_edges[useful_edges_mask]
+        conn_embs = [graph_emb[useful_src], lg_emb[useful_dst]]
+        conn_embs = torch.cat(conn_embs, dim=-1)
+        conn_logits = self.conn_pred(conn_embs)
+
+        return lg_act_logits, conn_logits, useful_edges_mask
+
+    def update_via_sim(self, graph_emb, graph_mask, lg_emb, lg_mask):
+        graph_emb = make_memory_from_feat(graph_emb, graph_mask)
+        lg_emb = make_memory_from_feat(lg_emb, lg_mask)
+
+        new_graph_emb = self.SIM_G(graph_emb, lg_emb, ~lg_mask)
+        new_lg_emb = self.SIM_L(lg_emb, graph_emb, ~graph_mask)
+        return new_graph_emb[graph_mask], new_lg_emb[lg_mask]
+
+    
+
+    # def lg_forward(self, lg_emb, graph_emb, conn_edges, lg_label=None, mode='train'):
+    #     if mode == 'train' and lg_label is None:
+    #         raise NotImplementedError('train mode should provide lg_label')
+
+    #     lg_act_logits = self.lg_activate(lg_emb).squeeze(dim=-1)
+    #     if mode == 'train':
+    #         useful_mask = (lg_label > 0) | (lg_act_logits > 0)
+    #     else:
+    #         useful_mask = (lg_act_logits > 0)
+
+    #     useful_edges_mask = useful_mask[conn_edges[:, 1]]
+    #     useful_src, useful_dst = conn_edges[useful_edges_mask]
+
+    #     if self.use_sim:
+    #         pass
+    #     else:
+    #         n_graph_emb, n_lg_emb = graph_emb, lg_emb
+
+    #     conn_embs = [n_graph_emb[useful_src], n_lg_emb[useful_dst]]
+    #     conn_embs = torch.cat(conn_embs, dim=-1)
+    #     conn_logits = self.conn_pred(conn_embs)
+
+    #     return lg_act_logits, conn_logits, useful_edges_mask
+
+
+class SIM(torch.nn.Module):
+    def __init__(self, q_dim, kv_dim, heads, dropout):
+        super(SIM, self).__init__()
+        self.Attn = torch.nn.MultiheadAttention(
+            embed_dim=q_dim, kdim=kv_dim, vdim=kv_dim,
+            num_heads=heads, dropout=dropout, batch_first=True
+        )
+
+    def forward(self, x, other, key_padding_mask=None):
+        return x + self.Attn(
+            query=x, key=other, value=other,
+            key_padding_mask=key_padding_mask
+        )
 
 
 class EncoderDecoder(torch.nn.Module):
