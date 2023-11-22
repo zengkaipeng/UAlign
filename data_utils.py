@@ -286,11 +286,28 @@ def eval_conn(
         conn_acc[i] = lg_c & con_f
         conn_cover[i] = lg_c & con_c
 
-    if return_tensor:
+    if not return_tensor:
         return lg_acc.sum().item(), lg_cover.sum().item(), \
             conn_acc.sum().item(), conn_cover.sum().item(), batch_size
     else:
         return lg_acc, lg_cover, conn_acc, conn_cover
+
+
+def correct_trans_output(trans_pred, end_idx, pad_idx):
+    batch_size, max_len = trans_pred.shape
+    x_range = torch.arange(0, max_len, 1).unsqueeze(0)
+    x_range = x_range.repeat(batch_size)
+
+    y_cand = torch.ones_like(trans_pred).long() * max_len + 12
+    y_cand[trans_pred == end_idx] = x_range[trans_pred == end_idx]
+    end_pos = torch.min(y_cand, dim=-1, keepdim=True)
+    trans_pred[x_range > end_pos] = pad_idx
+
+
+def eval_trans(trans_pred, trans_lb, return_tensor=False):
+    batch_size, max_len = trans_pred.shape
+    line_acc = torch.sum(trans_pred == trans_lb, dim=-1) == max_len
+    return line_acc if return_tensor else (line_acc.sum().item(), batch_size)
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
