@@ -12,6 +12,7 @@ from tokenlizer import smi_tokenizer
 import json
 from tqdm import tqdm
 from data_utils import load_data
+import os
 
 
 def get_synthon_lg(reac, prod):
@@ -42,7 +43,11 @@ def get_synthon_lg(reac, prod):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('')
     parser.add_argument('--dir', required=True)
+    parser.add_argument('--output', required=True)
     args = parser.parse_args()
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
 
     train_rec, train_prod, train_rxn = load_data(args.dir, 'train')
     val_rec, val_prod, val_rxn = load_data(args.dir, 'val')
@@ -62,10 +67,10 @@ if __name__ == '__main__':
         syn_tokens.update(smi_tokenizer(syn))
         lg_tokens.update(smi_tokenizer(lg))
 
-    with open('train_synthons.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'train_synthons.txt'), 'w') as Fout:
         json.dump(train_syns, Fout, indent=4)
 
-    with open('train_lgs.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'train_lgs.txt'), 'w') as Fout:
         json.dump(train_lg, Fout, indent=4)
 
     val_syns, val_lg = [], []
@@ -76,10 +81,10 @@ if __name__ == '__main__':
         syn_tokens.update(smi_tokenizer(syn))
         lg_tokens.update(smi_tokenizer(lg))
 
-    with open('val_synthons.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'val_synthons.txt'), 'w') as Fout:
         json.dump(val_syns, Fout, indent=4)
 
-    with open('val_lgs.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'val_lgs.txt'), 'w') as Fout:
         json.dump(val_lg, Fout, indent=4)
 
     test_syns, test_lg = [], []
@@ -90,17 +95,20 @@ if __name__ == '__main__':
         syn_tokens.update(smi_tokenizer(syn))
         lg_tokens.update(smi_tokenizer(lg))
 
-    with open('test_synthons.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'test_synthons.txt'), 'w') as Fout:
         json.dump(test_syns, Fout, indent=4)
 
-    with open('test_lgs.txt', 'w') as Fout:
+    with open(os.path.join(args.output, 'test_lgs.txt'), 'w') as Fout:
         json.dump(test_lg, Fout, indent=4)
 
-    with open('synthon_token.json', 'w') as Fout:
+    with open(os.path.join(args.output, 'synthon_token.json'), 'w') as Fout:
         json.dump(list(syn_tokens), Fout)
 
-    with open('lg_tokens.json', 'w') as Fout:
+    with open(os.path.join(args.output, 'lg_tokens.json'), 'w') as Fout:
         json.dump(list(lg_tokens), Fout)
+
+    with open(os.path.join(args.output, 'all_token.json'), 'w') as Fout:
+        json.dump(list(lg_tokens | syn_tokens), Fout)
 
     print('[SYN TOKEN]', len(syn_tokens))
     print('[LG TOKEN]', len(lg_tokens))
