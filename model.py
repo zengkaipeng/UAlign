@@ -229,29 +229,72 @@ class OverallModel(torch.nn.Module):
             n_prod_emb, n_lg_emb, conn_edges, lg_useful
         )
 
-    # def lg_forward(self, lg_emb, graph_emb, conn_edges, lg_label=None, mode='train'):
-    #     if mode == 'train' and lg_label is None:
-    #         raise NotImplementedError('train mode should provide lg_label')
+        if mode == 'train':
+            return self.loss_calc(
+                prod_n_log=prod_n_logits,
+                prod_e_log=prod_e_logits,
+                prod_n_label=prod_graph.node_label,
+                prod_e_label=prod_graph.edge_label,
+                prod_n_batch=prod_graph.batch,
+                prod_e_batch=prod_graph.e_batch,
+                lg_n_log=lg_act_logits,
+                lg_n_label=lg_graph.node_label,
+                lg_n_batch=lg_graph.batch,
+                conn_lg=conn_logits,
+                conn_lb=conn_label[conn_mask],
+                conn_batch=conn_batch[conn_mask],
+                trans_pred=trans_pred,
+                trans_lb=trans_label,
+                pad_idx=pad_idx
+            )
+        else:
+            return prod_n_logits, prod_e_logits, lg_act_logits,\
+                conn_logits, conn_mask, trans_pred
 
-    #     lg_act_logits = self.lg_activate(lg_emb).squeeze(dim=-1)
-    #     if mode == 'train':
-    #         useful_mask = (lg_label > 0) | (lg_act_logits > 0)
-    #     else:
-    #         useful_mask = (lg_act_logits > 0)
+    def loss_calc(
+        self, prod_n_log, prod_e_log, prod_n_label, prod_e_label,
+        prod_n_batch, prod_e_batch, lg_n_log, lg_n_label, lg_n_batch,
+        conn_lg, conn_lb, conn_batch, trans_pred, trans_lb, pad_idx
+    ):
+        syn_node_loss = self.scatter_loss_by_batch(
+            prod_n_log, prod_n_label, prod_n_batch, cross_entropy
+        )
+        syn_edge_loss = self.scatter_loss_by_batch(
+            prod_e_log, prod_e_label, prod_e_batch, cross_entropy
+        )
 
-    #     useful_edges_mask = useful_mask[conn_edges[:, 1]]
-    #     useful_src, useful_dst = conn_edges[useful_edges_mask]
+        lg_act_loss = self.scatter_loss_by_batch(
+            lg_n_log, lg_n_label, lg_n_batch,
+            binary_cross_entropy_with_logits
+        )
 
-    #     if self.use_sim:
-    #         pass
-    #     else:
-    #         n_graph_emb, n_lg_emb = graph_emb, lg_emb
+        conn_loss = self.scatter_loss_by_batch(
+            conn_lg, conn_lb, conn_batch,
+            binary_cross_entropy_with_logits
+        )
 
-    #     conn_embs = [n_graph_emb[useful_src], n_lg_emb[useful_dst]]
-    #     conn_embs = torch.cat(conn_embs, dim=-1)
-    #     conn_logits = self.conn_pred(conn_embs)
+        trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
+        return syn_node_loss, syn_edge_loss, lg_act_loss, conn_loss, trans_loss
 
-    #     return lg_act_logits, conn_logits, useful_edges_mask
+    def scatter_loss_by_batch(self, logits, label, batch, lfn):
+        max_batch = batch.max().item() + 1
+        losses = torch.zeros(max_batch).to(logits)
+        org_loss = lfn(logits, label, reduction='none')
+        losses.index_add_(0, batch, org_loss)
+        return losses.mean()
+
+    def calc_trans_loss(self, trans_pred, trans_lb, ignore_index):
+        batch_size, maxl, num_c = trans_pred.shape
+        trans_pred = trans_pred.reshape(-1, num_c)
+        trans_lb = trans_lb.reshape(-1)
+
+        losses = cross_entropy(
+            trans_pred, trans_lb, reduction='none',
+            ignore_index=ignore_index
+        )
+        losses = losses.reshape(batch_size, maxl)
+        loss = torch.mean(torch.sum(losses, dim=-1))
+        return loss
 
 
 class SIM(torch.nn.Module):
