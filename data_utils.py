@@ -95,23 +95,22 @@ def create_overall_dataset(
             '.'.join(lgs), with_amap=True, kekulize=kekulize
         )
 
-        syh_ips = [0] * len(this_reac),
+        syh_ips = [0] * len(this_reac)
         lg_ops = [[] for _ in range(len(this_reac))]
 
         for x in synthon_str:
-            syh_ips[get_mol_belong(x, belong)] = clear_map_number(x)
-
+            syh_ips[get_mol_belong(x, belong)] = x
         for x in lgs:
             lg_ops[get_mol_belong(x, belong)].append(x)
 
-        lg_ops = [clear_map_number('.'.join(x)) for x in lg_ops]
+        lg_ops = ['.'.join(x) for x in lg_ops]
 
         this_cog, this_clb = [], []
         for tdx, x in enumerate(syh_ips):
-            syh_amap = get_all_amap(x)
-            lg_amap = get_all_amap(lg_ops[tdx])
-            for a in syn_amap:
-                for b in lg_amap:
+            syn_amap_set = get_all_amap(x)
+            lg_amap_set = get_all_amap(lg_ops[tdx])
+            for a in syn_amap_set:
+                for b in lg_amap_set:
                     this_cog.append((amap[a], lg_amap[b]))
                     this_clb.append(1 if (a, b) in conn_edgs else 0)
 
@@ -119,6 +118,8 @@ def create_overall_dataset(
         for a, b in conn_edgs:
             act_lbs[lg_amap[b]] = 1
 
+        syn_ips = [clear_map_number(x) for x in syn_ips]
+        lg_ops = [clear_map_number(x) for x in lg_ops]
         for peru in permutations(range(len(this_reac))):
             t_input = '.'.join([syh_ips[x] for x in peru])
             t_output = '`'.join([lg_ops[x] for x in peru])
