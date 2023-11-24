@@ -43,7 +43,6 @@ def create_edit_dataset(
 
 
 def check_useful_synthons(synthons, belong):
-    snythons = synthons.split('.')
     for syn in synthons:
         all_amap = get_all_amap(syn)
         this_belong = None
@@ -65,7 +64,7 @@ def create_overall_dataset(
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
 
-        deltaH, deltaE = get_synthons(prod, reacs[idx], kekulize=kekulize)
+        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
 
         this_edge, break_edges = {}, set()
         for (src, dst), (otype, ntype) in deltaE.items():
