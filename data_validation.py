@@ -48,5 +48,9 @@ if __name__ == '__main__':
     for idx, reac in enumerate(rec):
         rxn2svg(f'{reac}>>{prod[idx]}', f'tmp_figs/rxn_{idx}.svg')
 
-    dataset = create_overall_dataset(rec, prod)
+    dataset = create_overall_dataset(rec[:3], prod[:3])
     print(dataset)
+
+    print(len(dataset))
+
+    

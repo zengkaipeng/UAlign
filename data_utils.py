@@ -121,7 +121,7 @@ def create_overall_dataset(
         syh_ips = [clear_map_number(x) for x in syh_ips]
         lg_ops = [clear_map_number(x) for x in lg_ops]
         for peru in permutations(range(len(this_reac))):
-            t_input = '.'.join([syh_ips[x] for x in peru])
+            t_input = '`'.join([syh_ips[x] for x in peru])
             t_output = '`'.join([lg_ops[x] for x in peru])
 
             # data adding encoder

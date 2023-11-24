@@ -23,6 +23,7 @@ def get_synthon_lg(reac, prod):
             break_edges.update([(src, dst), (dst, src)])
 
     synthon_str = break_fragements(prod, break_edges, canonicalize=True)
+    synthon_str = '`'.join(synthon_str.split('.'))
     lgs, conn_edgs = get_leaving_group(prod, reac)
 
     this_reac, belong = reac.split('.'), {}
