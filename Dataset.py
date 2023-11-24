@@ -110,8 +110,8 @@ class OverallDataset(torch.utils.data.Dataset):
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
-        self.node_labels = nodes_label
-        self.edge_labels = edges_label
+        self.node_labels = enc_nodes
+        self.edge_labels = enc_edges
         self.rxn_class = rxn_class
         self.lg_graphs = lg_graphs
         self.lg_labels = lg_labels
