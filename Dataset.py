@@ -306,8 +306,8 @@ def overall_col_fn(batch):
     conn_batch = torch.LongTensor(conn_batch)
 
     return torch_geometric.data.Data(**enc_graph), \
-        torch_geometric.data.Data(**lg_graph),\
-        conn_edges, conn_labels, trans_input, trans_output, graph_rxn
+        torch_geometric.data.Data(**lg_graph), conn_edges, \
+        conn_labels, conn_batch, trans_input, trans_output, graph_rxn
 
 
 class InferenceDataset(torch.utils.data.Dataset):

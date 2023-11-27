@@ -30,7 +30,7 @@ def train_sparse_edit(
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
-    for graph in tqdm(loader, ascii=True) if verbose else loader:
+    for graph in tqdm(loader) if verbose else loader:
         graph = graph.to(device)
         _, _, loss_node, loss_edge = model(graph, ret_loss=True)
 
@@ -49,7 +49,7 @@ def train_sparse_edit(
 def eval_sparse_edit(loader, model, device, verbose=True):
     model = model.eval()
     node_acc, break_acc, break_cover, tot = [0] * 4
-    for graph in tqdm(loader, ascii=True) if verbose else loader:
+    for graph in tqdm(loader) if verbose else loader:
         graph = graph.to(device)
         with torch.no_grad():
             node_logs, edge_logs = model(graph, ret_loss=False)
@@ -76,51 +76,67 @@ def eval_sparse_edit(loader, model, device, verbose=True):
 
 
 def train_overall(
-    model, loader, optimizer, device, alpha=1, warmup=True,
-    pos_weight=1, matching=True, aug_mode='none'
+    model, loader, optimizer, device, tokenizer
+    pad_token, warmup=True,
 ):
-    enc_nl, enc_el, org_nl, org_el, pad_nl, pad_el = [[] for _ in range(6)]
+    enc_nl, enc_el, lg_act, conn, tras = [[] for _ in range(5)]
     model = model.train()
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
 
-    for data in tqdm(loader, ascii=True):
-        encoder_graph, decoder_graph, real_edge_type = data
-        encoder_graph = encoder_graph.to(device)
-        decoder_graph = decoder_graph.to(device)
-        # print(decoder_graph.node_class)
+    pad_idx = tokenizer.token2idx[pad_token]
+    for data in tqdm(loader):
+        prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
+        prod_graph = prod_graph.to(device)
+        lg_graph = lg_graph.to(device)
+        conn_es = conn_es.to(device)
+        conn_ls = conn_ls.to(device)
+        conn_b = conn_b.to(device)
+
+        tips = tokenizer.encode_2d(tips)
+        tops = tokenizer.encode_2d(tops)
+
+        trans_ip_mask = tips == pad_idx
+        trans_op_mask = tops == pad_idx
+
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+        if grxn is not None:
+            grxn = grxn.to(device)
 
         losses = model(
-            encoder_graph, decoder_graph, real_edge_type,
-            pos_weight=pos_weight, use_matching=matching, aug_mode=aug_mode
+            prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
+            conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
+            grapg_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+            trans_ip_key_padding=trans_ip_mask,
+            trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
+            conn_label=conn_ls, mode='train'
         )
 
-        enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, \
-            pad_n_loss, pad_e_loss = losses
+        syn_node_loss, syn_edge_loss, lg_act_loss, \
+            conn_loss, trans_loss = losses
 
-        loss = enc_n_loss + enc_e_loss + \
-            alpha * (org_n_loss + org_e_loss) +\
-            pad_n_loss + pad_e_loss
+        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
+            + conn_loss + trans_loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        enc_nl.append(enc_n_loss.item())
-        enc_el.append(enc_e_loss.item())
-        org_nl.append(org_n_loss.item())
-        org_el.append(org_e_loss.item())
-        pad_nl.append(pad_n_loss.item())
-        pad_el.append(pad_e_loss.item())
+        enc_nl.append(syn_node_loss.item())
+        enc_el.append(syn_edge_loss.item())
+        lg_act.append(lg_act_loss.item())
+        conn.append(conn_loss.item())
+        tras.append(trans_loss.item())
 
         if warmup:
             warmup_sher.step()
 
     return {
         'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
-        'dec_org_n_loss': np.mean(org_nl), 'dec_org_e_loss': np.mean(org_el),
-        'dec_pad_n_loss': np.mean(pad_nl), 'dec_pad_e_loss': np.mean(pad_el)
+        'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn_loss),
+        'trans_loss': np.mean(tras)
     }
 
 

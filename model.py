@@ -107,7 +107,8 @@ class PositionalEncoding(torch.nn.Module):
 class OverallModel(torch.nn.Module):
     def __init__(
         self, GNN, trans_enc, trans_dec, node_dim, edge_dim, num_token,
-        use_sim=False, pre_graph=True, heads=1, dropout=0.0, maxlen=2000
+        use_sim=False, pre_graph=True, heads=1, dropout=0.0, maxlen=2000,
+        rxn_num=None
     ):
         super(OverallModel, self).__init__()
         self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
@@ -131,8 +132,12 @@ class OverallModel(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(edge_dim, 1)
         )
-        self.reac_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
-        self.prod_embedding = torch.nn.Parameter(torch.randn(1, 1, node_dim))
+        if rxn_num is None:
+            self.reac_emb = torch.nn.Parameter(torch.randn(1, 1, node_dim))
+        else:
+            self.reac_emb = torch.nn.Embedding(rxn_num, node_dim)
+        self.rxn_num = rxn_num
+        self.prod_emb = torch.nn.Parameter(torch.randn(1, 1, node_dim))
         self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
         self.use_sim, self.pre_graph = use_sim, pre_graph
         if self.use_sim:
@@ -143,17 +148,25 @@ class OverallModel(torch.nn.Module):
         self.PE = PositionalEncoding(node_dim, dropout, maxlen)
         self.trans_pred = torch.nn.Linear(node_dim, num_token)
 
-    def add_type_emb(self, x, is_reac):
+    def add_type_emb(self, x, is_reac, graph_rxn=None):
         batch_size, max_len = x.shape[:2]
         if is_reac:
-            type_emb = self.reac_embedding.repeat(batch_size, max_len, 1)
+            if self.rxn_num is None:
+                type_emb = self.reac_emb.repeat(batch_size, max_len, 1)
+            else:
+                type_emb = self.reac_emb(graph_rxn)
         else:
-            type_emb = self.prod_embedding.repeat(batch_size, max_len, 1)
+            type_emb = self.prod_emb.repeat(batch_size, max_len, 1)
 
         return self.emb_trans(torch.cat([x, type_emb], dim=-1)) + x
 
-    def trans_enc_forward(self, word_emb, word_pad, graph_emb, graph_pad):
-        word_emb = self.add_type_emb(word_emb, is_reac=True)
+    def trans_enc_forward(
+        self, word_emb, word_pad, graph_emb, graph_pad,
+        graph_rxn=None
+    ):
+        word_emb = self.add_type_emb(
+            word_emb, is_reac=True, graph_rxn=graph_rxn
+        )
         word_emb = self.PE(word_emb)
         graph_emb = self.add_type_emb(graph_emb, is_reac=False)
 
@@ -186,7 +199,7 @@ class OverallModel(torch.nn.Module):
 
     def forward(
         self, prod_graph, lg_graph, trans_ip, conn_edges, conn_batch,
-        trans_op, pad_idx=None, trans_ip_key_padding=None,
+        trans_op, grapg_rxn=None, pad_idx=None, trans_ip_key_padding=None,
         trans_op_key_padding=None, trans_op_mask=None, trans_label=None,
         conn_label=None, mode='train', return_loss=False
     ):
@@ -202,8 +215,8 @@ class OverallModel(torch.nn.Module):
         batched_prod_emb, prod_padding_mask = \
             make_memory_from_feat(prod_n_emb, prod_graph.batch_mask)
         memory, memory_pad = self.trans_enc_forward(
-            trans_ip, trans_ip_key_padding,
-            batched_prod_emb, prod_padding_mask
+            trans_ip, trans_ip_key_padding, batched_prod_emb,
+            prod_padding_mask, graph_rxn
         )
 
         trans_pred = self.trans_pred(self.trans_dec(
@@ -315,179 +328,3 @@ class SIM(torch.nn.Module):
             query=x, key=other, value=other,
             key_padding_mask=key_padding_mask
         )
-
-
-class EncoderDecoder(torch.nn.Module):
-    def __init__(self, encoder, decoder):
-        super(EncoderDecoder, self).__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def forward(
-        self, encoder_graph, decoder_graph, edge_types,
-        pos_weight=1, use_matching=True, aug_mode='none'
-    ):
-        enc_n_log, enc_e_log, enc_n_loss, enc_e_loss, n_feat, e_feat =\
-            self.encoder(encoder_graph, True, True, pos_weight)
-
-        memory, memory_pad_mask = make_memory_from_feat(
-            node_feat=n_feat, batch_mask=encoder_graph.batch_mask
-        )
-        org_n_loss, org_e_loss, pad_n_loss, pad_e_loss = self.decoder(
-            decoder_graph, memory, edge_types, matching=use_matching,
-            mem_pad_mask=memory_pad_mask
-        )
-        batch_size = memory.shape[0]
-
-        if aug_mode != 'none':
-            pad_num = self.decoder.pad_num
-            enc_n_pred = convert_log_into_label(enc_n_log)
-            enc_e_pred = convert_edge_log_into_labels(
-                enc_e_log, encoder_graph.edge_index,
-                mod='sigmoid', return_dict=False,
-            )
-
-            if aug_mode == 'node':
-                enc_n_pred, enc_e_pred = filter_label_by_node(
-                    enc_n_pred, enc_e_pred, encoder_graph.edge_index
-                )
-            elif aug_mode == 'edge':
-                enc_n_pred, enc_e_pred = extend_label_by_edge(
-                    enc_n_pred, enc_e_pred, encoder_graph.edge_index
-                )
-            else:
-                raise NotImplementedError(f'Invalid aug_mode {aug_mode}')
-
-            valid_idx = filter_valid_idx(
-                enc_n_pred, enc_e_pred, encoder_graph.node_label,
-                encoder_graph.edge_label, encoder_graph.batch,
-                encoder_graph.e_batch, batch_size
-            )
-
-            if len(valid_idx) > 0:
-                org_graphs = seperate_encoder_graphs(encoder_graph)
-                if len(org_graphs) == 2:
-                    org_graphs, rxns = org_graphs
-                else:
-                    rxns = None
-
-                ext_n_lb = seperate_pred(
-                    enc_n_pred, batch_size, encoder_graph.batch
-                )
-                ext_e_lb = seperate_pred(
-                    enc_e_pred, batch_size, encoder_graph.e_batch
-                )
-
-                sep_edges = seperate_dict(
-                    edge_types, decoder_graph.num_nodes,
-                    decoder_graph.batch, decoder_graph.ptr
-                )
-
-                sep_nodes = seperate_pred(
-                    decoder_graph.node_class, batch_size,
-                    decoder_graph.batch
-                )
-                # print(type(org_graphs))
-
-                paras = {
-                    'graphs': [org_graphs[x] for x in valid_idx],
-                    'activate_nodes': [ext_n_lb[x].cpu() for x in valid_idx],
-                    'changed_edges': [ext_e_lb[x].cpu() for x in valid_idx],
-                    'pad_num': pad_num, 'rxns': rxns,
-                    'node_types': [
-                        {idx: v.item() for idx, v in enumerate(sep_nodes[x])}
-                        for x in valid_idx
-                    ],
-                    'edge_types': [sep_edges[x] for x in valid_idx]
-                }
-
-                aug_dec_G, aug_type = make_decoder_graph(**paras)
-                aug_dec_G = aug_dec_G.to(enc_n_pred.device)
-                a, b, c, d = self.decoder(
-                    aug_dec_G, memory[valid_idx], aug_type,
-                    mem_pad_mask=memory_pad_mask[valid_idx],
-                    matching=use_matching,
-                )
-
-                org_n_loss += a
-                org_e_loss += b
-                pad_n_loss += c
-                pad_e_loss += d
-
-        return enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, pad_n_loss, pad_e_loss
-
-    def predict(self, graph, syn_mode='edge'):
-        enc_n_log, enc_e_log, n_feat, e_feat = self.encoder(
-            graph, ret_feat=True, ret_loss=False
-        )
-
-        memory, mem_pad_mask = make_memory_from_feat(
-            n_feat, graph.batch_mask
-        )
-
-        enc_n_pred = convert_log_into_label(enc_n_log)
-        enc_e_pred = convert_edge_log_into_labels(
-            enc_e_log, graph.edge_index, mod='sigmoid'
-        )
-
-        if syn_mode == 'node':
-            enc_n_pred, enc_e_pred = filter_label_by_node(
-                enc_n_pred, enc_e_pred, graph.edge_index
-            )
-        elif syn_mode == 'edge':
-            enc_n_pred, enc_e_pred = extend_label_by_edge(
-                enc_n_pred, enc_e_pred, graph.edge_index
-            )
-        else:
-            raise NotImplementedError(f'Invalid aug_mode {syn_mode}')
-
-        pad_num = self.decoder.pad_num
-        batch_size = memory.shape[0]
-
-        enc_n_pred = seperate_pred(enc_n_pred, batch_size, graph.batch)
-        enc_e_pred = seperate_pred(enc_e_pred, batch_size, graph.e_batch)
-        enc_n_pred = [x.cpu() for x in enc_n_pred]
-        enc_e_pred = [x.cpu() for x in enc_e_pred]
-        org_graphs = seperate_encoder_graphs(graph)
-        if len(org_graphs) == 2:
-            org_graphs, rxns = org_graphs
-        else:
-            rxns = None
-
-        # print([x['num_nodes'] for x in org_graphs])
-        # print(org_graphs[0])
-        # print(org_graphs[1])
-
-        decoder_graph = make_decoder_graph(
-            org_graphs, enc_n_pred, enc_e_pred, pad_num, rxns=rxns
-        ).to(memory.device)
-
-        pad_n_pred, pad_e_pred = self.decoder.predict(
-            decoder_graph, memory, mem_pad_mask
-        )
-
-        return enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred
-
-
-def filter_valid_idx(
-    node_pred, edge_pred, n_lb, e_lb, batch, e_batch, batch_size
-):
-    answer = []
-    for idx in range(batch_size):
-        this_n_mask = batch == idx
-        this_e_mask = e_batch == idx
-
-        this_nlb = n_lb[this_n_mask] > 0
-        this_elb = e_lb[this_e_mask] > 0
-
-        this_npd = node_pred[this_n_mask] > 0
-        this_epd = edge_pred[this_e_mask] > 0
-
-        inters = this_nlb & this_npd
-        nc = torch.all(this_nlb == inters).item()
-
-        inters = this_elb & this_epd
-        ec = torch.all(this_elb == inters).item()
-        if nc and ec:
-            answer.append(idx)
-    return answer
