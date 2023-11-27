@@ -63,5 +63,9 @@ if __name__ == '__main__':
     print('[INFO] dataset validated----------\n\n')
     for data in loader:
         print(data)
+        enc_graph, lg_graph = data[0], data[1]
+        print(enc_graph.edge_index)
+        print(lg_graph.edge_index)
+
 
     
