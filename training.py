@@ -140,17 +140,35 @@ def train_overall(
     }
 
 
-def eval_overall(model, loader, device, mode='edge'):
-    model, acc, total = model.eval(), 0, 0
+def eval_overall(
+    model, loader, device, tokenizer, pad_toekn,
+    end_token,
+):
+    model, eval_res = model.eval(), [], []
+    enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
     for data in tqdm(loader):
-        encoder_graph, node_types, edge_types, smi = data
-        encoder_graph = encoder_graph.to(device)
-        batch_size = len(smi)
-        total += batch_size
+        prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
+        prod_graph = prod_graph.to(device)
+        lg_graph = lg_graph.to(device)
+        conn_es = conn_es.to(device)
+        conn_ls = conn_ls.to(device)
+        conn_b = conn_b.to(device)
+
+        tips = tokenizer.encode_2d(tips)
+        tops = tokenizer.encode_2d(tops)
+
+        trans_ip_mask = tips == pad_idx
+        trans_op_mask = tops == pad_idx
 
         with torch.no_grad():
-            answer = model.predict(encoder_graph, syn_mode=mode)
-            enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred = answer
+            preds, losses = model(
+                prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
+                conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
+                grapg_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+                trans_ip_key_padding=trans_ip_mask,
+                trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
+                conn_label=conn_ls, mode='valid', ret_loss=True
+            )
 
         synthon_nodes, synthon_edges = predict_synthon(
             n_pred=enc_n_pred, e_pred=enc_e_pred, graph=encoder_graph,

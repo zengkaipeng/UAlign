@@ -263,8 +263,8 @@ class OverallModel(torch.nn.Module):
         if mode == 'train':
             return losses
         elif return_loss:
-            return prod_n_logits, prod_e_logits, lg_act_logits,\
-                conn_logits, conn_mask, trans_pred, sum(losses)
+            return (prod_n_logits, prod_e_logits, lg_act_logits,\
+                conn_logits, conn_mask, trans_pred), losses
         else:
             return prod_n_logits, prod_e_logits, lg_act_logits,\
                 conn_logits, conn_mask, trans_pred
