@@ -187,8 +187,8 @@ class OverallModel(torch.nn.Module):
     def forward(
         self, prod_graph, lg_graph, trans_ip, conn_edges, conn_batch,
         trans_op, pad_idx=None, trans_ip_key_padding=None,
-        trans_op_key_padding=None, trans_op_mask=None,
-        trans_label=None, conn_label=None, mode='train'
+        trans_op_key_padding=None, trans_op_mask=None, trans_label=None,
+        conn_label=None, mode='train', return_loss=False
     ):
         prod_n_emb, prod_e_emb = self.GNN(prod_graph)
         lg_n_emb, lg_e_emb = self.GNN(lg_graph)
@@ -229,8 +229,8 @@ class OverallModel(torch.nn.Module):
             n_prod_emb, n_lg_emb, conn_edges, lg_useful
         )
 
-        if mode == 'train':
-            return self.loss_calc(
+        if mode == 'train' or return_loss:
+            losses = self.loss_calc(
                 prod_n_log=prod_n_logits,
                 prod_e_log=prod_e_logits,
                 prod_n_label=prod_graph.node_label,
@@ -247,6 +247,11 @@ class OverallModel(torch.nn.Module):
                 trans_lb=trans_label,
                 pad_idx=pad_idx
             )
+        if mode == 'train':
+            return losses
+        elif return_loss:
+            return prod_n_logits, prod_e_logits, lg_act_logits,\
+                conn_logits, conn_mask, trans_pred, sum(losses)
         else:
             return prod_n_logits, prod_e_logits, lg_act_logits,\
                 conn_logits, conn_mask, trans_pred
