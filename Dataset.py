@@ -180,14 +180,14 @@ def overall_col_fn(batch):
     encoder['max_node'] = max(x[0]['num_nodes'] for x in batch)
     encoder['batch_mask'] = torch.zeros(batch_size, encoder['max_node']).bool()
 
-    LG['max_node'] = max(x[4]['num_nodes'] for x in batch)
+    LG['max_node'] = max(x[3]['num_nodes'] for x in batch)
     LG['batch_mask'] = torch.zeros(batch_size, LG['max_node']).bool()
 
     for idx, data in enumerate(batch):
         if len(data) == 10:
             gp, nlb, elb, lgg, lgb, coe, col, tin, tou, rxn = data
         else:
-            (gp, nlb, elb, lgg, lgb, coe, col, tin, tou, rxn), rxn = data, None
+            (gp, nlb, elb, lgg, lgb, coe, col, tin, tou), rxn = data, None
 
         # encoder
         enc_node_cnt = gp['num_nodes']
@@ -226,7 +226,7 @@ def overall_col_fn(batch):
 
         # trans
         trans_input.append(tin)
-        trans_output.append(tout)
+        trans_output.append(tou)
 
         # lst update
 

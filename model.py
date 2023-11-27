@@ -216,7 +216,7 @@ class OverallModel(torch.nn.Module):
         if mode == 'train':
             lg_useful = (lg_graph.node_label > 0) | (lg_act_logits > 0)
         else:
-            lg_useful = (lg_act_logits > 0)
+            lg_useful = lg_graph.node_label > 0
 
         if self.use_sim:
             n_prod_emb, n_lg_emb = self.update_via_sim(

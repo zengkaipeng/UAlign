@@ -49,8 +49,19 @@ if __name__ == '__main__':
         rxn2svg(f'{reac}>>{prod[idx]}', f'tmp_figs/rxn_{idx}.svg')
 
     dataset = create_overall_dataset(rec[:3], prod[:3])
-    print(dataset)
+    
+    for i in range(len(dataset)):
+        print(f'[INFO] {i}')
+        print(dataset[i])
 
-    print(len(dataset))
+    loader = DataLoader(
+        dataset, collate_fn=overall_col_fn,
+        batch_size=2, shuffle=False
+    )
+    
+
+    print('[INFO] dataset validated----------\n\n')
+    for data in loader:
+        print(data)
 
     
