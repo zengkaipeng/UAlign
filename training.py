@@ -8,7 +8,7 @@ from data_utils import (
     convert_log_into_label,
     convert_edge_log_into_labels
 )
-from data_utils import predict_synthon
+from data_utils import predict_synthon, generate_tgt_mask
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -98,10 +98,12 @@ def train_overall(
         tops = tokenizer.encode_2d(tops)
 
         trans_ip_mask = tips == pad_idx
-        trans_op_mask = tops == pad_idx
 
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=)
         if grxn is not None:
             grxn = grxn.to(device)
 
@@ -158,7 +160,13 @@ def eval_overall(
         tops = tokenizer.encode_2d(tops)
 
         trans_ip_mask = tips == pad_idx
-        trans_op_mask = tops == pad_idx
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=)
+        if grxn is not None:
+            grxn = grxn.to(device)
 
         with torch.no_grad():
             preds, losses = model(
@@ -169,19 +177,15 @@ def eval_overall(
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
                 conn_label=conn_ls, mode='valid', ret_loss=True
             )
+        prod_n_logits, prod_e_logits, lg_act_logits, \
+            conn_logits, conn_mask, trans_pred = preds
 
-        synthon_nodes, synthon_edges = predict_synthon(
-            n_pred=enc_n_pred, e_pred=enc_e_pred, graph=encoder_graph,
-            n_types=node_types, e_types=edge_types
-        )
+        syn_node_loss, syn_edge_loss, lg_act_loss, \
+            conn_loss, trans_loss = losses
 
-        for i in range(batch_size):
-            result = convert_res_into_smiles(
-                synthon_nodes[i], synthon_edges[i],
-                {k: v for k, v in pad_n_pred[i].items() if v != 0},
-                {k: v for k, v in pad_e_pred[i].items() if v != 0}
-            )
-            # print(result, smi[i])
-            acc += (smi[i] == result)
+        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
+            + conn_loss + trans_loss
+        al.append(loss.item())
+        
 
     return acc / total
