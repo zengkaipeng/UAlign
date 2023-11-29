@@ -1,3 +1,4 @@
+import pickle
 import torch
 import argparse
 import json
@@ -15,6 +16,7 @@ from data_utils import (
 )
 from training import train_overall, eval_overall
 from torch.optim.lr_scheduler import ExponentialLR
+from tokenlizer import Tokenizer, DEFAULT_SP
 
 
 def create_log_model(args):
@@ -29,7 +31,8 @@ def create_log_model(args):
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
     model_dir = os.path.join(detail_log_folder, f'loss-{timestamp}.pth')
     acc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
-    return detail_log_dir, model_dir, acc_dir
+    token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
+    return detail_log_dir, model_dir, acc_dir, token_path
 
 
 if __name__ == '__main__':
@@ -135,7 +138,7 @@ if __name__ == '__main__':
         'between leaving groups and synthons'
     )
     parser.add_argument(
-        '--token_path', type=str, required=True,
+        '--token_path', type=str, default='',
         help='the json file containing all tokens'
     )
     parser.add_argument(
@@ -147,7 +150,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, acc_dir = create_log_model(args)
+    log_dir, model_dir, acc_dir, token_path = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -155,6 +158,21 @@ if __name__ == '__main__':
         device = torch.device(f'cuda:{args.device}')
 
     fix_seed(args.seed)
+
+    if args.checkpoint != '':
+        assert args.token_ckpt != '', \
+            'require token_ckpt when checkpoint is given'
+        with open(args.token_ckpt, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+    else:
+        assert args.token_path != '', 'file containing all tokens are required'
+        if args.use_class:
+            SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
+        else:
+            SP_TOKEN = DEFAULT_SP
+
+        with open(args.token_path) as Fin:
+            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
@@ -240,16 +258,11 @@ if __name__ == '__main__':
         GNN, TransEnc, TransDec, args.dim, args.dim, num_token,
         heads=args.heads, dropout=args.dropout, use_sim=args.use_sim,
         pre_graph=args.pregraph, rxn_num=11 if args.use_class else None
-    )
-
-    model = EncoderDecoder(encoder, decoder).to(device)
+    ).to(device)
 
     if args.checkpoint != '':
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight)
-    elif args.encoder_ckpt != '':
-        weight = torch.load(args.encoder_ckpt, map_location=device)
-        model.encoder.load_state_dict(weight, strict=False)
 
     print('[INFO] model built')
 
@@ -270,7 +283,6 @@ if __name__ == '__main__':
             model, train_loader, optimizer, device, pos_weight=args.pos_weight,
             alpha=args.alpha, matching=args.matching, warmup=ep < args.warmup,
             aug_mode=args.inference_mode if args.use_aug else 'none',
-
         )
         print('[INFO] train_loss:', train_loss)
 
