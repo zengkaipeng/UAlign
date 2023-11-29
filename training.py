@@ -21,16 +21,13 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
 
-def train_sparse_edit(
-    loader, model, optimizer, device, verbose=True,
-    warmup=True,
-):
+def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     model = model.train()
     node_loss, edge_loss = [], []
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
-    for graph in tqdm(loader) if verbose else loader:
+    for graph in tqdm(loader):
         graph = graph.to(device)
         _, _, loss_node, loss_edge = model(graph, ret_loss=True)
 
@@ -46,10 +43,10 @@ def train_sparse_edit(
     return np.mean(node_loss), np.mean(edge_loss)
 
 
-def eval_sparse_edit(loader, model, device, verbose=True):
+def eval_sparse_edit(loader, model, device):
     model = model.eval()
     node_acc, break_acc, break_cover, tot = [0] * 4
-    for graph in tqdm(loader) if verbose else loader:
+    for graph in tqdm(loader):
         graph = graph.to(device)
         with torch.no_grad():
             node_logs, edge_logs = model(graph, ret_loss=False)
@@ -147,7 +144,14 @@ def eval_overall(
     end_token,
 ):
     model, eval_res = model.eval(), [], []
-    enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
+    loss_cur = {
+        'syn_node_loss': [], 'syn_edge_loss': [], 'all': [],
+        'lg_act_loss': [], 'conn_loss': [], 'trans_loss': []
+    }
+    metrics = {
+        'synthon': {'node_acc': [], 'break_acc': [], 'break_cover': []},
+        'lg': [], 'conn': {'cover': [], 'fit': []}, 'all': []
+    }
     for data in tqdm(loader):
         prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
         prod_graph = prod_graph.to(device)
@@ -185,7 +189,13 @@ def eval_overall(
 
         loss = syn_node_loss + syn_edge_loss + lg_act_loss \
             + conn_loss + trans_loss
-        al.append(loss.item())
-        
+
+        loss_cur['syn_node_loss'].append(syn_edge_loss.item())
+        loss_cur['syn_edge_loss'].append(syn_edge_loss.item())
+        loss_cur['lg_act_loss'].append(lg_act_loss.item())
+        loss_cur['conn_loss'].append(conn_loss.item())
+        loss_cur['trans_loss'].append(trans_loss.item())
+        loss_cur['all'].append(loss.item())
+
 
     return acc / total

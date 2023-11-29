@@ -210,18 +210,17 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device, verbose=True,
-            warmup=(ep == 0),  
+            train_loader, model, optimizer, device, warmup=(ep == 0),
         )
         log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 
         print('[TRAIN]', log_info['train_loss'][-1])
-        valid_results = eval_sparse_edit(valid_loader, model, device, True)
+        valid_results = eval_sparse_edit(valid_loader, model, device)
         log_info['valid_metric'].append(valid_results)
 
         print('[VALID]', log_info['valid_metric'][-1])
 
-        test_results = eval_sparse_edit(test_loader, model, device, True)
+        test_results = eval_sparse_edit(test_loader, model, device)
         log_info['test_metric'].append(test_results)
 
         print('[TEST]', log_info['test_metric'][-1])
