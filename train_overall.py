@@ -7,16 +7,13 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
-from Dataset import overall_col_fn, inference_col_fn
-from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
+from Dataset import overall_col_fn
+from model import OverallModel
 from data_utils import (
-    create_overall_dataset, load_data, fix_seed,
-    check_early_stop, create_infernece_dataset
+    create_overall_dataset, load_data,
+    fix_seed, check_early_stop
 )
-from utils.chemistry_parse import canonical_smiles
-from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
-from utils.chemistry_parse import ATOM_TPYE_TO_IDX
 from torch.optim.lr_scheduler import ExponentialLR
 
 
@@ -30,8 +27,9 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    model_dir = os.path.join(detail_log_folder, f'model-{timestamp}.pth')
-    return detail_log_dir, model_dir
+    model_dir = os.path.join(detail_log_folder, f'loss-{timestamp}.pth')
+    acc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
+    return detail_log_dir, model_dir, acc_dir
 
 
 if __name__ == '__main__':
@@ -113,34 +111,6 @@ if __name__ == '__main__':
         '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
-    parser.add_argument('--pos_weight', default=1, type=float)
-
-    # training
-    parser.add_argument(
-        '--pad_num', type=int, default=35,
-        help='the number of padding'
-    )
-    parser.add_argument(
-        '--alpha', type=float, default=1,
-        help='the prop of known part for loss'
-    )
-
-    parser.add_argument('--matching', action='store_true')
-    parser.add_argument(
-        '--encoder_ckpt', default='', type=str,
-        help='the checkpoint of encoder'
-    )
-
-    parser.add_argument('--use_aug', action='store_true')
-    parser.add_argument(
-        '--extend_order', choices=['bfs', 'dfs'], default='dfs',
-        help='the method to extend label '
-    )
-
-    parser.add_argument(
-        '--inference_mode', choices=['node', 'edge'],
-        default='edge', help='the method to choices'
-    )
     parser.add_argument(
         '--warmup', default=2, type=int,
         help='the num of epoch for warmup'
@@ -152,13 +122,32 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--checkpoint', default='', type=str,
-        help='the path of encoder'
+        help='the path of trained overall model, to restart the exp'
+    )
+    parser.add_argument(
+        '--pregraph', action='store_true',
+        help='cat the graph embedding before the transformer ' +
+        'encoder, if not chosen, cat it after transformer encoder'
+    )
+    parser.add_argument(
+        '--use_sim', action='store_true',
+        help='use the sim model while making link prediction ' +
+        'between leaving groups and synthons'
+    )
+    parser.add_argument(
+        '--token_path', type=str, required=True,
+        help='the json file containing all tokens'
+    )
+    parser.add_argument(
+        '--token_ckpt', type=str, default='',
+        help='the path of token checkpoint, required while' +
+        ' checkpoint is specified'
     )
 
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir = create_log_model(args)
+    log_dir, model_dir, acc_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -173,30 +162,27 @@ if __name__ == '__main__':
 
     train_set = create_overall_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None,
-        label_method=args.extend_order
+        rxn_class=train_rxn if args.use_class else None, verbose=True
     )
-
-    valid_set = create_infernece_dataset(
+    valid_set = create_overall_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None,
+        rxn_class=val_rxn if args.use_class else None, verbose=True
     )
-    test_set = create_infernece_dataset(
+    test_set = create_overall_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None,
+        rxn_class=val_rxn if args.use_class else None, verbose=True
     )
-
-    col_fn = overall_col_fn(pad_num=args.pad_num)
 
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
+        train_set, collate_fn=overall_col_fn,
+        batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=inference_col_fn,
+        valid_set, collate_fn=overall_col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=inference_col_fn,
+        test_set, collate_fn=overall_col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -223,22 +209,11 @@ if __name__ == '__main__':
             n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
-        GNN_dec = MixDecoder(
-            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
-            gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
-            update_gate=args.update_gate, with_PE=not args.matching
-        )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout,
                 embedding_dim=args.dim, n_class=11 if args.use_class else None
-            )
-            GNN_dec = GINDecoder(
-                num_layers=args.n_layer, embedding_dim=args.dim,
-                dropout=args.dropout, with_PE=not args.matching,
-                n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
@@ -247,22 +222,24 @@ if __name__ == '__main__':
                 negative_slope=args.negative_slope,
                 n_class=11 if args.use_class else None
             )
-            GNN_dec = GATDecoder(
-                num_heads=args.heads, num_layers=args.n_layer,
-                dropout=args.dropout, embedding_dim=args.dim,
-                negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None,
-                with_PE=not args.matching
-            )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+    enc_layer = torch.nn.TransformerEncoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=args.dropout
+    )
+    dec_layer = torch.nn.TransformerDecoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=args.dropout
+    )
+    TransEnc = torch.nn.TransformerEncoder(enc_layer, args.n_layer)
+    TransDec = torch.nn.TransformerDecoder(dec_layer, args.n_layer)
 
-    decoder = DecoderOnly(
-        backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
-        node_class=len(ATOM_TPYE_TO_IDX) + 1, pad_num=args.pad_num,
-        edge_class=4 if args.kekulize else 5,
+    model = OverallModel(
+        GNN, TransEnc, TransDec, args.dim, args.dim, num_token,
+        heads=args.heads, dropout=args.dropout, use_sim=args.use_sim,
+        pre_graph=args.pregraph, rxn_num=11 if args.use_class else None
     )
 
     model = EncoderDecoder(encoder, decoder).to(device)

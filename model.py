@@ -107,7 +107,7 @@ class PositionalEncoding(torch.nn.Module):
 class OverallModel(torch.nn.Module):
     def __init__(
         self, GNN, trans_enc, trans_dec, node_dim, edge_dim, num_token,
-        use_sim=False, pre_graph=True, heads=1, dropout=0.0, maxlen=2000,
+        use_sim=True, pre_graph=True, heads=1, dropout=0.0, maxlen=2000,
         rxn_num=None
     ):
         super(OverallModel, self).__init__()
