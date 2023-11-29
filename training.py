@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
-    eval_by_graph,
-    convert_log_into_label,
-    convert_edge_log_into_labels
+    eval_by_graph, correct_trans_output,
+    convert_log_into_label, eval_trans,
+    convert_edge_log_into_labels, eval_conn
 )
 from data_utils import predict_synthon, generate_tgt_mask
 
@@ -76,7 +76,7 @@ def train_overall(
     model, loader, optimizer, device, tokenizer
     pad_token, warmup=True,
 ):
-    enc_nl, enc_el, lg_act, conn, tras = [[] for _ in range(5)]
+    enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
     model = model.train()
     if warmup:
         warmup_iters = len(loader) - 1
@@ -128,6 +128,7 @@ def train_overall(
         lg_act.append(lg_act_loss.item())
         conn.append(conn_loss.item())
         tras.append(trans_loss.item())
+        al.append(loss.item())
 
         if warmup:
             warmup_sher.step()
@@ -135,12 +136,12 @@ def train_overall(
     return {
         'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
         'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn_loss),
-        'trans_loss': np.mean(tras)
+        'trans_loss': np.mean(tras), 'all': np.mean(al)
     }
 
 
 def eval_overall(
-    model, loader, device, tokenizer, pad_toekn,
+    model, loader, device, tokenizer, pad_token,
     end_token,
 ):
     model, eval_res = model.eval(), [], []
@@ -150,8 +151,11 @@ def eval_overall(
     }
     metrics = {
         'synthon': {'node_acc': [], 'break_acc': [], 'break_cover': []},
-        'lg': [], 'conn': {'cover': [], 'fit': []}, 'all': []
+        'conn': {'lg_cov': [], 'lg_acc': [], 'conn_cov': [], 'conn_acc': []},
+        'all': [], 'lg': [],
     }
+    pad_idx = tokenizer.token2idx[pad_token]
+    end_idx = tokenizer.token2idx[end_token]
     for data in tqdm(loader):
         prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
         prod_graph = prod_graph.to(device)
@@ -181,9 +185,8 @@ def eval_overall(
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
                 conn_label=conn_ls, mode='valid', ret_loss=True
             )
-        prod_n_logits, prod_e_logits, lg_act_logits, \
-            conn_logits, conn_mask, trans_pred = preds
 
+        # losses process
         syn_node_loss, syn_edge_loss, lg_act_loss, \
             conn_loss, trans_loss = losses
 
@@ -197,5 +200,49 @@ def eval_overall(
         loss_cur['trans_loss'].append(trans_loss.item())
         loss_cur['all'].append(loss.item())
 
+        prod_n_logits, prod_e_logits, lg_act_logits, \
+            conn_logits, conn_mask, trans_logits = preds
 
-    return acc / total
+        node_pred = convert_log_into_label(prod_n_logits, mod='softmax')
+        edge_pred = convert_edge_log_into_labels(
+            prod_e_logits, prod_graph.edge_index,
+            mod='softmax', return_dict=False
+        )
+
+        lg_act_pred = convert_log_into_label(lg_act_logits, mod='sigmoid')
+        conn_pred = convert_log_into_label(conn_logits, mod='sigmoid')
+        trans_pred = convert_log_into_label(trans_logits)
+        trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+
+        node_acc, break_acc, break_cover = eval_by_graph(
+            node_pred, edge_pred, prod_graph.node_label, prod_graph.edge_label,
+            prod_graph.batch, prod_graph.e_batch, return_tensor=True
+        )
+        lg_acc, lg_cover, conn_acc, conn_cover = eval_conn(
+            lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
+            lg_batch=lg_graph.batch, conn_pred=conn_pred,
+            conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
+            return_tensor=True
+        )
+        trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
+        metrics['synthon']['node_acc'].append(node_acc)
+        metrics['synthon']['break_cover'].append(break_cover)
+        metrics['synthon']['break_acc'].append(break_acc)
+        metrics['lg'].append(trans_acc)
+        metrics['conn']['lg_acc'].append(lg_acc)
+        metrics['conn']['lg_cov'].append(lg_cover)
+        metrics['conn']['conn_acc'].append(conn_acc)
+        metrics['conn']['conn_cov'].append(conn_cover)
+        metrics['all'].append(conn_cover & break_cover & trans_acc)
+
+    loss_cur = {k: np.mean(v) for k, v in loss_cur.items()}
+
+    for k, v in metrics.items():
+        if isinstance(v, list):
+            metrics[k] = torch.cat(v, dim=0).mean()
+        else:
+            metrics[k] = {
+                x: torch.cat(y, dim=0).mean()
+                for x, y in v.items()
+            }
+    return loss_cur, metrics
