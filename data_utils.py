@@ -279,13 +279,15 @@ def eval_conn(
         this_lg_mask = lg_batch == i
         this_conn_mask = conn_batch == i
 
-        this_lg_pred = lg_pred[this_lg_mask] > 0
-        this_lg_label = lg_label[this_lg_mask] > 0
-        inters = this_lg_label & this_lg_label
+        if torch.any(this_lg_mask):
+            this_lg_pred = lg_pred[this_lg_mask] > 0
+            this_lg_label = lg_label[this_lg_mask] > 0
+            inters = this_lg_label & this_lg_label
 
-        lg_f = torch.all(this_lg_label == this_lg_pred).item()
-        lg_c = torch.all(this_lg_label == inters).item()
-
+            lg_f = torch.all(this_lg_label == this_lg_pred).item()
+            lg_c = torch.all(this_lg_label == inters).item()
+        else:
+            lg_f = lg_c = True
         lg_cover[i] = lg_c
         lg_acc[i] = lg_c
 
