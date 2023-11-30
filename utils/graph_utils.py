@@ -31,7 +31,7 @@ def smiles2graph(smiles_string, with_amap=False, kekulize=False):
                 for atom in mol.GetAtoms()
             }
         else:
-            amap_idx = {}
+            amap_idx = dict()
 
     # atoms
     atom_features_list = []

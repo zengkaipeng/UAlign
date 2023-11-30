@@ -14,6 +14,7 @@ from data_utils import (
     seperate_dict, extend_label_by_edge, filter_label_by_node,
     seperate_encoder_graphs, seperate_pred
 )
+import math
 
 
 def make_memory_from_feat(node_feat, batch_mask):
@@ -262,8 +263,8 @@ class OverallModel(torch.nn.Module):
         if mode == 'train':
             return losses
         elif return_loss:
-            return (prod_n_logits, prod_e_logits, lg_act_logits,\
-                conn_logits, conn_mask, trans_pred), losses
+            return (prod_n_logits, prod_e_logits, lg_act_logits,
+                    conn_logits, conn_mask, trans_pred), losses
         else:
             return prod_n_logits, prod_e_logits, lg_act_logits,\
                 conn_logits, conn_mask, trans_pred
