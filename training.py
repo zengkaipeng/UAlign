@@ -108,7 +108,7 @@ def train_overall(
         losses = model(
             prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
             conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
-            grapg_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+            graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
             trans_ip_key_padding=trans_ip_mask,
             trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
             conn_label=conn_ls, mode='train'
@@ -182,7 +182,7 @@ def eval_overall(
             preds, losses = model(
                 prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
                 conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
-                grapg_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+                graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
                 trans_ip_key_padding=trans_ip_mask,
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
                 conn_label=conn_ls, mode='valid', ret_loss=True

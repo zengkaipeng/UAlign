@@ -173,9 +173,9 @@ class OverallModel(torch.nn.Module):
         if self.pre_graph:
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
-            memory = self.trans_enc(trans_input, key_padding_mask=memory_pad)
+            memory = self.trans_enc(trans_input, src_key_padding_mask=memory_pad)
         else:
-            memory = self.trans_enc(word_emb, key_padding_mask=word_pad)
+            memory = self.trans_enc(word_emb, src_key_padding_mask=word_pad)
             memory = torch.cat([memory, graph_pad], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
         return memory, memory_pad
@@ -199,7 +199,7 @@ class OverallModel(torch.nn.Module):
 
     def forward(
         self, prod_graph, lg_graph, trans_ip, conn_edges, conn_batch,
-        trans_op, grapg_rxn=None, pad_idx=None, trans_ip_key_padding=None,
+        trans_op, graph_rxn=None, pad_idx=None, trans_ip_key_padding=None,
         trans_op_key_padding=None, trans_op_mask=None, trans_label=None,
         conn_label=None, mode='train', return_loss=False
     ):
