@@ -136,7 +136,7 @@ def train_overall(
 
     return {
         'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
-        'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn_loss),
+        'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn),
         'trans_loss': np.mean(tras), 'all': np.mean(al)
     }
 
@@ -145,7 +145,7 @@ def eval_overall(
     model, loader, device, tokenizer, pad_token,
     end_token,
 ):
-    model, eval_res = model.eval(), [], []
+    model = model.eval()
     loss_cur = {
         'syn_node_loss': [], 'syn_edge_loss': [], 'all': [],
         'lg_act_loss': [], 'conn_loss': [], 'trans_loss': []

@@ -232,19 +232,11 @@ def overall_col_fn(batch):
 
         encoder['lstnode'] += enc_node_cnt
         encoder['lstedge'] += enc_edge_cnt
-        encoder['node_batch'].append(
-            np.ones(enc_node_cnt, dtype=np.int64) * idx
-        )
-        encoder['edge_batch'].append(
-            np.ones(enc_edge_cnt, dtype=np.int64) * idx
-        )
         encoder['node_ptr'].append(encoder['lstnode'])
         encoder['edge_ptr'].append(encoder['lstedge'])
 
         LG['lstnode'] += lg_node_cnt
         LG['lstedge'] += lg_edge_cnt
-        LG['node_batch'].append(np.ones(lg_node_cnt, dtype=np.int64) * idx)
-        LG['edge_batch'].append(np.ones(lg_edge_cnt, dtype=np.int64) * idx)
         LG['node_ptr'].append(LG['lstnode'])
         LG['edge_ptr'].append(LG['lstedge'])
 

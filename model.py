@@ -173,7 +173,8 @@ class OverallModel(torch.nn.Module):
         if self.pre_graph:
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
-            memory = self.trans_enc(trans_input, src_key_padding_mask=memory_pad)
+            memory = self.trans_enc(
+                trans_input, src_key_padding_mask=memory_pad)
         else:
             memory = self.trans_enc(word_emb, src_key_padding_mask=word_pad)
             memory = torch.cat([memory, graph_emb], dim=1)
@@ -185,7 +186,7 @@ class OverallModel(torch.nn.Module):
         useful_src, useful_dst = conn_edges[useful_edges_mask].T
         conn_embs = [graph_emb[useful_src], lg_emb[useful_dst]]
         conn_embs = torch.cat(conn_embs, dim=-1)
-        conn_logits = self.conn_pred(conn_embs)
+        conn_logits = self.conn_pred(conn_embs).squeeze(dim=-1)
 
         return conn_logits, useful_edges_mask
 
@@ -225,7 +226,7 @@ class OverallModel(torch.nn.Module):
             tgt_key_padding_mask=trans_op_key_padding
         ))
 
-        lg_act_logits = self.lg_activate(lg_n_emb)
+        lg_act_logits = self.lg_activate(lg_n_emb).squeeze(dim=-1)
         if mode == 'train':
             lg_useful = (lg_graph.node_label > 0) | (lg_act_logits > 0)
         else:
@@ -239,7 +240,7 @@ class OverallModel(torch.nn.Module):
         else:
             n_prod_emb, n_lg_emb = prod_n_emb, lg_n_emb
         conn_logits, conn_mask = self.conn_forward(
-            n_prod_emb, n_lg_emb, conn_edges, lg_useful
+            n_lg_emb, n_prod_emb,  conn_edges, lg_useful
         )
 
         if mode == 'train' or return_loss:
