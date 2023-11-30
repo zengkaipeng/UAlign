@@ -255,9 +255,10 @@ if __name__ == '__main__':
     TransDec = torch.nn.TransformerDecoder(dec_layer, args.n_layer)
 
     model = OverallModel(
-        GNN, TransEnc, TransDec, args.dim, args.dim, num_token,
-        heads=args.heads, dropout=args.dropout, use_sim=args.use_sim,
-        pre_graph=args.pregraph, rxn_num=11 if args.use_class else None
+        GNN, TransEnc, TransDec, args.dim, args.dim,
+        num_token=tokenizer.get_token_size(), heads=args.heads,
+        dropout=args.dropout, use_sim=args.use_sim, pre_graph=args.pregraph,
+        rxn_num=11 if args.use_class else None
     ).to(device)
 
     if args.checkpoint != '':
