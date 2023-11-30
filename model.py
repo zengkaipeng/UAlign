@@ -308,7 +308,7 @@ class OverallModel(torch.nn.Module):
 
         # print('trans', trans_pred.shape, trans_lb.shape)
         # print('trans', trans_loss.item())
-        
+
         return syn_node_loss, syn_edge_loss, lg_act_loss, conn_loss, trans_loss
 
     def scatter_loss_by_batch(self, logits, label, batch, lfn):
@@ -341,7 +341,7 @@ class SIM(torch.nn.Module):
         )
 
     def forward(self, x, other, key_padding_mask=None):
-        return x + self.Attn(
+        return torch.relu(x + self.Attn(
             query=x, key=other, value=other,
             key_padding_mask=key_padding_mask
-        )
+        ))
