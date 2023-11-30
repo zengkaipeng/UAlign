@@ -278,21 +278,37 @@ class OverallModel(torch.nn.Module):
         syn_node_loss = self.scatter_loss_by_batch(
             prod_n_log, prod_n_label, prod_n_batch, cross_entropy
         )
+        # print('syn_node', prod_n_log.shape, prod_n_label.shape)
+        # print('syn_node', syn_node_loss.item())
+
         syn_edge_loss = self.scatter_loss_by_batch(
             prod_e_log, prod_e_label, prod_e_batch, cross_entropy
         )
+
+        # print('syn_edge', prod_e_log.shape, prod_e_label.shape)
+        # print('syn_edge', syn_edge_loss.item())
 
         lg_act_loss = self.scatter_loss_by_batch(
             lg_n_log, lg_n_label, lg_n_batch,
             binary_cross_entropy_with_logits
         )
 
+        # print('lg_act', lg_n_log.shape, lg_n_label.shape)
+        # print('lg_act', lg_act_loss.item())
+
         conn_loss = self.scatter_loss_by_batch(
             conn_lg, conn_lb, conn_batch,
             binary_cross_entropy_with_logits
         )
 
+        # print('conn', conn_lg.shape, conn_lb.shape)
+        # print('conn', conn_loss.item())
+
         trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
+
+        # print('trans', trans_pred.shape, trans_lb.shape)
+        # print('trans', trans_loss.item())
+        
         return syn_node_loss, syn_edge_loss, lg_act_loss, conn_loss, trans_loss
 
     def scatter_loss_by_batch(self, logits, label, batch, lfn):

@@ -185,7 +185,7 @@ def eval_overall(
                 graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
                 trans_ip_key_padding=trans_ip_mask,
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
-                conn_label=conn_ls, mode='valid', ret_loss=True
+                conn_label=conn_ls, mode='valid', return_loss=True
             )
 
         # losses process
