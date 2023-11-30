@@ -213,7 +213,7 @@ def overall_col_fn(batch):
         LG['edge_feat'].append(lgg['edge_feat'])
         LG['edge_index'].append(lgg['edge_index'] + LG['lstnode'])
         LG['node_label'].extend(lgb)
-        LG['batch_mask'][idx, :lg_edge_cnt] = True
+        LG['batch_mask'][idx, :lg_node_cnt] = True
         LG['node_batch'].append(np.ones(lg_node_cnt, dtype=np.int64) * idx)
         LG['edge_batch'].append(np.ones(lg_edge_cnt, dtype=np.int64) * idx)
 
