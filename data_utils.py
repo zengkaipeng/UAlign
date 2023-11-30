@@ -106,7 +106,12 @@ def create_overall_dataset(
             continue
 
         lgs, conn_edgs = get_leaving_group(prod, reacts[idx])
-        lg_graph, lg_amap = smiles2graph(
+
+        if all(x.strip() == '' for x in lgs):
+            lg_graph = {''}
+
+        else:
+            lg_graph, lg_amap = smiles2graph(
             '.'.join(lgs), with_amap=True, kekulize=kekulize
         )
 
