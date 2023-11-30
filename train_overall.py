@@ -268,51 +268,90 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
-    best_perf, best_epoch = None, None
+    best_loss, loss_epoch, best_acc, acc_epoch = [None] * 4
     log_info = {
         'args': args.__dict__, 'train_loss': [],
-        'valid_metric': [], 'test_metric': []
+        'valid_metric': [], 'test_metric': [],
+        'valid_loss': [], 'test_loss': []
     }
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)
+    with open(token_path, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
 
     for ep in range(args.epoch):
         print(f'[INFO] traning for ep {ep}')
         train_loss = train_overall(
-            model, train_loader, optimizer, device, pos_weight=args.pos_weight,
-            alpha=args.alpha, matching=args.matching, warmup=ep < args.warmup,
-            aug_mode=args.inference_mode if args.use_aug else 'none',
+            model, train_loader, optimizer, device, tokenizer,
+            pad_token='<PAD>', warmup=(ep <= args.warmup)
         )
         print('[INFO] train_loss:', train_loss)
 
-        valid_acc = eval_overall(
-            model, valid_loader, device, mode=args.inference_mode
+        valid_loss, valid_metric = eval_overall(
+            model, valid_loader, device, tokenizer,
+            pad_token='<PAD>', end_token='<END>'
         )
-        test_acc = eval_overall(
-            model, test_loader, device, mode=args.inference_mode
+        test_loss, test_metric = eval_overall(
+            model, test_loader, device, tokenizer,
+            pad_token='<PAD>', end_token='<END>'
         )
 
         print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
         log_info['train_loss'].append(train_loss)
-        log_info['valid_metric'].append(valid_acc)
-        log_info['test_metric'].append(test_acc)
+        log_info['valid_metric'].append(valid_metric)
+        log_info['test_metric'].append(test_metric)
+        log_info['valid_loss'].append(valid_loss)
+        log_info['test_loss'].append(test_loss)
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_perf is None or valid_acc > best_perf:
-            best_perf, best_epoch = valid_acc, ep
+        if best_acc is None or valid_metric['all'] > best_acc:
+            best_acc, acc_epoch = valid_metric['all'], ep
+            torch.save(model.state_dict(), acc_dir)
+        if best_loss is None or valid_loss['all'] < best_loss:
+            best_loss, loss_epoch = valid_loss['all'], ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 4 and ep > max(10, args.early_stop):
-            val_his = log_info['valid_metric'][-args.early_stop:]
-            if check_early_stop(val_his):
+            metr_his = log_info['valid_metric'][-args.early_stop:]
+            loss_his = log_info['valid_loss'][-args.early_stop:]
+
+            loss_his = [-x['all'] for x in loss_his]
+            syn_his = [x['synthon']['break_cover'] for x in metr_his]
+            lg_his = [x['lg'] for x in metr_his]
+            conn_his = [x['conn']['conn_cover'] for x in metr_his]
+            if check_early_stop(syn_his, conn_his, lg_his, loss_his):
                 break
 
         if ep >= args.warmup:
             scher.step()
 
     print('[Overall]')
-    print('[bset_ep]', best_epoch)
-    print('[best valid]', best_perf)
-    print('[bset test]', log_info['test_metric'][best_epoch])
+    print('[best acc ep]', acc_epoch)
+    print(
+        '[best acc valid]\n{}\n{}'.format(
+            log_info['valid_metric'][acc_epoch],
+            log_info['valid_loss'][acc_epoch]
+        )
+    )
+    print(
+        '[best acc test]\n{}\n{}'.format(
+            log_info['test_metric'][acc_epoch],
+            log_info['test_loss'][acc_epoch]
+        )
+    )
+
+    print('[best loss ep]', loss_epoch)
+    print(
+        '[best loss valid]\n{}\n{}'.format(
+            log_info['valid_metric'][loss_epoch],
+            log_info['valid_loss'][loss_epoch]
+        )
+    )
+    print(
+        '[best loss test]\n{}\n{}'.format(
+            log_info['test_metric'][loss_epoch],
+            log_info['test_loss'][loss_epoch]
+        )
+    )
