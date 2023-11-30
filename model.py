@@ -176,13 +176,13 @@ class OverallModel(torch.nn.Module):
             memory = self.trans_enc(trans_input, src_key_padding_mask=memory_pad)
         else:
             memory = self.trans_enc(word_emb, src_key_padding_mask=word_pad)
-            memory = torch.cat([memory, graph_pad], dim=1)
+            memory = torch.cat([memory, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
         return memory, memory_pad
 
     def conn_forward(self, lg_emb, graph_emb, conn_edges, node_mask):
         useful_edges_mask = node_mask[conn_edges[:, 1]]
-        useful_src, useful_dst = conn_edges[useful_edges_mask]
+        useful_src, useful_dst = conn_edges[useful_edges_mask].T
         conn_embs = [graph_emb[useful_src], lg_emb[useful_dst]]
         conn_embs = torch.cat(conn_embs, dim=-1)
         conn_logits = self.conn_pred(conn_embs)
@@ -221,7 +221,7 @@ class OverallModel(torch.nn.Module):
 
         trans_pred = self.trans_pred(self.trans_dec(
             tgt=trans_op, memory=memory, tgt_mask=trans_op_mask,
-            memory_key_padding_mask=prod_padding_mask,
+            memory_key_padding_mask=memory_pad,
             tgt_key_padding_mask=trans_op_key_padding
         ))
 
