@@ -91,8 +91,8 @@ def train_overall(
         conn_ls = conn_ls.to(device)
         conn_b = conn_b.to(device)
 
-        tips = tokenizer.encode_2d(tips)
-        tops = tokenizer.encode_2d(tops)
+        tips = torch.LongTensor(tokenizer.encode2d(tips)).to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tops)).to(device)
 
         trans_ip_mask = tips == pad_idx
 
@@ -165,8 +165,8 @@ def eval_overall(
         conn_ls = conn_ls.to(device)
         conn_b = conn_b.to(device)
 
-        tips = tokenizer.encode_2d(tips)
-        tops = tokenizer.encode_2d(tops)
+        tips = torch.LongTensor(tokenizer.encode2d(tips)).to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tops)).to(device)
 
         trans_ip_mask = tips == pad_idx
         trans_dec_ip = tops[:, :-1]

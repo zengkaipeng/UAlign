@@ -37,7 +37,12 @@ def smiles2graph(smiles_string, with_amap=False, kekulize=False):
     atom_features_list = []
     for atom in mol.GetAtoms():
         atom_features_list.append(atom_to_feature_vector(atom))
-    x = np.array(atom_features_list, dtype=np.int64)
+
+    num_atom_features = 9
+    if len(atom_features_list) > 0:
+        x = np.array(atom_features_list, dtype=np.int64)
+    else:
+        x = np.empty((0, num_atom_features), dtype=np.int64)
 
     # bonds
     num_bond_features = 3  # bond type, bond stereo, is_conjugated
