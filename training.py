@@ -73,7 +73,7 @@ def eval_sparse_edit(loader, model, device):
 
 
 def train_overall(
-    model, loader, optimizer, device, tokenizer
+    model, loader, optimizer, device, tokenizer,
     pad_token, warmup=True,
 ):
     enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
@@ -100,7 +100,8 @@ def train_overall(
         trans_dec_op = tops[:, 1:]
 
         trans_op_mask, diag_mask = generate_tgt_mask(
-            trans_dec_ip, tokenizer, pad_token, device=)
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
         if grxn is not None:
             grxn = grxn.to(device)
 
@@ -172,7 +173,8 @@ def eval_overall(
         trans_dec_op = tops[:, 1:]
 
         trans_op_mask, diag_mask = generate_tgt_mask(
-            trans_dec_ip, tokenizer, pad_token, device=)
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
         if grxn is not None:
             grxn = grxn.to(device)
 

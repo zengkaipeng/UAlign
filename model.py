@@ -14,7 +14,6 @@ from data_utils import (
     seperate_dict, extend_label_by_edge, filter_label_by_node,
     seperate_encoder_graphs, seperate_pred
 )
-from Dataset import make_decoder_graph
 
 
 def make_memory_from_feat(node_feat, batch_mask):
