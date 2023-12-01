@@ -298,7 +298,11 @@ if __name__ == '__main__':
             pad_token='<PAD>', end_token='<END>'
         )
 
-        print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
+        print('[INFO] valid_loss:', valid_loss)
+        print('[INFO] valid_metric:', valid_metric)
+        print('[INFO] test_loss:', test_loss)
+        print('[INFO] test_metric', test_metric)
+
         log_info['train_loss'].append(train_loss)
         log_info['valid_metric'].append(valid_metric)
         log_info['test_metric'].append(test_metric)

@@ -314,12 +314,14 @@ def eval_conn(
 def correct_trans_output(trans_pred, end_idx, pad_idx):
     batch_size, max_len = trans_pred.shape
     x_range = torch.arange(0, max_len, 1).unsqueeze(0)
-    x_range = x_range.repeat(batch_size)
+    x_range = x_range.repeat(batch_size, 1)
 
     y_cand = torch.ones_like(trans_pred).long() * max_len + 12
     y_cand[trans_pred == end_idx] = x_range[trans_pred == end_idx]
-    end_pos = torch.min(y_cand, dim=-1, keepdim=True)
+    min_result = torch.min(y_cand, dim=-1, keepdim=True)
+    end_pos = min_result.values
     trans_pred[x_range > end_pos] = pad_idx
+    return trans_pred
 
 
 def eval_trans(trans_pred, trans_lb, return_tensor=False):

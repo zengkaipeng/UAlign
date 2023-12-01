@@ -243,10 +243,10 @@ def eval_overall(
 
     for k, v in metrics.items():
         if isinstance(v, list):
-            metrics[k] = torch.cat(v, dim=0).mean()
+            metrics[k] = torch.cat(v, dim=0).float().mean().item()
         else:
             metrics[k] = {
-                x: torch.cat(y, dim=0).mean()
+                x: torch.cat(y, dim=0).float().mean().item()
                 for x, y in v.items()
             }
     return loss_cur, metrics
