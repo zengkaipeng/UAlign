@@ -215,7 +215,7 @@ def eval_overall(
 
         lg_act_pred = convert_log_into_label(lg_act_logits, mod='sigmoid')
         conn_pred = convert_log_into_label(conn_logits, mod='sigmoid')
-        trans_pred = convert_log_into_label(trans_logits)
+        trans_pred = convert_log_into_label(trans_logits, mod='softmax')
         trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
         node_acc, break_acc, break_cover = eval_by_graph(
