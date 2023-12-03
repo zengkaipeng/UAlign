@@ -266,10 +266,9 @@ def eval_by_graph(
 
 
 def eval_conn(
-    lg_pred, lg_label, lg_batch, conn_pred,
+    batch_size, lg_pred, lg_label, lg_batch, conn_pred,
     conn_lable, conn_batch, return_tensor=False
 ):
-    batch_size = lg_batch.max().item() + 1
     lg_cover = torch.zeros(batch_size).bool()
     lg_acc = torch.zeros(batch_size).bool()
     conn_acc = torch.zeros(batch_size).bool()

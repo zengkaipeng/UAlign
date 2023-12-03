@@ -167,6 +167,7 @@ def eval_overall(
 
         tips = torch.LongTensor(tokenizer.encode2d(tips)).to(device)
         tops = torch.LongTensor(tokenizer.encode2d(tops)).to(device)
+        batch_size = prod_graph.batch.max().item() + 1
 
         trans_ip_mask = tips == pad_idx
         trans_dec_ip = tops[:, :-1]
@@ -226,7 +227,7 @@ def eval_overall(
             lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
             lg_batch=lg_graph.batch, conn_pred=conn_pred,
             conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
-            return_tensor=True
+            return_tensor=True, batch_size=batch_size
         )
         trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
         metrics['synthon']['node_acc'].append(node_acc)

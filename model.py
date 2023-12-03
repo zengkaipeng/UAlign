@@ -174,7 +174,8 @@ class OverallModel(torch.nn.Module):
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
             memory = self.trans_enc(
-                trans_input, src_key_padding_mask=memory_pad)
+                trans_input, src_key_padding_mask=memory_pad
+            )
         else:
             memory = self.trans_enc(word_emb, src_key_padding_mask=word_pad)
             memory = torch.cat([memory, graph_emb], dim=1)
