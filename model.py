@@ -341,7 +341,8 @@ class SIM(torch.nn.Module):
         )
 
     def forward(self, x, other, key_padding_mask=None):
-        return torch.relu(x + self.Attn(
+        attn_o, attn_w = self.Attn(
             query=x, key=other, value=other,
             key_padding_mask=key_padding_mask
-        ))
+        )
+        return torch.relu(x + attn_o)
