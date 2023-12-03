@@ -122,6 +122,9 @@ def train_overall(
 
         optimizer.zero_grad()
         loss.backward()
+        for x, y in model.named_parameters():
+            print(x, y.grad)
+        exit()
         optimizer.step()
 
         enc_nl.append(syn_node_loss.item())
