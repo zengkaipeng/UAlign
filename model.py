@@ -277,18 +277,18 @@ class OverallModel(torch.nn.Module):
         prod_n_batch, prod_e_batch, lg_n_log, lg_n_label, lg_n_batch,
         conn_lg, conn_lb, conn_batch, trans_pred, trans_lb, pad_idx
     ):
-        syn_node_loss = torch.tensor(0.)
+        # syn_node_loss = torch.tensor(0.)
 
-        # syn_node_loss = self.scatter_loss_by_batch(
-        #     prod_n_log, prod_n_label, prod_n_batch, cross_entropy
-        # )
+        syn_node_loss = self.scatter_loss_by_batch(
+            prod_n_log, prod_n_label, prod_n_batch, cross_entropy
+        )
         # print('syn_node', prod_n_log.shape, prod_n_label.shape)
         # print('syn_node', syn_node_loss.item())
 
-        syn_edge_loss = torch.tensor(0.)
-        # syn_edge_loss = self.scatter_loss_by_batch(
-        #     prod_e_log, prod_e_label, prod_e_batch, cross_entropy
-        # )
+        # syn_edge_loss = torch.tensor(0.)
+        syn_edge_loss = self.scatter_loss_by_batch(
+            prod_e_log, prod_e_label, prod_e_batch, cross_entropy
+        )
 
         # print('syn_edge', prod_e_log.shape, prod_e_label.shape)
         # print('syn_edge', syn_edge_loss.item())
@@ -303,17 +303,17 @@ class OverallModel(torch.nn.Module):
         # print('lg_act', lg_n_log.shape, lg_n_label.shape)
         # print('lg_act', lg_act_loss.item())
 
-        conn_loss = torch.tensor(0.)
-        # conn_loss = self.scatter_loss_by_batch(
-        #     conn_lg, conn_lb, conn_batch,
-        #     binary_cross_entropy_with_logits
-        # )
+        # conn_loss = torch.tensor(0.)
+        conn_loss = self.scatter_loss_by_batch(
+            conn_lg, conn_lb, conn_batch,
+            binary_cross_entropy_with_logits
+        )
 
         # print('conn', conn_lg.shape, conn_lb.shape)
         # print('conn', conn_loss.item())
 
-        trans_loss = torch.tensor(0.)
-        # trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
+        # trans_loss = torch.tensor(0.)
+        trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
 
         # print('trans', trans_pred.shape, trans_lb.shape)
         # print('trans', trans_loss.item())
@@ -324,10 +324,7 @@ class OverallModel(torch.nn.Module):
         max_batch = batch.max().item() + 1
         losses = torch.zeros(max_batch).to(logits)
         org_loss = lfn(logits, label, reduction='none')
-        print(logits, label, org_loss)
         losses.index_add_(0, batch, org_loss)
-        print(losses)
-        print(losses.mean())
         return losses.mean()
 
     def calc_trans_loss(self, trans_pred, trans_lb, ignore_index):

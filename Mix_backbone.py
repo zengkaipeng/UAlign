@@ -32,24 +32,27 @@ class DotMhAttn(torch.nn.Module):
     ):
         (batch_size, Q_len), K_len = query.shape[:2], key.shape[1]
         Qp = self.Qproj(query).reshape(batch_size, Q_len, -1, self.heads)
-        Kp = self.Kproj(query).reshape(batch_size, K_len, -1, self.heads)
-        Vp = self.Vproj(query).reshape(batch_size, K_len, -1, self.heads)
-        attn_w = torch.einsum('abcd,aecd->abed', Qp, Kp) / self.temp
+        Kp = self.Kproj(key).reshape(batch_size, K_len, -1, self.heads)
+        Vp = self.Vproj(value).reshape(batch_size, K_len, -1, self.heads)
+        attn_w = torch.einsum('abcd,aecd->aebd', Qp, Kp) / self.temp
+
+        # [batch_size, key_len, query_len, dim]
 
         if key_padding_mask is not None:
             assert key_padding_mask.shape == (batch_size, K_len), \
                 'The key padding mask should have shape (BS, Key)'
             attn_w[key_padding_mask] = 1 - (1 << 32)
+
         if attn_mask is not None:
             assert attn_mask.shape == (batch_size, Q_len, K_len, self.heads),\
                 "The attn mask should be (BS, Query, Key, heads)"
             attn_w[attn_mask] = 1 - (1 << 32)
 
-        attn_w = self.drop_fun(torch.softmax(attn_w, dim=2))
-        attn_o = torch.einsum('abcd,aced->abed', attn_w, Vp)
+        attn_w = self.drop_fun(torch.softmax(attn_w, dim=1))
+        attn_o = torch.einsum('acbd,aced->abed', attn_w, Vp)
         attn_o = self.Oproj(attn_o.reshape(batch_size, Q_len, -1))
 
-        return attn_o, attn_w
+        return attn_o, attn_w.transpose(1, 2)
 
 
 class MixConv(torch.nn.Module):
@@ -136,8 +139,7 @@ class MixFormer(torch.nn.Module):
         for i in range(self.num_layers):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats,
-                edge_index=G.edge_index, batch_mask=G.batch_mask,
-                attn_mask=G.get('attn_mask', None)
+                edge_index=G.edge_index, batch_mask=G.batch_mask
             ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))
