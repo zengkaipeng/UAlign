@@ -134,11 +134,16 @@ class OverallModel(torch.nn.Module):
             torch.nn.Linear(edge_dim, 1)
         )
         if rxn_num is None:
-            self.reac_emb = torch.nn.Parameter(torch.randn(1, 1, node_dim))
+            self.tpp_embs = torch.ParameterDict({
+                'reac': torch.nn.Parameter(torch.randn(1, 1, node_dim)),
+                'prod': torch.nn.Parameter(torch.randn(1, 1, node_dim))
+            })
         else:
-            self.reac_emb = torch.nn.Embedding(rxn_num, node_dim)
+            self.tpp_embs = torch.nn.ModuleDict({
+                'reac': torch.nn.Embedding(rxn_num, node_dim),
+                'prod': torch.nn.Embedding(rxn_num, node_dim)
+            })
         self.rxn_num = rxn_num
-        self.prod_emb = torch.nn.Parameter(torch.randn(1, 1, node_dim))
         self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
         self.use_sim, self.pre_graph = use_sim, pre_graph
         if self.use_sim:
@@ -149,15 +154,12 @@ class OverallModel(torch.nn.Module):
         self.PE = PositionalEncoding(node_dim, dropout, maxlen)
         self.trans_pred = torch.nn.Linear(node_dim, num_token)
 
-    def add_type_emb(self, x, is_reac, graph_rxn=None):
+    def add_type_emb(self, x, part, graph_rxn=None):
         batch_size, max_len = x.shape[:2]
-        if is_reac:
-            if self.rxn_num is None:
-                type_emb = self.reac_emb.repeat(batch_size, max_len, 1)
-            else:
-                type_emb = self.reac_emb(graph_rxn)
+        if self.rxn_num is None:
+            type_emb = self.tpp_embs[part].repeat(batch_size, max_len, 1)
         else:
-            type_emb = self.prod_emb.repeat(batch_size, max_len, 1)
+            type_emb = self.tpp_embs[part](graph_rxn)
 
         return self.emb_trans(torch.cat([x, type_emb], dim=-1)) + x
 
@@ -165,11 +167,9 @@ class OverallModel(torch.nn.Module):
         self, word_emb, word_pad, graph_emb, graph_pad,
         graph_rxn=None
     ):
-        word_emb = self.add_type_emb(
-            word_emb, is_reac=True, graph_rxn=graph_rxn
-        )
+        word_emb = self.add_type_emb(word_emb, 'reac', graph_rxn)
         word_emb = self.PE(word_emb)
-        graph_emb = self.add_type_emb(graph_emb, is_reac=False)
+        graph_emb = self.add_type_emb(graph_emb, 'prod', graph_rxn)
 
         if self.pre_graph:
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
