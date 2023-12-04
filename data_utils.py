@@ -298,7 +298,7 @@ def eval_conn(
             con_f = torch.all(this_conn_label == this_conn_pred).item()
             con_c = torch.all(this_conn_label == e_inters).item()
         else:
-            conf = con_c = True
+            con_f = con_c = True
 
         conn_acc[i] = lg_c & con_f
         conn_cover[i] = lg_c & con_c
