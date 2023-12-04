@@ -134,7 +134,7 @@ class OverallModel(torch.nn.Module):
             torch.nn.Linear(edge_dim, 1)
         )
         if rxn_num is None:
-            self.tpp_embs = torch.ParameterDict({
+            self.tpp_embs = torch.nn.ParameterDict({
                 'reac': torch.nn.Parameter(torch.randn(1, 1, node_dim)),
                 'prod': torch.nn.Parameter(torch.randn(1, 1, node_dim))
             })
