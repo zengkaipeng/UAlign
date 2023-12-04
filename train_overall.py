@@ -325,7 +325,7 @@ if __name__ == '__main__':
             loss_his = [-x['all'] for x in loss_his]
             syn_his = [x['synthon']['break_cover'] for x in metr_his]
             lg_his = [x['lg'] for x in metr_his]
-            conn_his = [x['conn']['conn_cover'] for x in metr_his]
+            conn_his = [x['conn']['conn_cov'] for x in metr_his]
             if check_early_stop(syn_his, conn_his, lg_his, loss_his):
                 break
 
