@@ -223,7 +223,7 @@ class OverallModel(torch.nn.Module):
         )
 
         trans_pred = self.trans_pred(self.trans_dec(
-            tgt=trans_op, memory=memory, tgt_mask=trans_op_mask,
+            tgt=self.PE(trans_op), memory=memory, tgt_mask=trans_op_mask,
             memory_key_padding_mask=memory_pad,
             tgt_key_padding_mask=trans_op_key_padding
         ))
