@@ -5,7 +5,7 @@ import torch_geometric
 from numpy import concatenate as npcat
 from tokenlizer import smi_tokenizer
 import random
-
+from rdkit import Chem
 
 class SynthonDataset(torch.utils.data.Dataset):
     def __init__(
