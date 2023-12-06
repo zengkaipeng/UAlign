@@ -25,32 +25,33 @@ class DotMhAttn(torch.nn.Module):
         self.Oproj = torch.nn.Linear(emb_dim, Odim)
         self.drop_fun = torch.nn.Dropout(dropout)
         self.temp = math.sqrt(emb_dim / num_heads)
+        self.xdim = emb_dim // self.heads
 
     def forward(
         self, query, key, value, attn_mask=None,
         key_padding_mask=None
     ):
-        (batch_size, Q_len), K_len = query.shape[:2], key.shape[1]
-        Qp = self.Qproj(query).reshape(batch_size, Q_len, -1, self.heads)
-        Kp = self.Kproj(key).reshape(batch_size, K_len, -1, self.heads)
-        Vp = self.Vproj(value).reshape(batch_size, K_len, -1, self.heads)
+        (BS, Q_len), K_len = query.shape[:2], key.shape[1]
+        Qp = self.Qproj(query).reshape(BS, Q_len, self.xdim, self.heads)
+        Kp = self.Kproj(key).reshape(BS, K_len, self.xdim, self.heads)
+        Vp = self.Vproj(value).reshape(BS, K_len, self.xdim, self.heads)
         attn_w = torch.einsum('abcd,aecd->aebd', Qp, Kp) / self.temp
 
-        # [batch_size, key_len, query_len, dim]
+        # [BS, key_len, query_len, dim]
 
         if key_padding_mask is not None:
-            assert key_padding_mask.shape == (batch_size, K_len), \
+            assert key_padding_mask.shape == (BS, K_len), \
                 'The key padding mask should have shape (BS, Key)'
             attn_w[key_padding_mask] = 1 - (1 << 32)
 
         if attn_mask is not None:
-            assert attn_mask.shape == (batch_size, Q_len, K_len, self.heads),\
+            assert attn_mask.shape == (BS, Q_len, K_len, self.heads),\
                 "The attn mask should be (BS, Query, Key, heads)"
             attn_w[attn_mask] = 1 - (1 << 32)
 
         attn_w = self.drop_fun(torch.softmax(attn_w, dim=1))
         attn_o = torch.einsum('acbd,aced->abed', attn_w, Vp)
-        attn_o = self.Oproj(attn_o.reshape(batch_size, Q_len, -1))
+        attn_o = self.Oproj(attn_o.reshape(BS, Q_len, -1))
 
         return attn_o, attn_w.transpose(1, 2)
 
