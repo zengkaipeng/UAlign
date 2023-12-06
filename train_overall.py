@@ -146,6 +146,14 @@ if __name__ == '__main__':
         help='the path of token checkpoint, required while' +
         ' checkpoint is specified'
     )
+    parser.add_argument(
+        '--aug_prob', type=float, default=0,
+        help='the prob for augument synthon inputs'
+    )
+    parser.add_argument(
+        '--use_aug', action='store_true',
+        help='augument the synthon is this is chosen'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -180,15 +188,18 @@ if __name__ == '__main__':
 
     train_set = create_overall_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None, verbose=True
+        rxn_class=train_rxn if args.use_class else None, verbose=True,
+        randomize=args.use_aug, aug_prob=args.aug_prob
     )
     valid_set = create_overall_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None, verbose=True
+        rxn_class=val_rxn if args.use_class else None, verbose=True,
+        randomize=False, aug_prob=0
     )
     test_set = create_overall_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None, verbose=True
+        rxn_class=val_rxn if args.use_class else None, verbose=True,
+        randomize=False, aug_prob=0
     )
 
     train_loader = DataLoader(

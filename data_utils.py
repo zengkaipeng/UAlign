@@ -71,7 +71,7 @@ def check_useful_synthons(synthons, belong):
 
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True,
+    verbose=True, randomize=False, aug_prob=0
 ):
     graphs, nodes, edges, real_rxns = [], [], [], []
     lg_graphs, conn_cands, conn_labels = [], [], []
@@ -165,7 +165,8 @@ def create_overall_dataset(
     return OverallDataset(
         graphs, nodes, edges, lg_graphs, lg_act,
         conn_cands, conn_labels, trans_input, trans_output,
-        rxn_class=None if len(real_rxns) == 0 else real_rxns
+        rxn_class=None if len(real_rxns) == 0 else real_rxns,
+        randomize=randomize, aug_prob=aug_prob
     )
 
 

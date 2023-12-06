@@ -4,6 +4,7 @@ import numpy as np
 import torch_geometric
 from numpy import concatenate as npcat
 from tokenlizer import smi_tokenizer
+import random
 
 
 class SynthonDataset(torch.utils.data.Dataset):
@@ -99,6 +100,12 @@ def edit_col_fn(batch):
     return torch_geometric.data.Data(**result)
 
 
+def randomize_smiles(smi):
+    mol = Chem.MolFromSmiles(smi)
+    random_root = np.random.choice([(x.GetIdx()) for x in mol.GetAtoms()])
+    return Chem.MolToSmiles(mol, rootedAtAtom=int(random_root))
+
+
 class OverallDataset(torch.utils.data.Dataset):
     def __init__(
         self, graphs: List[Dict], enc_nodes: List[List[int]],
@@ -106,7 +113,8 @@ class OverallDataset(torch.utils.data.Dataset):
         lg_graphs: List[Dict], lg_labels: List[List[int]],
         conn_edges: List[List[List[int]]], conn_labels: List[List[int]],
         trans_input: List[str], trans_output: List[str],
-        rxn_class: Optional[List[int]] = None
+        rxn_class: Optional[List[int]] = None,
+        randomize: bool = False, aug_prob: float = 0
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
@@ -119,6 +127,17 @@ class OverallDataset(torch.utils.data.Dataset):
         self.conn_labels = conn_labels
         self.trans_input = trans_input
         self.trans_output = trans_output
+        self.randomize = randomize
+        self.aug_prob = aug_prob
+
+        assert not self.randomize or 0 <= self.aug_prob <= 1,\
+            'The aug_prob should be a float between 0 and 1'
+
+    def randomize_synthons(self, syn):
+        if self.randomize and random.random() < self.aug_prob:
+            return '`'.join(randomize_smiles(x) for x in syn.split('`'))
+        else:
+            return syn
 
     def __len__(self):
         return len(self.graphs)
@@ -140,7 +159,8 @@ class OverallDataset(torch.utils.data.Dataset):
         else:
             trans_output = [f'<CLS>']
 
-        trans_input = smi_tokenizer(self.trans_input[index])
+        trans_input = self.randomize_synthons(self.trans_input[index])
+        trans_input = smi_tokenizer(trans_input)
         trans_output.extend(smi_tokenizer(self.trans_output[index]))
         trans_output.append('<END>')
 
