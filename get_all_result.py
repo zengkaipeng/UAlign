@@ -22,7 +22,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args_ft = eval(args.filter)
 
-    bpref, btime, bargs, bep = None, None, None, None
+    bpref, btime, bargs, bep, bap = None, None, None, None
+    bloss, btime2, bargs2, bep2, bap2 = None, None, None, None
 
     for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
@@ -36,14 +37,34 @@ if __name__ == '__main__':
             if len(INFO['valid_metric']) == 0:
                 continue
 
-            best_idx = np.argmax(INFO['valid_metric'])
-            best_node_fit = INFO['test_metric'][best_idx]
+            valid_losses = [x['all'] for x in INFO['valid_losses']]
+            this_ep = np.argmin(valid_losses)
 
-            if bpref is None or best_node_fit > bpref:
-                bpref = INFO['test_metric'][best_idx]
-                btime, bargs, bep = timestamp, INFO['args'], best_idx
+            if bloss is None or INFO['test_losses'][this_ep]['all'] < bloss:
+                bloss = INFO['test_losses'][this_ep]['all']
+                bep2, btime2, bargs2 = this_ep, timestamp, args
+                bap2 = {
+                    'loss': INFO['test_losses'][this_ep],
+                    'perf': INFO['test_metric'][this_ep]
+                }
 
-    print('[args]\n', bargs)
+            valid_metric = [x['all'] for x in INFO['valid_metric']]
+            this_ep = np.argmax(valid_metric)
+
+            if bpref is None or INFO['test_metric'][this_ep]['all'] > bpref:
+                bpref = INFO['test_metric'][this_ep]['all']
+                bep, btime, bargs = this_ep, timestamp, args
+                bap = {
+                    'loss': INFO['test_losses'][this_ep],
+                    'perf': INFO['test_metric'][this_ep]
+                }
+
+    print('[args]\n', json.dumps(bargs, indent=4))
     print('[TIME]', btime)
     print('[EPOCH]', bep)
-    print('[pref]', bpref)
+    print('[pref]', json.dumps(bap, indent=4))
+
+    print('[args]\n', json.dumps(bargs2, indent=4))
+    print('[TIME]', btime2)
+    print('[EPOCH]', bep2)
+    print('[pref]', json.dumps(bap2, indent=4))
