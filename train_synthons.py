@@ -209,10 +209,10 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss = train_sparse_edit(
+        loss = train_sparse_edit(
             train_loader, model, optimizer, device, warmup=(ep == 0),
         )
-        log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
+        log_info['train_loss'].append(loss)
 
         print('[TRAIN]', log_info['train_loss'][-1])
         valid_results = eval_sparse_edit(valid_loader, model, device)
@@ -228,11 +228,10 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_cov is None or valid_results['break_cover'] > best_cov:
-            best_cov, best_ep = valid_results['break_cover'], ep
+        if best_cov is None or valid_results > best_cov:
+            best_cov, best_ep = valid_results, ep
             torch.save(model.state_dict(), model_dir)
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['break_cover'] for x in val_his]
-            if check_early_stop(nf):
+            if check_early_stop(val_his):
                 break

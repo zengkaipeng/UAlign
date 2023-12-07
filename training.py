@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
-    eval_by_graph, correct_trans_output,
+    eval_by_batch, correct_trans_output,
     convert_log_into_label, eval_trans,
     convert_edge_log_into_labels, eval_conn
 )
@@ -23,53 +23,38 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     model = model.train()
-    node_loss, edge_loss = [], []
+    losses = []
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for graph in tqdm(loader):
         graph = graph.to(device)
-        _, _, loss_node, loss_edge = model(graph, ret_loss=True)
+        _, loss = model(graph, ret_loss=True)
 
         optimizer.zero_grad()
-        (loss_node + loss_edge).backward()
+        loss.backward()
         optimizer.step()
-
-        node_loss.append(loss_node.item())
-        edge_loss.append(loss_edge.item())
+        losses.append(loss.item())
 
         if warmup:
             warmup_sher.step()
-    return np.mean(node_loss), np.mean(edge_loss)
+    return np.mean(losses)
 
 
 def eval_sparse_edit(loader, model, device):
     model = model.eval()
-    node_acc, break_acc, break_cover, tot = [0] * 4
+    accs = []
     for graph in tqdm(loader):
         graph = graph.to(device)
         with torch.no_grad():
-            node_logs, edge_logs = model(graph, ret_loss=False)
-            node_pred = convert_log_into_label(node_logs, mod='softmax')
+            edge_logs = model(graph, ret_loss=False)
             edge_pred = convert_edge_log_into_labels(
                 edge_logs, graph.edge_index,
                 mod='softmax', return_dict=False
             )
+        acc = eval_by_batch(edge_pred, graph.new_edge_types, graph.e_batch)
 
-        na, ba, bc, batch_size = eval_by_graph(
-            node_pred, edge_pred, graph.node_label,
-            graph.edge_label, graph.batch, graph.e_batch
-        )
-        node_acc += na
-        break_acc += ba
-        break_cover += bc
-        tot += batch_size
-
-    result = {
-        'node_acc': node_acc / tot, 'break_acc': break_acc / tot,
-        'break_cover': break_cover / tot,
-    }
-    return result
+    return torch.cat(accs, dim=0).float().mean()
 
 
 def train_overall(

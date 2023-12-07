@@ -222,44 +222,21 @@ def check_early_stop(*args):
     return answer
 
 
-def eval_by_graph(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, return_tensor=False
-):
+def eval_by_batch(pred, label, batch, return_tensor=False):
     batch_size = node_batch.max().item() + 1
-    node_acc = torch.zeros(batch_size).bool()
-    break_acc = torch.zeros(batch_size).bool()
-    break_cover = torch.zeros(batch_size).bool()
+    accs = torch.zeros(batch_size).bool()
 
     for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
+        this_mask = batch == i
 
-        this_nlb = node_label[this_node_mask]
-        this_npd = node_pred[this_node_mask]
-        node_acc[i] = torch.all(this_nlb == this_npd).item()
-
-        this_elb = edge_label[this_edge_mask]
-        this_epd = edge_pred[this_edge_mask]
-
-        p_break = this_epd == 2
-        g_break = this_elb == 2
-        bf = torch.all(p_break == g_break).item()
-
-        p_break = this_epd == 0
-        g_break = this_elb == 0
-        inters = torch.logical_and(p_break, g_break)
-        cf = torch.all(p_break == g_break).item()
-        cc = torch.all(inters == g_break).item()
-
-        break_acc[i] = bf & cf
-        break_cover[i] = bf & cc
+        this_lb = label[this_mask]
+        this_pd = pred[this_mask]
+        node_acc[i] = torch.all(this_lb == this_pd).item()
 
     if not return_tensor:
-        return node_acc.sum().item(), break_acc.sum().item(),\
-            break_cover.sum().item(), batch_size
+        return accs.sum().item(), batch_size
     else:
-        return node_acc, break_acc, break_cover
+        return accs
 
 
 def eval_conn(
