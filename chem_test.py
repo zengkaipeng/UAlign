@@ -2,10 +2,11 @@ import rdkit
 from rdkit import Chem
 from tqdm import tqdm
 from utils.chemistry_parse import (
-	get_modified_atoms_bonds, get_synthons, break_fragements
+	get_synthons, break_fragements
 )
 from draws import rxn2svg
 from data_utils import load_data
+from Dataset import randomize_smiles
 
 
 if __name__ == '__main__':
@@ -29,9 +30,9 @@ if __name__ == '__main__':
     # print(get_modified_atoms_bonds(reac, prod, kekulize=True))
     # rxn2svg(rxn, 'tmp_figs/aromatic.svg')
 
-    train_rec, train_prod, train_rxn = load_data('../data/UTPSO-50K', 'train')
-    val_rec, val_prod, val_rxn = load_data('../data/UTPSO-50K', 'val')
-    test_rec, test_prod, test_rxn = load_data('../data/UTPSO-50K', 'test')
+    # train_rec, train_prod, train_rxn = load_data('../data/UTPSO-50K', 'train')
+    # val_rec, val_prod, val_rxn = load_data('../data/UTPSO-50K', 'val')
+    # test_rec, test_prod, test_rxn = load_data('../data/UTPSO-50K', 'test')
 
     # all_deltH = set()
     # for idx, prod in enumerate(train_prod):
@@ -68,51 +69,53 @@ if __name__ == '__main__':
     # print(Chem.MolToSmiles(mol))
     
 
-    # mol = '[CH3:1][O:2][C:3](=[O:4])[c:5]1[cH:6][c:7]([C:8]([F:9])([F:10])[F:11])[n:12][n:13]1[CH2:14][CH2:15][Br:16]'
-    # print(break_fragements(mol, {(13, 14), (14, 13)}, canonicalize=True, kekulize=False))
-    # print(break_fragements(mol, {(13, 14), (14, 13)}, canonicalize=True, kekulize=True))
+    mol = '[CH3:1][O:2][C:3](=[O:4])[c:5]1[cH:6][c:7]([C:8]([F:9])([F:10])[F:11])[n:12][n:13]1[CH2:14][CH2:15][Br:16]'
+    result = break_fragements(mol, {(13, 14), (14, 13)}, canonicalize=True)
+    print('.'.join(randomize_smiles(x) for x in result.split('.')))
+    print(result)
+
     # exit()
     
-    train_syns = []
-    for idx, prod in enumerate(tqdm(train_prod)):
-    	deltaH, deltaE = get_synthons(prod, train_rec[idx])
-    	break_edges = set()
-    	for (src, dst), (otype, ntype) in deltaE.items():
-    		if otype != ntype and ntype == 0:
-    			break_edges.add((src, dst))
-    			break_edges.add((dst, src))
-    	train_syns.append(break_fragements(prod, break_edges, canonicalize=True))
-    with open('train_syns.txt', 'w') as Fout:
-    	for x in train_syns:
-    		Fout.write(f'{x}\n')
+    # train_syns = []
+    # for idx, prod in enumerate(tqdm(train_prod)):
+    # 	deltaH, deltaE = get_synthons(prod, train_rec[idx])
+    # 	break_edges = set()
+    # 	for (src, dst), (otype, ntype) in deltaE.items():
+    # 		if otype != ntype and ntype == 0:
+    # 			break_edges.add((src, dst))
+    # 			break_edges.add((dst, src))
+    # 	train_syns.append(break_fragements(prod, break_edges, canonicalize=True))
+    # with open('train_syns.txt', 'w') as Fout:
+    # 	for x in train_syns:
+    # 		Fout.write(f'{x}\n')
 
 
-    val_syns = []
-    for idx, prod in enumerate(tqdm(val_prod)):
-    	deltaH, deltaE = get_synthons(prod, val_rec[idx])
-    	break_edges = set()
-    	for (src, dst), (otype, ntype) in deltaE.items():
-    		if otype != ntype and ntype == 0:
-    			break_edges.add((src, dst))
-    			break_edges.add((dst, src))
-    	val_syns.append(break_fragements(prod, break_edges, canonicalize=True))
-    with open('val_syns.txt', 'w') as Fout:
-    	for x in val_syns:
-    		Fout.write(f'{x}\n')
+    # val_syns = []
+    # for idx, prod in enumerate(tqdm(val_prod)):
+    # 	deltaH, deltaE = get_synthons(prod, val_rec[idx])
+    # 	break_edges = set()
+    # 	for (src, dst), (otype, ntype) in deltaE.items():
+    # 		if otype != ntype and ntype == 0:
+    # 			break_edges.add((src, dst))
+    # 			break_edges.add((dst, src))
+    # 	val_syns.append(break_fragements(prod, break_edges, canonicalize=True))
+    # with open('val_syns.txt', 'w') as Fout:
+    # 	for x in val_syns:
+    # 		Fout.write(f'{x}\n')
 
 
-    test_syns = []
-    for idx, prod in enumerate(tqdm(test_prod)):
-    	deltaH, deltaE = get_synthons(prod, test_rec[idx])
-    	break_edges = set()
-    	for (src, dst), (otype, ntype) in deltaE.items():
-    		if otype != ntype and ntype == 0:
-    			break_edges.add((src, dst))
-    			break_edges.add((dst, src))
-    	test_syns.append(break_fragements(prod, break_edges, canonicalize=True))
-    with open('test_syns.txt', 'w') as Fout:
-    	for x in test_syns:
-    		Fout.write(f'{x}\n')
+    # test_syns = []
+    # for idx, prod in enumerate(tqdm(test_prod)):
+    # 	deltaH, deltaE = get_synthons(prod, test_rec[idx])
+    # 	break_edges = set()
+    # 	for (src, dst), (otype, ntype) in deltaE.items():
+    # 		if otype != ntype and ntype == 0:
+    # 			break_edges.add((src, dst))
+    # 			break_edges.add((dst, src))
+    # 	test_syns.append(break_fragements(prod, break_edges, canonicalize=True))
+    # with open('test_syns.txt', 'w') as Fout:
+    # 	for x in test_syns:
+    # 		Fout.write(f'{x}\n')
 
     
 
