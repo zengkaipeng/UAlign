@@ -7,42 +7,41 @@ from tokenlizer import smi_tokenizer
 import random
 from rdkit import Chem
 
+
 class SynthonDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], nodes_label: List[Dict],
-        edges_label: List[Dict[Tuple[int, int], int]],
+        self, graphs: List[Dict],
+        old_types: List[Dict[Tuple[int, int], int]],
+        new_types: List[Dict[Tuple[int, int], int]],
         rxn_class: Optional[List[int]] = None
     ):
         super(SynthonDataset, self).__init__()
         self.graphs = graphs
-        self.node_labels = nodes_label
-        self.edge_labels = edges_label
+        self.old_types = old_types
+        self.new_types = new_types
         self.rxn_class = rxn_class
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        num_nodes = self.graphs[index]['node_feat'].shape[0]
         num_edges = self.graphs[index]['edge_index'].shape[1]
-        node_labels = torch.zeros(num_nodes).long()
-        edge_labels = torch.zeros(num_edges).long()
+        old_labels = torch.zeros(num_edges).long()
+        new_labels = torch.zeros(num_edges).long()
 
-        for k, v in self.node_labels[index].items():
-            node_labels[k] = v
         for idx in range(num_edges):
             row, col = self.graphs[index]['edge_index'][:, idx].tolist()
-            edge_labels[idx] = self.edge_labels[index][(row, col)]
+            old_labels[idx] = self.old_labels[index][(row, col)]
+            new_labels[idx] = self.new_labels[index][(row, col)]
 
-        if self.rxn_class is None:
-            return self.graphs[index], node_labels, edge_labels
-        else:
-            return self.graphs[index], node_labels, edge_labels, \
-                self.rxn_class[index]
+        answer = (self.graphs[index], old_labels, new_labels)
+        if self.rxn_class is not None:
+            answer += (self.rxn_class[index], )
+        return answer
 
 
 def edit_col_fn(batch):
-    batch_size, all_node, all_edge = len(batch), [], []
+    batch_size, all_old, all_new = len(batch), [], []
     edge_idx, node_feat, edge_feat = [], [], []
     node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
     node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
@@ -60,8 +59,8 @@ def edit_col_fn(batch):
         node_feat.append(gp['node_feat'])
         edge_feat.append(gp['edge_feat'])
         edge_idx.append(gp['edge_index'] + lstnode)
-        all_node.append(nlb)
-        all_edge.append(elb)
+        all_old.append(nlb)
+        all_new.append(elb)
 
         batch_mask[idx, :node_cnt] = True
 
@@ -84,8 +83,8 @@ def edit_col_fn(batch):
         'batch': torch.from_numpy(npcat(node_batch, axis=0)),
         'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
         'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
-        'node_label': torch.cat(all_node, dim=0),
-        'edge_label': torch.cat(all_edge, dim=0),
+        'old_edge_types': torch.cat(all_old, dim=0),
+        'new_edge_types': torch.cat(all_new, dim=0),
         'num_nodes': lstnode,
         'num_edges': lstedge,
         'batch_mask': batch_mask

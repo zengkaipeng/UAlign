@@ -27,31 +27,19 @@ def make_memory_from_feat(node_feat, batch_mask):
 
 
 class SynthonPredictionModel(torch.nn.Module):
-    def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
+    def __init__(
+        self, base_model, node_dim, edge_dim,
+        kekulize=False, dropout=0.1
+    ):
         super(SynthonPredictionModel, self).__init__()
         self.base_model = base_model
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 3)
+            torch.nn.Linear(edge_dim, 3 if kekulize else 4)
         )
 
-        self.node_predictor = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 7)
-        )
-
-    def calc_loss(
-        self, node_logits, node_label, edge_logits, edge_label,
-        node_batch, edge_batch,
-    ):
-        max_node_batch = node_batch.max().item() + 1
-        node_loss = torch.zeros(max_node_batch).to(node_logits)
-        node_loss_src = cross_entropy(
-            node_logits, node_label, reduction='none'
-        )
-        node_loss.scatter_add_(0, node_batch, node_loss_src)
+    def calc_loss(self, edge_logits, edge_label, edge_batch):
 
         max_edge_batch = edge_batch.max().item() + 1
         edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
@@ -65,25 +53,18 @@ class SynthonPredictionModel(torch.nn.Module):
     def forward(self, graph, ret_loss=True, ret_feat=False):
         node_feat, edge_feat = self.base_model(graph)
 
-        node_logits = self.node_predictor(node_feat)
-        node_logits = node_logits.squeeze(dim=-1)
-
         edge_logits = self.edge_predictor(edge_feat)
         edge_logits = edge_logits.squeeze(dim=-1)
 
         if ret_loss:
-            n_loss, e_loss = self.calc_loss(
+            e_loss = self.calc_loss(
                 node_logits=node_logits, edge_logits=edge_logits,
                 node_label=graph.node_label, node_batch=graph.batch,
                 edge_label=graph.edge_label, edge_batch=graph.e_batch
             )
-
-        answer = (node_logits, edge_logits)
-        if ret_loss:
-            answer += (n_loss, e_loss)
-        if ret_feat:
-            answer += (node_feat, edge_feat)
-        return answer
+            return edge_logits, e_loss
+        else:
+            return edge_logits
 
 
 class PositionalEncoding(torch.nn.Module):

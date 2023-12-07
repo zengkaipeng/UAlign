@@ -35,26 +35,22 @@ def create_edit_dataset(
     reacts: List[str], prods: List[str], rxn_class: Optional[List[int]] = None,
     kekulize: bool = False, verbose: bool = True,
 ):
-    graphs, nodes, edges = [], [], []
+    graphs, o_edges, n_edges = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
 
-        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+        deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
 
-        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
-        this_edge = {}
+        old_edge, new_edge = {}, {}
         for (src, dst), (otype, ntype) in deltaE.items():
             src, dst = amap[src], amap[dst]
-            if otype == ntype:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
-            elif ntype == 0:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
-            else:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
-        edges.append(this_edge)
+            old_edge[(src, dst)] = old_edge[(dst, src)] = otype
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
+        o_edges.append(old_edge)
+        n_edges.append(new_edge)
 
-    return SynthonDataset(graphs, nodes, edges, rxn_class=rxn_class)
+    return SynthonDataset(graphs, o_edges, n_edges, rxn_class=rxn_class)
 
 
 def check_useful_synthons(synthons, belong):
