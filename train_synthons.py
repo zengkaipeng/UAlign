@@ -193,8 +193,10 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = SynthonPredictionModel(GNN, args.dim, args.dim, args.dropout)
-    model = model.to(device)
+    model = SynthonPredictionModel(
+        base_model=GNN, node_dim=args.dim, edge_dim=args.dim,
+        dropout=args.dropout, kekulize=args.kekulize
+    ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_cov, best_ep = None, None

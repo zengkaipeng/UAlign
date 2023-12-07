@@ -31,8 +31,8 @@ class SynthonDataset(torch.utils.data.Dataset):
 
         for idx in range(num_edges):
             row, col = self.graphs[index]['edge_index'][:, idx].tolist()
-            old_labels[idx] = self.old_labels[index][(row, col)]
-            new_labels[idx] = self.new_labels[index][(row, col)]
+            old_labels[idx] = self.old_types[index][(row, col)]
+            new_labels[idx] = self.new_types[index][(row, col)]
 
         answer = (self.graphs[index], old_labels, new_labels)
         if self.rxn_class is not None:

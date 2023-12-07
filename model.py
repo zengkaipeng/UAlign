@@ -36,7 +36,7 @@ class SynthonPredictionModel(torch.nn.Module):
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 3 if kekulize else 4)
+            torch.nn.Linear(edge_dim, 4 if kekulize else 5)
         )
 
     def calc_loss(self, edge_logits, edge_label, edge_batch):
@@ -48,7 +48,7 @@ class SynthonPredictionModel(torch.nn.Module):
         )
         edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
 
-        return node_loss.mean(), edge_loss.mean()
+        return edge_loss.mean()
 
     def forward(self, graph, ret_loss=True, ret_feat=False):
         node_feat, edge_feat = self.base_model(graph)
@@ -58,9 +58,8 @@ class SynthonPredictionModel(torch.nn.Module):
 
         if ret_loss:
             e_loss = self.calc_loss(
-                node_logits=node_logits, edge_logits=edge_logits,
-                node_label=graph.node_label, node_batch=graph.batch,
-                edge_label=graph.edge_label, edge_batch=graph.e_batch
+                edge_logits=edge_logits, edge_batch=graph.e_batch,
+                edge_label=graph.new_edge_types,
             )
             return edge_logits, e_loss
         else:

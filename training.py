@@ -52,9 +52,13 @@ def eval_sparse_edit(loader, model, device):
                 edge_logs, graph.edge_index,
                 mod='softmax', return_dict=False
             )
-        acc = eval_by_batch(edge_pred, graph.new_edge_types, graph.e_batch)
+        acc = eval_by_batch(
+            edge_pred, graph.new_edge_types, 
+            graph.e_batch, return_tensor=True
+        )
+        accs.append(acc)
 
-    return torch.cat(accs, dim=0).float().mean()
+    return torch.cat(accs, dim=0).float().mean().item()
 
 
 def train_overall(

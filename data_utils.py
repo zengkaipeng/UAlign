@@ -3,7 +3,7 @@ import os
 from utils.chemistry_parse import (
     get_synthons, ACHANGE_TO_IDX, break_fragements,
     get_all_amap, get_leaving_group, get_mol_belong,
-    clear_map_number
+    clear_map_number, BOND_FLOAT_TO_IDX
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -45,6 +45,8 @@ def create_edit_dataset(
         old_edge, new_edge = {}, {}
         for (src, dst), (otype, ntype) in deltaE.items():
             src, dst = amap[src], amap[dst]
+            otype = BOND_FLOAT_TO_IDX[otype]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
             old_edge[(src, dst)] = old_edge[(dst, src)] = otype
             new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
         o_edges.append(old_edge)
@@ -223,7 +225,7 @@ def check_early_stop(*args):
 
 
 def eval_by_batch(pred, label, batch, return_tensor=False):
-    batch_size = node_batch.max().item() + 1
+    batch_size = batch.max().item() + 1
     accs = torch.zeros(batch_size).bool()
 
     for i in range(batch_size):
@@ -231,7 +233,7 @@ def eval_by_batch(pred, label, batch, return_tensor=False):
 
         this_lb = label[this_mask]
         this_pd = pred[this_mask]
-        node_acc[i] = torch.all(this_lb == this_pd).item()
+        accs[i] = torch.all(this_lb == this_pd).item()
 
     if not return_tensor:
         return accs.sum().item(), batch_size
