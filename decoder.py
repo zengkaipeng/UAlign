@@ -9,6 +9,7 @@ from Mix_backbone import MixConv
 from typing import Any, Dict, List, Tuple, Optional, Union
 
 from torch.nn import MultiheadAttention
+import math
 
 
 def graph2batch(
@@ -21,15 +22,37 @@ def graph2batch(
     return answer
 
 
+class PositionalEncoding(torch.nn.Module):
+    def __init__(self, emb_size: int, dropout: float, maxlen: int = 2000):
+        super(PositionalEncoding, self).__init__()
+        den = torch.exp(
+            - torch.arange(0, emb_size, 2) * math.log(10000) / emb_size
+        )
+        pos = torch.arange(0, maxlen).reshape(maxlen, 1)
+        pos_embedding = torch.zeros((maxlen, emb_size))
+        pos_embedding[:, 0::2] = torch.sin(pos * den)
+        pos_embedding[:, 1::2] = torch.cos(pos * den)
+
+        self.dropout = torch.nn.Dropout(dropout)
+        self.register_buffer('pos_embedding', pos_embedding)
+
+    def forward(self, token_embedding: torch.Tensor):
+        token_len = token_embedding.shape[1]
+        return self.dropout(token_embedding + self.pos_embedding[:token_len])
+
+
 class Feat_init(torch.nn.Module):
     def __init__(
         self, n_pad: int, dim: int, heads: int = 2, dropout: float = 0.1,
-        n_class: Optional[int] = None
+        n_class: Optional[int] = None, with_PE: bool = False
     ):
         super(Feat_init, self).__init__()
         self.Qemb = torch.nn.Parameter(torch.randn(1, n_pad, dim))
         self.atom_encoder = SparseAtomEncoder(dim, n_class=None)
         self.bond_encoder = SparseBondEncoder(dim, n_class=None)
+        self.with_PE = with_PE
+        if with_PE:
+            self.pos_enc = PositionalEncoding(dim, dropout)
 
         if n_class is not None:
             self.node_cls_emb = torch.nn.Embedding(n_class, dim)
@@ -60,6 +83,10 @@ class Feat_init(torch.nn.Module):
             query=Qval, key=memory, value=memory,
             key_padding_mask=mem_pad_mask
         )
+
+        if self.with_PE:
+            pad_node_feat = self.pos_enc(pad_node_feat)
+
         # [B, pad, dim]
         node_feat[G.n_pad_mask] = pad_node_feat.reshape(-1, self.dim)
 
@@ -88,12 +115,14 @@ class MixDecoder(torch.nn.Module):
     def __init__(
         self, emb_dim: int, n_layers: int, gnn_args: Union[Dict, List[Dict]],
         n_pad: int, dropout: float = 0, heads: int = 1, gnn_type: str = 'gin',
-        n_class: Optional[int] = None, update_gate: str = 'add'
+        n_class: Optional[int] = None, update_gate: str = 'add',
+        with_PE: bool = False
     ):
         super(MixDecoder, self).__init__()
 
         self.feat_init = Feat_init(
-            n_pad, emb_dim, heads=heads, dropout=dropout, n_class=n_class,
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, with_PE=with_PE
         )
 
         self.num_layers = n_layers
@@ -158,7 +187,7 @@ class GATDecoder(torch.nn.Module):
     def __init__(
         self, num_layers: int = 4, num_heads: int = 4, embedding_dim: int = 64,
         dropout: float = 0.7, negative_slope: float = 0.2,
-        n_class: Optional[int] = None
+        n_class: Optional[int] = None, with_PE: bool = False
     ):
         super(GATDecoder, self).__init__()
         if num_layers < 2:
@@ -190,7 +219,8 @@ class GATDecoder(torch.nn.Module):
             ))
 
         self.feat_init = Feat_init(
-            n_pad, emb_dim, heads=heads, dropout=dropout, n_class=n_class,
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, with_PE=with_PE
         )
 
     def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:
@@ -230,7 +260,8 @@ class GINDecoder(torch.nn.Module):
         self,  num_layers: int = 4,
         embedding_dim: int = 64,
         dropout: float = 0.7,
-        n_class: Optional[int] = None
+        n_class: Optional[int] = None,
+        with_PE: bool = False
     ):
         super(GINDecoder, self).__init__()
         if num_layers < 2:
@@ -257,7 +288,8 @@ class GINDecoder(torch.nn.Module):
                 batch_first=True, dropout=dropout
             ))
         self.feat_init = Feat_init(
-            n_pad, emb_dim, heads=heads, dropout=dropout, n_class=n_class,
+            n_pad, emb_dim, heads=heads, dropout=dropout,
+            n_class=n_class, with_PE=with_PE
         )
 
     def forward(self, graph, memory, mem_pad_mask=None) -> torch.Tensor:

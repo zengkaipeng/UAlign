@@ -3,40 +3,42 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 import torch_geometric
 from numpy import concatenate as npcat
+from tokenlizer import smi_tokenizer
+import random
+from rdkit import Chem
 
-
-class BinaryEditDataset(torch.utils.data.Dataset):
+class SynthonDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], activate_nodes: List[List[int]],
-        changed_edges: List[List[Union[List[int], Tuple[int]]]],
+        self, graphs: List[Dict], nodes_label: List[Dict],
+        edges_label: List[Dict[Tuple[int, int], int]],
         rxn_class: Optional[List[int]] = None
     ):
-        super(BinaryEditDataset, self).__init__()
+        super(SynthonDataset, self).__init__()
         self.graphs = graphs
-        self.activate_nodes = activate_nodes
-        self.changed_edges = changed_edges
+        self.node_labels = nodes_label
+        self.edge_labels = edges_label
         self.rxn_class = rxn_class
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        node_labels = torch.zeros(self.graphs[index]['num_nodes'])
-        node_labels[self.activate_nodes[index]] = 1
-        edges = self.graphs[index]['edge_index']
-        edge_labels = torch.zeros(edges.shape[1])
-        for idx, src in enumerate(edges[0]):
-            src, dst = src.item(), edges[1][idx].item()
-            if (src, dst) in self.changed_edges[index]:
-                edge_labels[idx] = 1
-            if (dst, src) in self.changed_edges[index]:
-                edge_labels[idx] = 1
+        num_nodes = self.graphs[index]['node_feat'].shape[0]
+        num_edges = self.graphs[index]['edge_index'].shape[1]
+        node_labels = torch.zeros(num_nodes).long()
+        edge_labels = torch.zeros(num_edges).long()
+
+        for k, v in self.node_labels[index].items():
+            node_labels[k] = v
+        for idx in range(num_edges):
+            row, col = self.graphs[index]['edge_index'][:, idx].tolist()
+            edge_labels[idx] = self.edge_labels[index][(row, col)]
 
         if self.rxn_class is None:
             return self.graphs[index], node_labels, edge_labels
         else:
-            return self.graphs[index], node_labels, \
-                edge_labels, self.rxn_class[index]
+            return self.graphs[index], node_labels, edge_labels, \
+                self.rxn_class[index]
 
 
 def edit_col_fn(batch):
@@ -98,264 +100,226 @@ def edit_col_fn(batch):
     return torch_geometric.data.Data(**result)
 
 
+def randomize_smiles(smi):
+    mol = Chem.MolFromSmiles(smi)
+    random_root = np.random.choice([(x.GetIdx()) for x in mol.GetAtoms()])
+    return Chem.MolToSmiles(mol, rootedAtAtom=int(random_root))
+
+
 class OverallDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], activate_nodes: List[List[int]],
-        changed_edges: List[List[Union[List[int], Tuple[int]]]],
-        decoder_node_type: List[Dict], decoder_edge_type: List[Dict],
-        rxn_class: Optional[List[int]] = None
+        self, graphs: List[Dict], enc_nodes: List[List[int]],
+        enc_edges: List[Dict[Tuple[int, int], int]],
+        lg_graphs: List[Dict], lg_labels: List[List[int]],
+        conn_edges: List[List[List[int]]], conn_labels: List[List[int]],
+        trans_input: List[str], trans_output: List[str],
+        rxn_class: Optional[List[int]] = None,
+        randomize: bool = False, aug_prob: float = 0
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
-        self.activate_nodes = activate_nodes
-        self.changed_edges = changed_edges
+        self.node_labels = enc_nodes
+        self.edge_labels = enc_edges
         self.rxn_class = rxn_class
-        self.decoder_node_class = decoder_node_type
-        self.decoder_edge_class = decoder_edge_type
-        # print(decoder_edge_type)
-        # print(decoder_node_type)
+        self.lg_graphs = lg_graphs
+        self.lg_labels = lg_labels
+        self.conn_edges = conn_edges
+        self.conn_labels = conn_labels
+        self.trans_input = trans_input
+        self.trans_output = trans_output
+        self.randomize = randomize
+        self.aug_prob = aug_prob
+
+        assert not self.randomize or 0 <= self.aug_prob <= 1,\
+            'The aug_prob should be a float between 0 and 1'
+
+    def randomize_synthons(self, syn):
+        if self.randomize and random.random() < self.aug_prob:
+            return '`'.join(randomize_smiles(x) for x in syn.split('`'))
+        else:
+            return syn
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        this_graph = self.graphs[index]
-        node_labels = torch.zeros(this_graph['num_nodes'])
-        node_labels[self.activate_nodes[index]] = 1
-        edges = this_graph['edge_index']
-        edge_labels = torch.zeros(edges.shape[1])
-        for idx, src in enumerate(edges[0]):
-            src, dst = src.item(), edges[1][idx].item()
-            if (src, dst) in self.changed_edges[index]:
-                edge_labels[idx] = 1
-            if (dst, src) in self.changed_edges[index]:
-                edge_labels[idx] = 1
+        num_nodes = self.graphs[index]['node_feat'].shape[0]
+        num_edges = self.graphs[index]['edge_index'].shape[1]
+        node_labels = torch.zeros(num_nodes).long()
+        edge_labels = torch.zeros(num_edges).long()
+
+        for k, v in self.node_labels[index].items():
+            node_labels[k] = v
+        for idx in range(num_edges):
+            row, col = self.graphs[index]['edge_index'][:, idx].tolist()
+            edge_labels[idx] = self.edge_labels[index][(row, col)]
+
+        if self.rxn_class is not None:
+            trans_output = [f'<RXN_{rxn_class}>']
+        else:
+            trans_output = [f'<CLS>']
+
+        trans_input = self.randomize_synthons(self.trans_input[index])
+        trans_input = smi_tokenizer(trans_input)
+        trans_output.extend(smi_tokenizer(self.trans_output[index]))
+        trans_output.append('<END>')
 
         if self.rxn_class is None:
-            return this_graph, node_labels, edge_labels,\
-                self.decoder_node_class[index], self.decoder_edge_class[index]
-
+            return self.graphs[index], node_labels, edge_labels, \
+                self.lg_graphs[index], self.lg_labels[index],\
+                self.conn_edges[index], self.conn_labels[index],\
+                trans_input, trans_output
         else:
-            return this_graph, node_labels, edge_labels,\
-                self.rxn_class[index], self.decoder_node_class[index],\
-                self.decoder_edge_class[index]
+            return self.graphs[index], node_labels, edge_labels, \
+                self.lg_graphs[index], self.lg_labels[index],\
+                self.conn_edges[index], self.conn_labels[index],\
+                trans_input, trans_output, self.rxn_class[index]
 
 
-def make_decoder_graph(
-    graphs, activate_nodes, changed_edges, pad_num, rxns=None,
-    node_types=None, edge_types=None
-):
-    """[summary]
+def overall_col_fn(batch):
+    encoder = {
+        'node_feat': [], 'edge_feat': [], 'node_label': [],
+        'edge_label': [], 'edge_index': [], 'node_batch': [],
+        'edge_batch': [], 'lstnode': 0, 'lstedge': 0,
+        'node_ptr': [0], 'edge_ptr': [0], 'node_rxn': [],
+        'edge_rxn': []
+    }
 
-    a aux for decoder collate fn
+    LG = {
+        'node_feat': [], 'edge_feat': [], 'node_label': [],
+        'edge_label': [], 'edge_index': [], 'node_batch': [],
+        'edge_batch': [], 'lstnode': 0, 'lstedge': 0,
+        'node_ptr': [0], 'edge_ptr': [0], 'node_rxn': [],
+        'edge_rxn': []
+    }
 
-    Args:
-        graphs ([List]): a list of graphs, representing products
-        activate_nodes ([List]): a list of tensors, each of tensor
-            is of shape [num_nodes], representing whether a 
-            node is activated on each graph
-        changed_edges ([type]):  a list of tensors, eahc of tensor
-            is of shape [num_edges], representing whether a edge is 
-            changed on each graph
-        pad_num ([int]): the number of pad nodes
-        rxn ([list]): optional, a list of int representing the 
-            reaction class (default: `None`)
-        node_types ([list]): optional, a list of dict
-            representing each atom type on reactant (default: `None`)
-        edge_types ([list]): a list of dict, representing each
-            bond type on reactant  (default: `None`)
-    return:
-        graphs (torch_geometric.data.Data): containing graph informations
-        all_edge_types (dict): optional, a dict containing all the edge types, 
-            edge indexes are merged
-    """
-    all_edge_types, all_node_types, org_edge = {}, [], []
-    all_edg_idx, all_node_feat, all_edge_feat = [], [], []
-    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
-    node_rxn, edge_rxn, graph_rxn, lstnode, lstedge = [], [], [], 0, 0
-    e_org_mask, e_pad_mask, attn_mask = [], [], []
-    n_org_mask, n_pad_mask = [], []
+    batch_size, graph_rxn = len(batch), []
+    conn_edges, conn_labels, conn_batch = [], [], []
+    trans_input, trans_output = [], []
 
-    max_node = max(x['num_nodes'] + pad_num for x in graphs)
-    batch_size = len(graphs)
+    encoder['max_node'] = max(x[0]['num_nodes'] for x in batch)
+    encoder['batch_mask'] = torch.zeros(batch_size, encoder['max_node']).bool()
 
-    batch_mask = torch.zeros(batch_size, max_node).bool()
+    LG['max_node'] = max(x[3]['num_nodes'] for x in batch)
+    LG['batch_mask'] = torch.zeros(batch_size, LG['max_node']).bool()
 
-    for idx in range(batch_size):
-        # init
-        rxn = None if rxns is None else rxns[idx]
-        o_n_cnt = graphs[idx]['num_nodes']
-        a_n_cnt = o_n_cnt + pad_num
-
-        batch_mask[idx, :a_n_cnt] = True
-
-        # node
-
-        all_node_feat.append(graphs[idx]['node_feat'])
-        n_org_mask.append(torch.ones(o_n_cnt).bool())
-        n_pad_mask.append(torch.zeros(o_n_cnt).bool())
-        n_org_mask.append(torch.zeros(pad_num).bool())
-        n_pad_mask.append(torch.ones(pad_num).bool())
-
-        if node_types is not None:
-            node_cls = torch.zeros(a_n_cnt).long()
-            for k, v in node_types[idx].items():
-                node_cls[k] = v
-            all_node_types.append(node_cls)
-
-        # org_edge
-
-        edge_res_mask = (changed_edges[idx] == 0).tolist()
-        res_enc_edges = graphs[idx]['edge_index'][:, edge_res_mask]
-        o_e_cnt = res_enc_edges.shape[1]
-
-        all_edge_feat.append(graphs[idx]['edge_feat'][edge_res_mask])
-        all_edg_idx.append(res_enc_edges + lstnode)
-
-        e_org_mask.append(torch.ones(o_e_cnt).bool())
-        e_pad_mask.append(torch.zeros(o_e_cnt).bool())
-
-        if edge_types is not None:
-            org_edge_cls = torch.zeros(o_e_cnt).long()
-            exists_edges = set()
-            for edx in range(o_e_cnt):
-                row, col = res_enc_edges[:, edx].tolist()
-                exists_edges.add((row, col))
-                org_edge_cls[edx] = edge_types[idx][(row, col)]
-            org_edge.append(org_edge_cls)
+    for idx, data in enumerate(batch):
+        if len(data) == 10:
+            gp, nlb, elb, lgg, lgb, coe, col, tin, tou, rxn = data
         else:
-            exists_edges = set()
-            for edx in range(o_e_cnt):
-                row, col = res_enc_edges[:, edx].tolist()
-                exists_edges.add((row, col))
+            (gp, nlb, elb, lgg, lgb, coe, col, tin, tou), rxn = data, None
 
-        # edge_labels
+        # encoder
+        enc_node_cnt = gp['num_nodes']
+        enc_edge_cnt = gp['edge_index'].shape[1]
+        encoder['node_feat'].append(gp['node_feat'])
+        encoder['edge_feat'].append(gp['edge_feat'])
+        encoder['edge_index'].append(gp['edge_index'] + encoder['lstnode'])
+        encoder['node_label'].append(nlb)
+        encoder['edge_label'].append(elb)
+        encoder['batch_mask'][idx, :enc_node_cnt] = True
+        encoder['node_batch'].append(
+            np.ones(enc_node_cnt, dtype=np.int64) * idx
+        )
+        encoder['edge_batch'].append(
+            np.ones(enc_edge_cnt, dtype=np.int64) * idx
+        )
 
-        if edge_types is not None:
-            all_edge_types.update({
-                (x + lstnode, y + lstnode): v for (x, y), v
-                in edge_types[idx].items()
-            })
+        # lg
 
-        # pad_edges
+        lg_node_cnt = lgg['num_nodes']
+        lg_edge_cnt = lgg['edge_index'].shape[1]
+        LG['node_feat'].append(lgg['node_feat'])
+        LG['edge_feat'].append(lgg['edge_feat'])
+        LG['edge_index'].append(lgg['edge_index'] + LG['lstnode'])
+        LG['node_label'].extend(lgb)
+        LG['batch_mask'][idx, :lg_node_cnt] = True
+        LG['node_batch'].append(np.ones(lg_node_cnt, dtype=np.int64) * idx)
+        LG['edge_batch'].append(np.ones(lg_edge_cnt, dtype=np.int64) * idx)
 
-        pad_idx = [x + o_n_cnt for x in range(pad_num)]
+        # conn
+        conn_edges.extend([
+            (a + encoder['lstnode'], b + LG['lstnode']) for a, b in coe
+        ])
+        conn_labels.extend(col)
+        conn_batch.extend([idx] * len(col))
 
-        attn_mask.append(make_attn_mask(res_enc_edges, max_node, pad_idx))
+        # trans
+        trans_input.append(tin)
+        trans_output.append(tou)
 
-        prod_node_idx = torch.arange(0, o_n_cnt, 1)
-        link_nds = prod_node_idx[activate_nodes[idx] == 1].tolist() + pad_idx
+        # lst update
 
-        pad_edges = [
-            (x, y) for x in link_nds for y in link_nds
-            if x != y and (x, y) not in exists_edges
-        ]
-        all_edg_idx.append(np.array(pad_edges, dtype=np.int64).T + lstnode)
+        encoder['lstnode'] += enc_node_cnt
+        encoder['lstedge'] += enc_edge_cnt
+        encoder['node_ptr'].append(encoder['lstnode'])
+        encoder['edge_ptr'].append(encoder['lstedge'])
 
-        p_e_cnt = len(pad_edges)
-        a_e_cnt = o_e_cnt + p_e_cnt
-
-        e_org_mask.append(torch.zeros(p_e_cnt).bool())
-        e_pad_mask.append(torch.ones(p_e_cnt).bool())
-
-        lstnode += a_n_cnt
-        lstedge += a_e_cnt
-
-        node_batch.append(np.ones(a_n_cnt, dtype=np.int64) * idx)
-        edge_batch.append(np.ones(a_e_cnt, dtype=np.int64) * idx)
-        node_ptr.append(lstnode)
-        edge_ptr.append(lstedge)
+        LG['lstnode'] += lg_node_cnt
+        LG['lstedge'] += lg_edge_cnt
+        LG['node_ptr'].append(LG['lstnode'])
+        LG['edge_ptr'].append(LG['lstedge'])
 
         if rxn is not None:
+            encoder['node_rxn'].append(
+                np.ones(enc_node_cnt, dtype=np.int64) * rxn
+            )
+            encoder['edge_rxn'].append(
+                np.ones(enc_edge_cnt, dtype=np.int64) * rxn
+            )
+            LG['node_rxn'].append(np.ones(lg_node_cnt, dtype=np.int64) * rxn)
+            LG['edge_rxn'].append(np.ones(lg_edge_cnt, dtype=np.int64) * rxn)
             graph_rxn.append(rxn)
-            node_rxn.append(np.ones(a_n_cnt, dtype=np.int64) * rxn)
-            edge_rxn.append(np.ones(a_e_cnt, dtype=np.int64) * rxn)
 
-    result = {
-        'x': torch.from_numpy(npcat(all_node_feat, axis=0)),
-        'edge_attr': torch.from_numpy(npcat(all_edge_feat, axis=0)),
-        'edge_index': torch.from_numpy(npcat(all_edg_idx, axis=1)),
-        'attn_mask': torch.stack(attn_mask, dim=0),
-        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
-        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
-        "num_nodes": lstnode,
-        "num_edges": lstedge,
-        "ptr": torch.LongTensor(node_ptr),
-        'e_ptr': torch.LongTensor(edge_ptr),
-        'e_org_mask': torch.cat(e_org_mask, dim=0),
-        'e_pad_mask': torch.cat(e_pad_mask, dim=0),
-        'n_org_mask': torch.cat(n_org_mask, dim=0),
-        "n_pad_mask": torch.cat(n_pad_mask, dim=0),
-        'batch_mask': batch_mask
+    enc_graph = {
+        'x': torch.from_numpy(npcat(encoder['node_feat'], axis=0)),
+        'edge_attr': torch.from_numpy(npcat(encoder['edge_feat'], axis=0)),
+        'ptr': torch.LongTensor(encoder['node_ptr']),
+        'e_ptr': torch.LongTensor(encoder['edge_ptr']),
+        'batch': torch.from_numpy(npcat(encoder['node_batch'], axis=0)),
+        'e_batch': torch.from_numpy(npcat(encoder['edge_batch'], axis=0)),
+        'edge_index': torch.from_numpy(npcat(encoder['edge_index'], axis=1)),
+        'node_label': torch.cat(encoder['node_label'], dim=0),
+        'edge_label': torch.cat(encoder['edge_label'], dim=0),
+        'num_nodes': encoder['lstnode'],
+        'num_edges': encoder['lstedge'],
+        "batch_mask": encoder['batch_mask']
+    }
+
+    lg_graph = {
+        'x': torch.from_numpy(npcat(LG['node_feat'], axis=0)),
+        'edge_attr': torch.from_numpy(npcat(LG['edge_feat'], axis=0)),
+        'ptr': torch.LongTensor(LG['node_ptr']),
+        'e_ptr': torch.LongTensor(LG['edge_ptr']),
+        'batch': torch.from_numpy(npcat(LG['node_batch'], axis=0)),
+        'e_batch': torch.from_numpy(npcat(LG['edge_batch'], axis=0)),
+        'edge_index': torch.from_numpy(npcat(LG['edge_index'], axis=1)),
+        'node_label': torch.FloatTensor(LG['node_label']),
+        'num_nodes': LG['lstnode'],
+        'num_edges': LG['lstedge'],
+        "batch_mask": LG['batch_mask']
     }
 
     if len(graph_rxn) > 0:
-        result['node_rxn'] = torch.from_numpy(npcat(node_rxn, axis=0))
-        result['edge_rxn'] = torch.from_numpy(npcat(edge_rxn, axis=0))
-        result['graph_rxn'] = torch.LongTensor(graph_rxn)
-
-    if node_types is not None and edge_types is not None:
-        result['node_class'] = torch.from_numpy(npcat(all_node_types, axis=0))
-        result['org_edge_class'] = torch.from_numpy(npcat(org_edge, axis=0))
-        return torch_geometric.data.Data(**result), all_edge_types
+        enc_graph['node_rxn'] = torch.from_numpy(npcat(
+            encoder['node_rxn'], axis=0
+        ))
+        enc_graph['edge_rxn'] = torch.from_numpy(npcat(
+            encoder['edge_rxn'], axis=0
+        ))
+        lg_graph['node_rxn'] = torch.from_numpy(npcat(LG['node_rxn'], axis=0))
+        lg_graph['edge_rxn'] = torch.from_numpy(npcat(LG['edge_rxn'], axis=0))
+        graph_rxn = torch.LongTensor(graph_rxn)
     else:
-        return torch_geometric.data.Data(**result)
+        graph_rxn = None
 
+    conn_edges = torch.LongTensor(conn_edges)
+    conn_labels = torch.FloatTensor(conn_labels)
+    conn_batch = torch.LongTensor(conn_batch)
 
-def make_attn_mask(edge_index, max_node, pad_idx):
-    def dfs(x, graph, blocks, vis):
-        blocks.append(x)
-        vis.add(x)
-        for neighbor in graph[x]:
-            if neighbor not in vis:
-                dfs(neighbor, graph, blocks, vis)
-
-    def make_graph(edge_index, pad_idx, max_node):
-        graph = {i: [i] for i in range(max_node) if i not in pad_idx}
-        for idx in range(edge_index.shape[1]):
-            row, col = edge_index[:, idx].tolist()
-            if row not in graph:
-                graph[row] = []
-            graph[row].append(col)
-        return graph
-
-    attn_mask = torch.ones(max_node, max_node).bool()
-    graph, vis = make_graph(edge_index, pad_idx, max_node), set()
-    for node in graph.keys():
-        if node not in vis:
-            block = []
-            dfs(node, graph, block, vis)
-            block.extend(pad_idx)
-            x_mask = torch.ones(max_node).bool()
-            x_mask[block] = False
-            block_attn = torch.zeros(max_node, max_node).bool()
-            block_attn[x_mask] = True
-            block_attn[:, x_mask] = True
-            attn_mask &= block_attn
-    return attn_mask
-
-
-def overall_col_fn(pad_num):
-    # use zero as empty type
-
-    def col_fn(batch):
-        use_class = len(batch[0]) == 6
-        encoder_graph = edit_col_fn([x[:4] for x in batch])\
-            if use_class else edit_col_fn([x[:3] for x in batch])
-
-        # print('encoder done')
-        paras = {
-            'graphs': [x[0] for x in batch], 'pad_num': pad_num,
-            'activate_nodes': [x[1] for x in batch],
-            'changed_edges': [x[2] for x in batch],
-            'node_types': [x[-2] for x in batch],
-            'edge_types': [x[-1] for x in batch],
-            'rxns': [x[3] for x in batch] if use_class else None
-        }
-        decoder_graph, all_edge_types = make_decoder_graph(**paras)
-
-        return encoder_graph, decoder_graph, all_edge_types
-    return col_fn
+    return torch_geometric.data.Data(**enc_graph), \
+        torch_geometric.data.Data(**lg_graph), conn_edges, \
+        conn_labels, conn_batch, trans_input, trans_output, graph_rxn
 
 
 class InferenceDataset(torch.utils.data.Dataset):

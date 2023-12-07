@@ -1,3 +1,4 @@
+import pickle
 import torch
 import argparse
 import json
@@ -7,17 +8,15 @@ import time
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
-from Dataset import overall_col_fn, inference_col_fn
-from model import BinaryGraphEditModel, DecoderOnly, EncoderDecoder
+from Dataset import overall_col_fn
+from model import OverallModel
 from data_utils import (
-    create_overall_dataset, load_data, fix_seed,
-    check_early_stop, create_infernece_dataset
+    create_overall_dataset, load_data,
+    fix_seed, check_early_stop
 )
-from utils.chemistry_parse import canonical_smiles
-from decoder import MixDecoder, GINDecoder, GATDecoder
 from training import train_overall, eval_overall
-from utils.chemistry_parse import ATOM_TPYE_TO_IDX
 from torch.optim.lr_scheduler import ExponentialLR
+from tokenlizer import Tokenizer, DEFAULT_SP
 
 
 def create_log_model(args):
@@ -30,8 +29,10 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    model_dir = os.path.join(detail_log_folder, f'model-{timestamp}.pth')
-    return detail_log_dir, model_dir
+    model_dir = os.path.join(detail_log_folder, f'loss-{timestamp}.pth')
+    acc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
+    token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
+    return detail_log_dir, model_dir, acc_dir, token_path
 
 
 if __name__ == '__main__':
@@ -113,34 +114,6 @@ if __name__ == '__main__':
         '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
-    parser.add_argument('--pos_weight', default=1, type=float)
-
-    # training
-    parser.add_argument(
-        '--pad_num', type=int, default=35,
-        help='the number of padding'
-    )
-    parser.add_argument(
-        '--alpha', type=float, default=1,
-        help='the prop of known part for loss'
-    )
-
-    parser.add_argument('--matching', action='store_true')
-    parser.add_argument(
-        '--encoder_ckpt', default='', type=str,
-        help='the checkpoint of encoder'
-    )
-
-    parser.add_argument('--use_aug', action='store_true')
-    parser.add_argument(
-        '--extend_order', choices=['bfs', 'dfs'], default='dfs',
-        help='the method to extend label '
-    )
-
-    parser.add_argument(
-        '--inference_mode', choices=['node', 'edge'],
-        default='edge', help='the method to choices'
-    )
     parser.add_argument(
         '--warmup', default=2, type=int,
         help='the num of epoch for warmup'
@@ -152,13 +125,40 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--checkpoint', default='', type=str,
-        help='the path of encoder'
+        help='the path of trained overall model, to restart the exp'
+    )
+    parser.add_argument(
+        '--pregraph', action='store_true',
+        help='cat the graph embedding before the transformer ' +
+        'encoder, if not chosen, cat it after transformer encoder'
+    )
+    parser.add_argument(
+        '--use_sim', action='store_true',
+        help='use the sim model while making link prediction ' +
+        'between leaving groups and synthons'
+    )
+    parser.add_argument(
+        '--token_path', type=str, default='',
+        help='the json file containing all tokens'
+    )
+    parser.add_argument(
+        '--token_ckpt', type=str, default='',
+        help='the path of token checkpoint, required while' +
+        ' checkpoint is specified'
+    )
+    parser.add_argument(
+        '--aug_prob', type=float, default=0,
+        help='the prob for augument synthon inputs'
+    )
+    parser.add_argument(
+        '--use_aug', action='store_true',
+        help='augument the synthon is this is chosen'
     )
 
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir = create_log_model(args)
+    log_dir, model_dir, acc_dir, token_path = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -167,36 +167,51 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
+    if args.checkpoint != '':
+        assert args.token_ckpt != '', \
+            'require token_ckpt when checkpoint is given'
+        with open(args.token_ckpt, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+    else:
+        assert args.token_path != '', 'file containing all tokens are required'
+        if args.use_class:
+            SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
+        else:
+            SP_TOKEN = DEFAULT_SP
+
+        with open(args.token_path) as Fin:
+            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
+
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
     train_set = create_overall_dataset(
         reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None,
-        label_method=args.extend_order
+        rxn_class=train_rxn if args.use_class else None, verbose=True,
+        randomize=args.use_aug, aug_prob=args.aug_prob
     )
-
-    valid_set = create_infernece_dataset(
+    valid_set = create_overall_dataset(
         reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None,
+        rxn_class=val_rxn if args.use_class else None, verbose=True,
+        randomize=False, aug_prob=0
     )
-    test_set = create_infernece_dataset(
+    test_set = create_overall_dataset(
         reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
-        rxn_class=test_rxn if args.use_class else None,
+        rxn_class=val_rxn if args.use_class else None, verbose=True,
+        randomize=False, aug_prob=0
     )
-
-    col_fn = overall_col_fn(pad_num=args.pad_num)
 
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn, batch_size=args.bs, shuffle=True
+        train_set, collate_fn=overall_col_fn,
+        batch_size=args.bs, shuffle=True
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=inference_col_fn,
+        valid_set, collate_fn=overall_col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=inference_col_fn,
+        test_set, collate_fn=overall_col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -223,21 +238,11 @@ if __name__ == '__main__':
             n_class=11 if args.use_class else None,
             update_gate=args.update_gate
         )
-        GNN_dec = MixDecoder(
-            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            n_pad=args.pad_num, dropout=args.dropout, heads=args.heads,
-            gnn_type=args.gnn_type, n_class=11 if args.use_class else None,
-            update_gate=args.update_gate
-        )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout,
                 embedding_dim=args.dim, n_class=11 if args.use_class else None
-            )
-            GNN_dec = GINDecoder(
-                num_layers=args.n_layer, embedding_dim=args.dim,
-                dropout=args.dropout, n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
@@ -246,82 +251,123 @@ if __name__ == '__main__':
                 negative_slope=args.negative_slope,
                 n_class=11 if args.use_class else None
             )
-            GNN_dec = GATDecoder(
-                num_heads=args.heads, num_layers=args.n_layer,
-                dropout=args.dropout, embedding_dim=args.dim,
-                negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
-            )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    encoder = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
-
-    decoder = DecoderOnly(
-        backbone=GNN_dec, node_dim=args.dim, edge_dim=args.dim,
-        node_class=len(ATOM_TPYE_TO_IDX) + 1, pad_num=args.pad_num,
-        edge_class=4 if args.kekulize else 5,
+    enc_layer = torch.nn.TransformerEncoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=args.dropout
     )
+    dec_layer = torch.nn.TransformerDecoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=args.dropout
+    )
+    TransEnc = torch.nn.TransformerEncoder(enc_layer, args.n_layer)
+    TransDec = torch.nn.TransformerDecoder(dec_layer, args.n_layer)
 
-    model = EncoderDecoder(encoder, decoder).to(device)
+    model = OverallModel(
+        GNN, TransEnc, TransDec, args.dim, args.dim,
+        num_token=tokenizer.get_token_size(), heads=args.heads,
+        dropout=args.dropout, use_sim=args.use_sim, pre_graph=args.pregraph,
+        rxn_num=11 if args.use_class else None
+    ).to(device)
 
     if args.checkpoint != '':
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight)
-    elif args.encoder_ckpt != '':
-        weight = torch.load(args.encoder_ckpt, map_location=device)
-        model.encoder.load_state_dict(weight, strict=False)
 
     print('[INFO] model built')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
-    best_perf, best_epoch = None, None
+    best_loss, loss_epoch, best_acc, acc_epoch = [None] * 4
     log_info = {
         'args': args.__dict__, 'train_loss': [],
-        'valid_metric': [], 'test_metric': []
+        'valid_metric': [], 'test_metric': [],
+        'valid_loss': [], 'test_loss': []
     }
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)
+    with open(token_path, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
 
     for ep in range(args.epoch):
         print(f'[INFO] traning for ep {ep}')
         train_loss = train_overall(
-            model, train_loader, optimizer, device, pos_weight=args.pos_weight,
-            alpha=args.alpha, matching=args.matching, warmup=ep < args.warmup,
-            aug_mode=args.inference_mode if args.use_aug else 'none',
-
+            model, train_loader, optimizer, device, tokenizer,
+            pad_token='<PAD>', warmup=(ep <= args.warmup)
         )
         print('[INFO] train_loss:', train_loss)
 
-        valid_acc = eval_overall(
-            model, valid_loader, device, mode=args.inference_mode
+        valid_loss, valid_metric = eval_overall(
+            model, valid_loader, device, tokenizer,
+            pad_token='<PAD>', end_token='<END>'
         )
-        test_acc = eval_overall(
-            model, test_loader, device, mode=args.inference_mode
+        test_loss, test_metric = eval_overall(
+            model, test_loader, device, tokenizer,
+            pad_token='<PAD>', end_token='<END>'
         )
 
-        print(f'[INFO] valid: {valid_acc}, test: {test_acc}')
+        print('[INFO] valid_loss:', valid_loss)
+        print('[INFO] valid_metric:', valid_metric)
+        print('[INFO] test_loss:', test_loss)
+        print('[INFO] test_metric', test_metric)
+
         log_info['train_loss'].append(train_loss)
-        log_info['valid_metric'].append(valid_acc)
-        log_info['test_metric'].append(test_acc)
+        log_info['valid_metric'].append(valid_metric)
+        log_info['test_metric'].append(test_metric)
+        log_info['valid_loss'].append(valid_loss)
+        log_info['test_loss'].append(test_loss)
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_perf is None or valid_acc > best_perf:
-            best_perf, best_epoch = valid_acc, ep
+        if best_acc is None or valid_metric['all'] > best_acc:
+            best_acc, acc_epoch = valid_metric['all'], ep
+            torch.save(model.state_dict(), acc_dir)
+        if best_loss is None or valid_loss['all'] < best_loss:
+            best_loss, loss_epoch = valid_loss['all'], ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 4 and ep > max(10, args.early_stop):
-            val_his = log_info['valid_metric'][-args.early_stop:]
-            if check_early_stop(val_his):
+            metr_his = log_info['valid_metric'][-args.early_stop:]
+            loss_his = log_info['valid_loss'][-args.early_stop:]
+
+            loss_his = [-x['all'] for x in loss_his]
+            syn_his = [x['synthon']['break_cover'] for x in metr_his]
+            lg_his = [x['lg'] for x in metr_his]
+            conn_his = [x['conn']['conn_cov'] for x in metr_his]
+            if check_early_stop(syn_his, conn_his, lg_his, loss_his):
                 break
 
         if ep >= args.warmup:
             scher.step()
 
     print('[Overall]')
-    print('[bset_ep]', best_epoch)
-    print('[best valid]', best_perf)
-    print('[bset test]', log_info['test_metric'][best_epoch])
+    print('[best acc ep]', acc_epoch)
+    print(
+        '[best acc valid]\n{}\n{}'.format(
+            log_info['valid_metric'][acc_epoch],
+            log_info['valid_loss'][acc_epoch]
+        )
+    )
+    print(
+        '[best acc test]\n{}\n{}'.format(
+            log_info['test_metric'][acc_epoch],
+            log_info['test_loss'][acc_epoch]
+        )
+    )
+
+    print('[best loss ep]', loss_epoch)
+    print(
+        '[best loss valid]\n{}\n{}'.format(
+            log_info['valid_metric'][loss_epoch],
+            log_info['valid_loss'][loss_epoch]
+        )
+    )
+    print(
+        '[best loss test]\n{}\n{}'.format(
+            log_info['test_metric'][loss_epoch],
+            log_info['test_loss'][loss_epoch]
+        )
+    )

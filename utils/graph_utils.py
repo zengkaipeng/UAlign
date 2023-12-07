@@ -19,22 +19,30 @@ def smiles2graph(smiles_string, with_amap=False, kekulize=False):
     if mol is not None and kekulize:
         Chem.Kekulize(mol)
     if with_amap:
-        max_amap = max([atom.GetAtomMapNum() for atom in mol.GetAtoms()])
-        for atom in mol.GetAtoms():
-            if atom.GetAtomMapNum() == 0:
-                atom.SetAtomMapNum(max_amap + 1)
-                max_amap = max_amap + 1
+        if len(mol.GetAtoms()) > 0:
+            max_amap = max([atom.GetAtomMapNum() for atom in mol.GetAtoms()])
+            for atom in mol.GetAtoms():
+                if atom.GetAtomMapNum() == 0:
+                    atom.SetAtomMapNum(max_amap + 1)
+                    max_amap = max_amap + 1
 
-        amap_idx = {
-            atom.GetAtomMapNum(): atom.GetIdx()
-            for atom in mol.GetAtoms()
-        }
+            amap_idx = {
+                atom.GetAtomMapNum(): atom.GetIdx()
+                for atom in mol.GetAtoms()
+            }
+        else:
+            amap_idx = dict()
 
     # atoms
     atom_features_list = []
     for atom in mol.GetAtoms():
         atom_features_list.append(atom_to_feature_vector(atom))
-    x = np.array(atom_features_list, dtype=np.int64)
+
+    num_atom_features = 9
+    if len(atom_features_list) > 0:
+        x = np.array(atom_features_list, dtype=np.int64)
+    else:
+        x = np.empty((0, num_atom_features), dtype=np.int64)
 
     # bonds
     num_bond_features = 3  # bond type, bond stereo, is_conjugated

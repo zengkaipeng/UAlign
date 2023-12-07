@@ -44,6 +44,53 @@ ATOM_REMAP = {
     'N': 7, 'O': 8, 'P': 15, 'S': 16, 'Si': 14, 'Se': 34, 'Sn': 50, 'Zn': 30
 }
 
+ACHANGE_TO_IDX = {0: 0, 1: 1, 2: 2, 3: 3, -1: 4, -2: 5, - 3: 6}
+
+
+def get_all_amap(smi):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return set()
+    answer = set(x.GetAtomMapNum() for x in mol.GetAtoms())
+    return answer
+
+
+def get_mol_belong(smi, belong):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        raise NotImplementedError(f'Invalid smiles {smi}')
+    for atom in mol.GetAtoms():
+        return belong[atom.GetAtomMapNum()]
+    return -1
+
+
+def clear_map_number(smi):
+    """Clear the atom mapping number of a SMILES sequence"""
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        print(smi)
+        return smi
+    for atom in mol.GetAtoms():
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+    return canonical_smiles(Chem.MolToSmiles(mol))
+
+
+def canonical_smiles(smi):
+    """Canonicalize a SMILES without atom mapping"""
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return smi
+    else:
+        canonical_smi = Chem.MolToSmiles(mol)
+        # print('>>', canonical_smi)
+        if '.' in canonical_smi:
+            canonical_smi_list = canonical_smi.split('.')
+            canonical_smi_list = sorted(
+                canonical_smi_list, key=lambda x: (len(x), x))
+            canonical_smi = '.'.join(canonical_smi_list)
+        return canonical_smi
+
 
 def get_bond_info(mol: Chem.Mol) -> Dict:
     """Get information on bonds in the molecule.
@@ -130,9 +177,10 @@ def align_kekule_pairs(r: str, p: str) -> Tuple[Chem.Mol, Chem.Mol]:
 
 
 def get_reaction_core(
-    r: str, p: str, kekulize: bool = False,
+    r: str, p: str, kekulize: bool = False
 ) -> Tuple[Set, List]:
     """Get the reaction core and edits for given reaction
+
     Parameters
     ----------
     r: str,
@@ -212,32 +260,59 @@ def get_reaction_core(
         ).GetTotalNumHs()
 
         if numHs_prod != numHs_reac:
+            edit = f"{amap_num}:{0}:{1.0}:{0.0}"
+            core_edits.append(edit)
             rxn_core.add(amap_num)
 
-    return rxn_core, core_edits, reac_bonds
+    return rxn_core, core_edits
 
 
-def get_modified_atoms_bonds(
-    reac: str, prod: str, kekulize: bool
-) -> Tuple[Set, List]:
-    reac_mol = get_mol(reac)
-    prod_mol = get_mol(prod)
+def get_leaving_group(prod: str, reac: str):
+    prod_amap = get_all_amap(prod)
+    reac_amap = get_all_amap(reac)
 
+    r_mol = get_mol(reac)
+    if r_mol is None:
+        return [], []
+    break_edges, conn_egs = [], []
+    for bond in r_mol.GetBonds():
+        start_atom = bond.GetBeginAtom()
+        end_atom = bond.GetEndAtom()
+        start_amap = start_atom.GetAtomMapNum()
+        end_amap = end_atom.GetAtomMapNum()
+
+        if start_amap in prod_amap and end_amap not in prod_amap:
+            break_edges.append((start_amap, end_amap))
+            break_edges.append((end_amap, start_amap))
+            conn_egs.append((start_amap, end_amap))
+        if start_amap not in prod_amap and end_amap in prod_amap:
+            break_edges.append((start_amap, end_amap))
+            break_edges.append((end_amap, start_amap))
+            conn_egs.append((end_amap, start_amap))
+
+    frgs = break_fragements(reac, break_edges).split('.')
+    answer = []
+    for lg in frgs:
+        all_amap = get_all_amap(lg)
+        if len(all_amap & prod_amap) == 0:
+            answer.append(lg)
+        else:
+            assert len(all_amap & prod_amap) == len(all_amap), \
+                f'The breaking is not correct, {reac}>>{prod}'
+    return answer, conn_egs
+
+
+def get_synthons(prod: str, reac: str, kekulize: bool = False):
+    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
     if reac_mol is None or prod_mol is None:
-        return set(), []
+        return {}, {}
     if kekulize:
         reac_mol, prod_mol = align_kekule_pairs(reac, prod)
-
     prod_bonds = get_bond_info(prod_mol)
     prod_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
         for atom in prod_mol.GetAtoms()
     }
-    max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
-    for atom in reac_mol.GetAtoms():
-        if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_reac_amap + 1)
-            max_reac_amap += 1
 
     reac_bonds = get_bond_info(reac_mol)
     reac_amap_idx = {
@@ -245,104 +320,23 @@ def get_modified_atoms_bonds(
         for atom in reac_mol.GetAtoms()
     }
 
-    atom_edit, edge_edit = set(), []
-    for bond in prod_bonds:
-        if bond not in reac_bonds:
-            edge_edit.append(bond)
-            atom_edit.update(bond)
-        else:
-            reac_bond_type = reac_bonds[bond][0]
-            prod_bond_type = prod_bonds[bond][0]
-            if reac_bond_type != prod_bond_type:
-                edge_edit.append(bond)
-                atom_edit.update(bond)
-
-    for bond in reac_bonds:
-        if bond not in prod_bonds:
-            start, end = bond
-            if start in prod_amap_idx:
-                atom_edit.add(start)
-            if end in prod_amap_idx:
-                atom_edit.add(end)
-
+    atom2deltaH, edges2typechange = {}, {}
     for atom in prod_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
-
         numHs_prod = atom.GetTotalNumHs()
-        numHs_reac = reac_mol.GetAtomWithIdx(
-            reac_amap_idx[amap_num]
-        ).GetTotalNumHs()
-        if numHs_prod != numHs_reac:
-            atom_edit.add(amap_num)
+        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+        numHs_reac = reac_atom.GetTotalNumHs()
+        atom2deltaH[amap_num] = numHs_prod - numHs_reac
 
-    return atom_edit, edge_edit
+    for bond in prod_bonds:
+        target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
+        edges2typechange[bond] = (prod_bonds[bond][0], target_type)
 
+    # We have omitted the formation of new bonds between the product atoms
+    # during the reaction process, as this situation occurs
+    # only to a small extent.
 
-def get_reac_infos(prod, reac, return_idx=True, kekulize=False):
-    prod_mol, reac_mol = get_mol(prod), get_mol(reac)
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
-
-    node_res = {}
-    for atom in reac_mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-        hyb = atom.GetHybridization()
-        sym = atom.GetSymbol()
-        chg = atom.GetFormalCharge()
-        if sym == 'C':
-            node_res[amap_num] = f'{sym}_{chg}_{hyb}'
-        else:
-            node_res[amap_num] = f'{sym}_{chg}'
-
-    if return_idx:
-        node_res = {
-            k: ATOM_TPYE_TO_IDX[v]
-            for k, v in node_res.items()
-        }
-
-    bond_res = {}
-    for bond in reac_mol.GetBonds():
-        a_start = bond.GetBeginAtom().GetAtomMapNum()
-        a_end = bond.GetEndAtom().GetAtomMapNum()
-        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
-        bond_res[(a_start, a_end)] = bond_type
-        bond_res[(a_end, a_start)] = bond_type
-
-    return node_res, bond_res
-
-
-def get_node_types(smiles, return_idx=True):
-    mol = get_mol(smiles)
-    result = {}
-    for atom in mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-        hyb = atom.GetHybridization()
-        sym = atom.GetSymbol()
-        chg = atom.GetFormalCharge()
-        if sym == 'C':
-            result[amap_num] = f'{sym}_{chg}_{hyb}'
-        else:
-            result[amap_num] = f'{sym}_{chg}'
-
-    if return_idx:
-        result = {
-            k: ATOM_TPYE_TO_IDX[v]
-            for k, v in result.items()
-        }
-
-    return result
-
-
-def get_edge_types(smiles, kekulize=False):
-    mol = get_mol(smiles, kekulize=kekulize)
-    result = {}
-    for bond in mol.GetBonds():
-        a_start = bond.GetBeginAtom().GetAtomMapNum()
-        a_end = bond.GetEndAtom().GetAtomMapNum()
-        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
-        result[(a_start, a_end)] = bond_type
-        result[(a_end, a_start)] = bond_type
-    return result
+    return atom2deltaH, edges2typechange
 
 
 if __name__ == '__main__':
@@ -412,32 +406,6 @@ def convert_res_into_smiles(
     mol = mol.GetMol()
     t_str = Chem.MolToSmiles(mol)
     return canonical_smiles(t_str)
-
-
-def clear_map_number(smi):
-    """Clear the atom mapping number of a SMILES sequence"""
-    mol = Chem.MolFromSmiles(smi)
-    for atom in mol.GetAtoms():
-        if atom.HasProp('molAtomMapNumber'):
-            atom.ClearProp('molAtomMapNumber')
-    return canonical_smiles(Chem.MolToSmiles(mol))
-
-
-def canonical_smiles(smi):
-    """Canonicalize a SMILES without atom mapping"""
-    mol = Chem.MolFromSmiles(smi)
-    if mol is None:
-        return smi
-    else:
-        canonical_smi = Chem.MolToSmiles(mol)
-        # print('>>', canonical_smi)
-        if '.' in canonical_smi:
-            canonical_smi_list = canonical_smi.split('.')
-            canonical_smi_list = sorted(
-                canonical_smi_list, key=lambda x: (len(x), x)
-            )
-            canonical_smi = '.'.join(canonical_smi_list)
-        return canonical_smi
 
 
 def extend_by_dfs(reac, activate_nodes, prod_amap):
@@ -530,7 +498,93 @@ def extend_by_bfs(reac, activate_nodes, prod_amap):
     return {v: idx for idx, v in enumerate(curr_nodes)}
 
 
-def predict_synthons(node_types, edge_types, edge_label_dict):
-    mol, atom_reidx = Chem.RWMol(), {}
-    for k, v in node_types:
-        pass
+def add_random_Amap(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    for x in mol.GetAtoms():
+        x.ClearProp('molAtomMapNumber')
+    for idx, x in enumerate(mol.GetAtoms()):
+        x.SetAtomMapNum(idx + 1)
+    return Chem.MolToSmiles(mol)
+
+
+def break_fragements(smiles, break_edges, canonicalize=False):
+    """ 
+
+    break a smilse into synthons according to the given break edges
+    the break edges is a Iterable of tuples. tuple contains the amap 
+    numbers of end atoms.
+    """
+
+    Mol = Chem.MolFromSmiles(smiles)
+    Chem.Kekulize(Mol, True)
+    # The kekulize is required otherwise you can not get the
+    # correct synthons
+
+    assert all(x.GetAtomMapNum() != 0 for x in Mol.GetAtoms()), \
+        'Invalid atom mapping is founded, please correct it'
+
+    tmol = Chem.RWMol(Mol)
+
+    for bond in Mol.GetBonds():
+        start_atom = bond.GetBeginAtom()
+        end_atom = bond.GetEndAtom()
+        start_idx = start_atom.GetIdx()
+        end_idx = end_atom.GetIdx()
+        start_amap = start_atom.GetAtomMapNum()
+        end_amap = end_atom.GetAtomMapNum()
+
+        if (start_amap, end_amap) in break_edges:
+            tmol.RemoveBond(start_idx, end_idx)
+
+    answer = Chem.MolToSmiles(tmol.GetMol())
+    if Chem.MolFromSmiles(answer) is None:
+        print('\n[smi]', smiles)
+    if canonicalize:
+        answer = clear_map_number(answer)
+    return answer
+
+
+def get_node_types(smiles, return_idx=True):
+    mol = get_mol(smiles)
+    result = {}
+    for atom in mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        hyb = atom.GetHybridization()
+        sym = atom.GetSymbol()
+        chg = atom.GetFormalCharge()
+        if sym == 'C':
+            result[amap_num] = f'{sym}_{chg}_{hyb}'
+        else:
+            result[amap_num] = f'{sym}_{chg}'
+
+    if return_idx:
+        result = {
+            k: ATOM_TPYE_TO_IDX[v]
+            for k, v in result.items()
+        }
+
+    return result
+
+
+def get_edge_types(smiles, kekulize=False):
+    mol = get_mol(smiles, kekulize=kekulize)
+    result = {}
+    for bond in mol.GetBonds():
+        a_start = bond.GetBeginAtom().GetAtomMapNum()
+        a_end = bond.GetEndAtom().GetAtomMapNum()
+        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
+        result[(a_start, a_end)] = bond_type
+        result[(a_end, a_start)] = bond_type
+    return result
+
+
+def get_block(reactants):
+    reactants = reactants.split('.')
+    amap2block = {}
+    for idx, reac in enumerate(reactants):
+        xmol = Chem.MolFromSmiles(reac)
+        assert xmol is not None, 'Invalid reactant'
+        for x in xmol.GetAtoms():
+            amap2block[x.GetAtomMapNum()] = idx
+
+    return amap2block

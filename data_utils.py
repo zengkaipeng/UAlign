@@ -1,74 +1,172 @@
 import pandas
 import os
 from utils.chemistry_parse import (
-    get_reaction_core, get_bond_info, BOND_FLOAT_TO_TYPE,
-    BOND_FLOAT_TO_IDX, get_modified_atoms_bonds,
-    get_reac_infos, clear_map_number, extend_by_bfs,
-    extend_by_dfs, get_edge_types, get_node_types
+    get_synthons, ACHANGE_TO_IDX, break_fragements,
+    get_all_amap, get_leaving_group, get_mol_belong,
+    clear_map_number
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
-from Dataset import BinaryEditDataset
+from Dataset import SynthonDataset
 import random
 import torch
 import numpy as np
 from tqdm import tqdm
 from typing import Any, Dict, List, Tuple, Optional, Union
+from itertools import permutations
+
+
+def generate_square_subsequent_mask(sz, device='cpu'):
+    mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
+    # mask = mask.float().masked_fill(mask == 0, float('-inf'))
+    # mask = mask.masked_fill(mask == 1, float(0.0)).to(device)
+    mask = (mask == 0).to(device)
+    return mask
+
+
+def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
+    PAD_IDX, siz = tokenizer.token2idx[pad], tgt.shape[1]
+    tgt_pad_mask = (tgt == PAD_IDX).to(device)
+    tgt_sub_mask = generate_square_subsequent_mask(siz, device)
+    return tgt_pad_mask, tgt_sub_mask
 
 
 def create_edit_dataset(
-    reacts, prods, rxn_class=None, kekulize=False, verbose=True,
+    reacts: List[str], prods: List[str], rxn_class: Optional[List[int]] = None,
+    kekulize: bool = False, verbose: bool = True,
 ):
     graphs, nodes, edges = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize=kekulize)
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
-        nodes.append([amap[t] for t in x])
-        edges.append([(amap[i], amap[j]) for i, j in y])
 
-    return BinaryEditDataset(graphs, nodes, edges, rxn_class=rxn_class)
+        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+
+        nodes.append({amap[k]: ACHANGE_TO_IDX[v] for k, v in deltaH.items()})
+        this_edge = {}
+        for (src, dst), (otype, ntype) in deltaE.items():
+            src, dst = amap[src], amap[dst]
+            if otype == ntype:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
+            elif ntype == 0:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
+            else:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
+        edges.append(this_edge)
+
+    return SynthonDataset(graphs, nodes, edges, rxn_class=rxn_class)
+
+
+def check_useful_synthons(synthons, belong):
+    for syn in synthons:
+        all_amap = get_all_amap(syn)
+        this_belong = None
+        for x in all_amap:
+            if this_belong is None:
+                this_belong = belong[x]
+            elif this_belong != belong[x]:
+                return False
+    return True
 
 
 def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, label_method='dfs'
+    verbose=True, randomize=False, aug_prob=0
 ):
-    graphs, nodes, edges = [], [], []
-    node_types, edge_types = [], []
+    graphs, nodes, edges, real_rxns = [], [], [], []
+    lg_graphs, conn_cands, conn_labels = [], [], []
+    trans_input, trans_output, lg_act = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        # encoder_part
-        x, y = get_modified_atoms_bonds(reacts[idx], prod, kekulize)
-        encoder_graph, prod_amap = smiles2graph(
-            prod, with_amap=True, kekulize=kekulize
+        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
+
+        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+
+        this_edge, break_edges = {}, set()
+        for (src, dst), (otype, ntype) in deltaE.items():
+            os, od = src, dst
+            src, dst = amap[src], amap[dst]
+            if otype == ntype:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
+            elif ntype == 0:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
+                break_edges.update([(od, os), (os, od)])
+            else:
+                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
+
+        this_reac, belong = reacts[idx].split('.'), {}
+        for tdx, reac in enumerate(this_reac):
+            belong.update({k: tdx for k in get_all_amap(reac)})
+
+        synthon_str = break_fragements(prod, break_edges, canonicalize=False)
+        synthon_str = synthon_str.split('.')
+        if len(synthon_str) != len(this_reac) or \
+                not check_useful_synthons(synthon_str, belong):
+            print('[INFO] synthons mismatch reactants')
+            print(f'[SMI] {reacts[idx]}>>{prod}')
+            continue
+
+        lgs, conn_edgs = get_leaving_group(prod, reacts[idx])
+
+        lg_graph, lg_amap = smiles2graph(
+            '.'.join(lgs), with_amap=True, kekulize=kekulize
         )
-        graphs.append(encoder_graph)
-        nodes.append([prod_amap[t] for t in x])
-        edges.append([(prod_amap[i], prod_amap[j]) for i, j in y])
 
-        # print('activate_nodes', x)
+        syh_ips = [0] * len(this_reac)
+        lg_ops = [[] for _ in range(len(this_reac))]
 
-        node_type, edge_type = get_reac_infos(
-            prod, reacts[idx], return_idx=True, kekulize=kekulize
-        )
+        for x in synthon_str:
+            syh_ips[get_mol_belong(x, belong)] = x
+        for x in lgs:
+            lg_ops[get_mol_belong(x, belong)].append(x)
 
-        if label_method == 'dfs':
-            extended_amap = extend_by_dfs(reacts[idx], x, prod_amap)
-        elif label_method == 'bfs':
-            extended_amap = extend_by_bfs(reacts[idx], x, prod_amap)
+        lg_ops = ['.'.join(x) for x in lg_ops]
 
-        real_n_types = {extended_amap[k]: v for k, v in node_type.items()}
-        real_e_types = {
-            (extended_amap[x], extended_amap[y]): v
-            for (x, y), v in edge_type.items()
-        }
-        node_types.append(real_n_types)
-        edge_types.append(real_e_types)
+        this_cog, this_clb = [], []
+        for tdx, x in enumerate(syh_ips):
+            syn_amap_set = get_all_amap(x)
+            lg_amap_set = get_all_amap(lg_ops[tdx])
+            for a in syn_amap_set:
+                for b in lg_amap_set:
+                    this_cog.append((amap[a], lg_amap[b]))
+                    this_clb.append(1 if (a, b) in conn_edgs else 0)
+
+        act_lbs = [0] * len(lg_amap)
+        for a, b in conn_edgs:
+            act_lbs[lg_amap[b]] = 1
+
+        syh_ips = [clear_map_number(x) for x in syh_ips]
+        lg_ops = [clear_map_number(x) for x in lg_ops]
+        for peru in permutations(range(len(this_reac))):
+            t_input = '`'.join([syh_ips[x] for x in peru])
+            t_output = '`'.join([lg_ops[x] for x in peru])
+
+            # data adding encoder
+
+            nodes.append({
+                amap[k]: ACHANGE_TO_IDX[v]
+                for k, v in deltaH.items()
+            })
+            graphs.append(graph)
+            edges.append(this_edge)
+
+            # data adding lgs
+            lg_graphs.append(lg_graph)
+            lg_act.append(act_lbs)
+            conn_cands.append(this_cog)
+            conn_labels.append(this_clb)
+
+            # trans
+            trans_input.append(t_input)
+            trans_output.append(t_output)
+
+            if rxn_class is not None:
+                real_rxns.append(rxn_class[idx])
 
     return OverallDataset(
-        graphs=graphs, activate_nodes=nodes, changed_edges=edges,
-        decoder_node_type=node_types, decoder_edge_type=edge_types,
-        rxn_class=rxn_class
+        graphs, nodes, edges, lg_graphs, lg_act,
+        conn_cands, conn_labels, trans_input, trans_output,
+        rxn_class=None if len(real_rxns) == 0 else real_rxns,
+        randomize=randomize, aug_prob=aug_prob
     )
 
 
@@ -130,103 +228,108 @@ def check_early_stop(*args):
 
 def eval_by_graph(
     node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch,
+    node_batch, edge_batch, return_tensor=False
 ):
-    node_fit, node_cover, edge_fit, edge_cover = [0] * 4
     batch_size = node_batch.max().item() + 1
+    node_acc = torch.zeros(batch_size).bool()
+    break_acc = torch.zeros(batch_size).bool()
+    break_cover = torch.zeros(batch_size).bool()
+
     for i in range(batch_size):
         this_node_mask = node_batch == i
         this_edge_mask = edge_batch == i
 
-        this_elb = edge_label[this_edge_mask] > 0
-        this_epd = edge_pred[this_edge_mask] > 0
+        this_nlb = node_label[this_node_mask]
+        this_npd = node_pred[this_node_mask]
+        node_acc[i] = torch.all(this_nlb == this_npd).item()
 
-        e_inters = torch.logical_and(this_elb, this_epd)
-        ef = torch.all(this_elb == this_epd).item()
-        ec = torch.all(this_elb == e_inters).item()
+        this_elb = edge_label[this_edge_mask]
+        this_epd = edge_pred[this_edge_mask]
 
-        edge_fit += ef
-        edge_cover += ec
+        p_break = this_epd == 2
+        g_break = this_elb == 2
+        bf = torch.all(p_break == g_break).item()
 
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
+        p_break = this_epd == 0
+        g_break = this_elb == 0
+        inters = torch.logical_and(p_break, g_break)
+        cf = torch.all(p_break == g_break).item()
+        cc = torch.all(inters == g_break).item()
 
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
+        break_acc[i] = bf & cf
+        break_cover[i] = bf & cc
 
-        node_fit += nf
-        node_cover += nc
-    return node_fit, node_cover, edge_fit, edge_cover
+    if not return_tensor:
+        return node_acc.sum().item(), break_acc.sum().item(),\
+            break_cover.sum().item(), batch_size
+    else:
+        return node_acc, break_acc, break_cover
 
 
-def eval_by_node(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index
+def eval_conn(
+    batch_size, lg_pred, lg_label, lg_batch, conn_pred,
+    conn_lable, conn_batch, return_tensor=False
 ):
-    cover, fit = 0, 0
-    batch_size = node_batch.max().item() + 1
+    lg_cover = torch.zeros(batch_size).bool()
+    lg_acc = torch.zeros(batch_size).bool()
+    conn_acc = torch.zeros(batch_size).bool()
+    conn_cover = torch.zeros(batch_size).bool()
+
     for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-        this_edge_index = edge_index[:, this_edge_mask]
-        this_src, this_dst = this_edge_index
+        this_lg_mask = lg_batch == i
+        this_conn_mask = conn_batch == i
 
-        useful_mask = torch.logical_and(
-            node_pred[this_src] > 0, node_pred[this_dst] > 0
-        )
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
+        if torch.any(this_lg_mask):
+            this_lg_pred = lg_pred[this_lg_mask] > 0
+            this_lg_label = lg_label[this_lg_mask] > 0
+            inters = this_lg_label & this_lg_label
 
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        if torch.any(useful_mask):
-            this_elb = edge_label[this_edge_mask][useful_mask] > 0
-            this_epd = edge_pred[this_edge_mask][useful_mask] > 0
-            e_inters = torch.logical_and(this_elb, this_epd)
-            ef = torch.all(this_elb == this_epd).item()
-            ec = torch.all(this_elb == e_inters).item()
+            lg_f = torch.all(this_lg_label == this_lg_pred).item()
+            lg_c = torch.all(this_lg_label == inters).item()
         else:
-            ec = ef = True
+            lg_f = lg_c = True
+        lg_cover[i] = lg_c
+        lg_acc[i] = lg_c
 
-        cover += (nc & ec)
-        fit += (nf & ef)
-    return cover, fit
+        if torch.any(this_conn_mask):
+            this_conn_pred = conn_pred[this_conn_mask] > 0
+            this_conn_label = conn_lable[this_conn_mask] > 0
+            e_inters = this_conn_pred & this_conn_label
+
+            con_f = torch.all(this_conn_label == this_conn_pred).item()
+            con_c = torch.all(this_conn_label == e_inters).item()
+        else:
+            con_f = con_c = True
+
+        conn_acc[i] = lg_c & con_f
+        conn_cover[i] = lg_c & con_c
+
+    if not return_tensor:
+        return lg_acc.sum().item(), lg_cover.sum().item(), \
+            conn_acc.sum().item(), conn_cover.sum().item(), batch_size
+    else:
+        return lg_acc, lg_cover, conn_acc, conn_cover
 
 
-def eval_by_edge(
-    node_pred, edge_pred, node_label, edge_label,
-    node_batch, edge_batch, edge_index, node_ptr
-):
-    cover, fit = 0, 0
-    batch_size = node_batch.max().item() + 1
-    for i in range(batch_size):
-        this_node_mask = node_batch == i
-        this_edge_mask = edge_batch == i
-        this_edge_index = edge_index[:, this_edge_mask]
-        this_src, this_dst = this_edge_index
+def correct_trans_output(trans_pred, end_idx, pad_idx):
+    batch_size, max_len = trans_pred.shape
+    device = trans_pred.device
+    x_range = torch.arange(0, max_len, 1).unsqueeze(0)
+    x_range = x_range.repeat(batch_size, 1).to(device)
 
-        this_elb = edge_label[this_edge_mask] > 0
-        this_epd = edge_pred[this_edge_mask] > 0
+    y_cand = (torch.ones_like(trans_pred).long() * max_len + 12).to(device)
+    y_cand[trans_pred == end_idx] = x_range[trans_pred == end_idx]
+    min_result = torch.min(y_cand, dim=-1, keepdim=True)
+    end_pos = min_result.values
+    trans_pred[x_range > end_pos] = pad_idx
+    return trans_pred
 
-        e_inters = torch.logical_and(this_elb, this_epd)
-        ef = torch.all(this_elb == this_epd).item()
-        ec = torch.all(this_elb == e_inters).item()
 
-        this_nlb = node_label[this_node_mask] > 0
-        this_npd = node_pred[this_node_mask] > 0
-        if torch.any(this_epd).item():
-            this_npd[this_src[this_epd] - node_ptr[i]] = True
-            this_npd[this_dst[this_epd] - node_ptr[i]] = True
-        inters = torch.logical_and(this_nlb, this_npd)
-        nf = torch.all(this_nlb == this_npd).item()
-        nc = torch.all(this_nlb == inters).item()
-
-        cover += (nc & ec)
-        fit += (nf & ef)
-    return cover, fit
+def eval_trans(trans_pred, trans_lb, return_tensor=False):
+    batch_size, max_len = trans_pred.shape
+    line_acc = torch.sum(trans_pred == trans_lb, dim=-1) == max_len
+    line_acc = line_acc.cpu()
+    return line_acc if return_tensor else (line_acc.sum().item(), batch_size)
 
 
 def convert_log_into_label(logits, mod='sigmoid'):
@@ -363,27 +466,6 @@ def extend_label_by_edge(node_pred, edge_pred, edge_index):
     node_pred[useful_node] = 1
     return node_pred, edge_pred
 
-
-# def predict_synthon(batch_size, n_pred, e_pred, graph, n_types, e_types):
-#     answer_n, answer_e = [], []
-#     for idx in range(batch_size):
-#         this_n_mask = graph.batch == idx
-#         this_e_mask = graph.e_batch == idx
-#         num_nodes = n_pred[this_n_mask].shape[0]
-#         answer_n.append({ex: n_types[idx][ex] for ex in range(num_nodes)})
-#         edge_res = {}
-#         this_edge = graph.edge_index[this_e_mask].T
-#         this_epd = e_pred[this_e_mask]
-#         for edx, res in enumerate(this_epd):
-#             if res.item() == 1:
-#                 continue
-#             row, col = this_edge[:, edx].tolist()
-#             row -= graph.ptr[idx].item()
-#             col -= graph.ptr[idx].item()
-#             if (row, col) not in edge_res and (col, row not in edge_res):
-#                 edge_res[(row, col)] = e_types[idx][(row, col)]
-#         answer_e.append(edge_res)
-#     return answer_n, answer_e
 
 def predict_synthon(n_pred, e_pred, graph, n_types, e_types):
     answer_n, answer_e = [], []

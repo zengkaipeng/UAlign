@@ -4,11 +4,11 @@ import numpy as np
 import torch
 from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
-    eval_by_edge, eval_by_node, eval_by_graph,
-    convert_log_into_label, convert_edge_log_into_labels
+    eval_by_graph, correct_trans_output,
+    convert_log_into_label, eval_trans,
+    convert_edge_log_into_labels, eval_conn
 )
-from sklearn import metrics
-from data_utils import predict_synthon
+from data_utils import predict_synthon, generate_tgt_mask
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -21,20 +21,15 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
 
-def train_sparse_edit(
-    loader, model, optimizer, device, verbose=True,
-    warmup=True, pos_weight=1
-):
+def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     model = model.train()
     node_loss, edge_loss = [], []
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
-    for graph in tqdm(loader, ascii=True) if verbose else loader:
+    for graph in tqdm(loader):
         graph = graph.to(device)
-        _, _, loss_node, loss_edge = model(
-            graph, ret_loss=True, pos_weight=pos_weight
-        )
+        _, _, loss_node, loss_edge = model(graph, ret_loss=True)
 
         optimizer.zero_grad()
         (loss_node + loss_edge).backward()
@@ -48,146 +43,214 @@ def train_sparse_edit(
     return np.mean(node_loss), np.mean(edge_loss)
 
 
-def eval_sparse_edit(loader, model, device, verbose=True):
+def eval_sparse_edit(loader, model, device):
     model = model.eval()
-    node_cov, node_fit, edge_fit, edge_cov, tot = [0] * 5
-    # node_acc, edge_acc, node_cnt, edge_cnt = [0] * 4
-    g_nfit, g_ncov, g_efit, g_ecov = [0] * 4
-    node_pd, node_lb, edge_pd, edge_lb = [], [], [], []
-    for graph in tqdm(loader, ascii=True) if verbose else loader:
+    node_acc, break_acc, break_cover, tot = [0] * 4
+    for graph in tqdm(loader):
         graph = graph.to(device)
         with torch.no_grad():
             node_logs, edge_logs = model(graph, ret_loss=False)
-            node_pred = convert_log_into_label(node_logs)
+            node_pred = convert_log_into_label(node_logs, mod='softmax')
             edge_pred = convert_edge_log_into_labels(
-                edge_logs, graph.edge_index, mod='sigmoid', return_dict=False
+                edge_logs, graph.edge_index,
+                mod='softmax', return_dict=False
             )
 
-        node_pd.append(node_logs.sigmoid().cpu().numpy())
-        node_lb.append(graph.node_label.cpu().numpy())
-        edge_pd.append(edge_logs.sigmoid().cpu().numpy())
-        edge_lb.append(graph.edge_label.cpu().numpy())
-
-        batch_size = graph.batch.max().item() + 1
+        na, ba, bc, batch_size = eval_by_graph(
+            node_pred, edge_pred, graph.node_label,
+            graph.edge_label, graph.batch, graph.e_batch
+        )
+        node_acc += na
+        break_acc += ba
+        break_cover += bc
         tot += batch_size
 
-        cover, fit = eval_by_node(
-            node_pred, edge_pred, graph.node_label, graph.edge_label,
-            graph.batch, graph.e_batch, graph.edge_index
-        )
-        node_cov += cover
-        node_fit += fit
-
-        cover, fit = eval_by_edge(
-            node_pred, edge_pred, graph.node_label, graph.edge_label,
-            graph.batch, graph.e_batch, graph.edge_index, graph.ptr
-        )
-        edge_cov += cover
-        edge_fit += fit
-
-        g_metric = eval_by_graph(
-            node_pred, edge_pred, graph.node_label,
-            graph.edge_label, graph.batch, graph.e_batch,
-        )
-
-        g_nfit += g_metric[0]
-        g_ncov += g_metric[1]
-        g_efit += g_metric[2]
-        g_ecov += g_metric[3]
-
-    node_pd = np.concatenate(node_pd, axis=0)
-    node_lb = np.concatenate(node_lb, axis=0)
-    edge_pd = np.concatenate(edge_pd, axis=0)
-    edge_lb = np.concatenate(edge_lb, axis=0)
-
     result = {
-        'common': {
-            'node_roc': metrics.roc_auc_score(node_lb, node_pd),
-            'edge_roc': metrics.roc_auc_score(edge_lb, edge_pd)
-        },
-        'by_graph': {
-            'node_cover': g_ncov / tot, 'node_fit': g_nfit / tot,
-            'edge_cover': g_ecov / tot, 'edge_fit': g_efit / tot
-        },
-        'by_node': {'cover': node_cov / tot, 'fit': node_fit / tot},
-        'by_edge': {'cover': edge_cov / tot, 'fit': edge_fit / tot}
+        'node_acc': node_acc / tot, 'break_acc': break_acc / tot,
+        'break_cover': break_cover / tot,
     }
     return result
 
 
 def train_overall(
-    model, loader, optimizer, device, alpha=1, warmup=True,
-    pos_weight=1, matching=True, aug_mode='none'
+    model, loader, optimizer, device, tokenizer,
+    pad_token, warmup=True,
 ):
-    enc_nl, enc_el, org_nl, org_el, pad_nl, pad_el = [[] for _ in range(6)]
+    enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
     model = model.train()
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
 
-    for data in tqdm(loader, ascii=True):
-        encoder_graph, decoder_graph, real_edge_type = data
-        encoder_graph = encoder_graph.to(device)
-        decoder_graph = decoder_graph.to(device)
-        # print(decoder_graph.node_class)
+    pad_idx = tokenizer.token2idx[pad_token]
+    for data in tqdm(loader):
+        prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
+        prod_graph = prod_graph.to(device)
+        lg_graph = lg_graph.to(device)
+        conn_es = conn_es.to(device)
+        conn_ls = conn_ls.to(device)
+        conn_b = conn_b.to(device)
+
+        tips = torch.LongTensor(tokenizer.encode2d(tips)).to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tops)).to(device)
+
+        trans_ip_mask = tips == pad_idx
+
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+        if grxn is not None:
+            grxn = grxn.to(device)
 
         losses = model(
-            encoder_graph, decoder_graph, real_edge_type,
-            pos_weight=pos_weight, use_matching=matching, aug_mode=aug_mode
+            prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
+            conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
+            graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+            trans_ip_key_padding=trans_ip_mask,
+            trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
+            conn_label=conn_ls, mode='train'
         )
 
-        enc_n_loss, enc_e_loss, org_n_loss, org_e_loss, \
-            pad_n_loss, pad_e_loss = losses
+        syn_node_loss, syn_edge_loss, lg_act_loss, \
+            conn_loss, trans_loss = losses
 
-        loss = enc_n_loss + enc_e_loss + \
-            alpha * (org_n_loss + org_e_loss) +\
-            pad_n_loss + pad_e_loss
+        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
+            + conn_loss + trans_loss
 
         optimizer.zero_grad()
         loss.backward()
+        # for x, y in model.named_parameters():
+        #     print(x, y.grad)
+        # exit()
         optimizer.step()
 
-        enc_nl.append(enc_n_loss.item())
-        enc_el.append(enc_e_loss.item())
-        org_nl.append(org_n_loss.item())
-        org_el.append(org_e_loss.item())
-        pad_nl.append(pad_n_loss.item())
-        pad_el.append(pad_e_loss.item())
+        enc_nl.append(syn_node_loss.item())
+        enc_el.append(syn_edge_loss.item())
+        lg_act.append(lg_act_loss.item())
+        conn.append(conn_loss.item())
+        tras.append(trans_loss.item())
+        al.append(loss.item())
 
         if warmup:
             warmup_sher.step()
 
     return {
         'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
-        'dec_org_n_loss': np.mean(org_nl), 'dec_org_e_loss': np.mean(org_el),
-        'dec_pad_n_loss': np.mean(pad_nl), 'dec_pad_e_loss': np.mean(pad_el)
+        'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn),
+        'trans_loss': np.mean(tras), 'all': np.mean(al)
     }
 
 
-def eval_overall(model, loader, device, mode='edge'):
-    model, acc, total = model.eval(), 0, 0
+def eval_overall(
+    model, loader, device, tokenizer, pad_token,
+    end_token,
+):
+    model = model.eval()
+    loss_cur = {
+        'syn_node_loss': [], 'syn_edge_loss': [], 'all': [],
+        'lg_act_loss': [], 'conn_loss': [], 'trans_loss': []
+    }
+    metrics = {
+        'synthon': {'node_acc': [], 'break_acc': [], 'break_cover': []},
+        'conn': {'lg_cov': [], 'lg_acc': [], 'conn_cov': [], 'conn_acc': []},
+        'all': [], 'lg': [],
+    }
+    pad_idx = tokenizer.token2idx[pad_token]
+    end_idx = tokenizer.token2idx[end_token]
     for data in tqdm(loader):
-        encoder_graph, node_types, edge_types, smi = data
-        encoder_graph = encoder_graph.to(device)
-        batch_size = len(smi)
-        total += batch_size
+        prod_graph, lg_graph, conn_es, conn_ls, conn_b, tips, tops, grxn = data
+        prod_graph = prod_graph.to(device)
+        lg_graph = lg_graph.to(device)
+        conn_es = conn_es.to(device)
+        conn_ls = conn_ls.to(device)
+        conn_b = conn_b.to(device)
+
+        tips = torch.LongTensor(tokenizer.encode2d(tips)).to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tops)).to(device)
+        batch_size = prod_graph.batch.max().item() + 1
+
+        trans_ip_mask = tips == pad_idx
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+        if grxn is not None:
+            grxn = grxn.to(device)
 
         with torch.no_grad():
-            answer = model.predict(encoder_graph, syn_mode=mode)
-            enc_n_pred, enc_e_pred, pad_n_pred, pad_e_pred = answer
+            preds, losses = model(
+                prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
+                conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
+                graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
+                trans_ip_key_padding=trans_ip_mask,
+                trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
+                conn_label=conn_ls, mode='valid', return_loss=True
+            )
 
-        synthon_nodes, synthon_edges = predict_synthon(
-            n_pred=enc_n_pred, e_pred=enc_e_pred, graph=encoder_graph,
-            n_types=node_types, e_types=edge_types
+        # losses process
+        syn_node_loss, syn_edge_loss, lg_act_loss, \
+            conn_loss, trans_loss = losses
+
+        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
+            + conn_loss + trans_loss
+
+        loss_cur['syn_node_loss'].append(syn_edge_loss.item())
+        loss_cur['syn_edge_loss'].append(syn_edge_loss.item())
+        loss_cur['lg_act_loss'].append(lg_act_loss.item())
+        loss_cur['conn_loss'].append(conn_loss.item())
+        loss_cur['trans_loss'].append(trans_loss.item())
+        loss_cur['all'].append(loss.item())
+
+        # pred process
+
+        prod_n_logits, prod_e_logits, lg_act_logits, \
+            conn_logits, conn_mask, trans_logits = preds
+
+        node_pred = convert_log_into_label(prod_n_logits, mod='softmax')
+        edge_pred = convert_edge_log_into_labels(
+            prod_e_logits, prod_graph.edge_index,
+            mod='softmax', return_dict=False
         )
 
-        for i in range(batch_size):
-            result = convert_res_into_smiles(
-                synthon_nodes[i], synthon_edges[i],
-                {k: v for k, v in pad_n_pred[i].items() if v != 0},
-                {k: v for k, v in pad_e_pred[i].items() if v != 0}
-            )
-            # print(result, smi[i])
-            acc += (smi[i] == result)
+        lg_act_pred = convert_log_into_label(lg_act_logits, mod='sigmoid')
+        conn_pred = convert_log_into_label(conn_logits, mod='sigmoid')
+        trans_pred = convert_log_into_label(trans_logits, mod='softmax')
+        trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
-    return acc / total
+        node_acc, break_acc, break_cover = eval_by_graph(
+            node_pred, edge_pred, prod_graph.node_label, prod_graph.edge_label,
+            prod_graph.batch, prod_graph.e_batch, return_tensor=True
+        )
+        lg_acc, lg_cover, conn_acc, conn_cover = eval_conn(
+            lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
+            lg_batch=lg_graph.batch, conn_pred=conn_pred,
+            conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
+            return_tensor=True, batch_size=batch_size
+        )
+        trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
+        metrics['synthon']['node_acc'].append(node_acc)
+        metrics['synthon']['break_cover'].append(break_cover)
+        metrics['synthon']['break_acc'].append(break_acc)
+        metrics['lg'].append(trans_acc)
+        metrics['conn']['lg_acc'].append(lg_acc)
+        metrics['conn']['lg_cov'].append(lg_cover)
+        metrics['conn']['conn_acc'].append(conn_acc)
+        metrics['conn']['conn_cov'].append(conn_cover)
+        metrics['all'].append(conn_cover & break_cover & trans_acc)
+
+    loss_cur = {k: np.mean(v) for k, v in loss_cur.items()}
+
+    for k, v in metrics.items():
+        if isinstance(v, list):
+            metrics[k] = torch.cat(v, dim=0).float().mean().item()
+        else:
+            metrics[k] = {
+                x: torch.cat(y, dim=0).float().mean().item()
+                for x, y in v.items()
+            }
+    return loss_cur, metrics

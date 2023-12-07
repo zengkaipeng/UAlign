@@ -23,7 +23,6 @@ if __name__ == '__main__':
     args_ft = eval(args.filter)
 
     bpref, btime, bargs, bep = None, None, None, None
-    fpref, ftime, fargs, fep = None, None, None, None
 
     for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
@@ -34,37 +33,21 @@ if __name__ == '__main__':
             if not filter_args(INFO['args'], args_ft):
                 continue
 
-            node_val_fit = [x['by_node']['fit'] for x in INFO['valid_metric']]
-            node_test_fit = [x['by_node']['fit'] for x in INFO['test_metric']]
+            val_mod = [x['break_cover'] for x in INFO['valid_metric']]
+            test_mod = [x['break_cover'] for x in INFO['test_metric']]
 
-            edge_val_fit = [x['by_edge']['fit'] for x in INFO['valid_metric']]
-            edge_test_fit = [x['by_edge']['fit'] for x in INFO['test_metric']]
-
-            if len(node_val_fit) == 0:
+            if len(val_mod) == 0:
                 continue
 
-            best_idx = np.argmax(node_val_fit)
-            best_node_fit = node_test_fit[best_idx]
+            best_idx = np.argmax(val_mod)
+            best_mod = test_mod[best_idx]
 
-            if bpref is None or best_node_fit > bpref['by_node']['fit']:
+            if bpref is None or best_mod > bpref['break_cover']:
                 bpref = INFO['test_metric'][best_idx]
                 btime, bargs, bep = timestamp, INFO['args'], best_idx
-
-            best_idx = np.argmax(edge_val_fit)
-            best_edge_fit = edge_test_fit[best_idx]
-
-            if fpref is None or best_edge_fit > fpref['by_edge']['fit']:
-                fpref = INFO['test_metric'][best_idx]
-                ftime, fargs, fep = timestamp, INFO['args'], best_idx
 
     print('[BEST BY NODE]')
     print('[args]\n', bargs)
     print('[TIME]', btime)
     print('[EPOCH]', bep)
     print('[pref]', bpref)
-
-    print('[BEST BY EDGE]')
-    print('[args]\n', fargs)
-    print('[TIME]', ftime)
-    print('[EPOCH]', fep)
-    print('[pref]', fpref)

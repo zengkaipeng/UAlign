@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
 from Dataset import edit_col_fn
-from model import BinaryGraphEditModel
+from model import SynthonPredictionModel
 from training import train_sparse_edit, eval_sparse_edit
 from data_utils import (
     create_edit_dataset, load_data, fix_seed,
@@ -25,9 +25,8 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'node-{timestamp}.pth')
-    fit_dir = os.path.join(detail_log_folder, f'edge-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir, fit_dir
+    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
+    return detail_log_dir, detail_model_dir
 
 
 if __name__ == '__main__':
@@ -111,15 +110,11 @@ if __name__ == '__main__':
     )
 
     # training
-    parser.add_argument(
-        '--pos_weight', default=1, type=float,
-        help='the weight for positive samples'
-    )
 
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, fit_dir = create_log_model(args)
+    log_dir, model_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -198,11 +193,11 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
-    model = BinaryGraphEditModel(GNN, args.dim, args.dim, args.dropout)
+    model = SynthonPredictionModel(GNN, args.dim, args.dim, args.dropout)
     model = model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    best_node, node_ep, best_edge, edge_ep = [None] * 4
+    best_cov, best_ep = None, None
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
@@ -215,18 +210,17 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         node_loss, edge_loss = train_sparse_edit(
-            train_loader, model, optimizer, device, verbose=True,
-            warmup=(ep == 0),  pos_weight=args.pos_weight
+            train_loader, model, optimizer, device, warmup=(ep == 0),
         )
         log_info['train_loss'].append({'node': node_loss, 'edge': edge_loss})
 
         print('[TRAIN]', log_info['train_loss'][-1])
-        valid_results = eval_sparse_edit(valid_loader, model, device, True)
+        valid_results = eval_sparse_edit(valid_loader, model, device)
         log_info['valid_metric'].append(valid_results)
 
         print('[VALID]', log_info['valid_metric'][-1])
 
-        test_results = eval_sparse_edit(test_loader, model, device, True)
+        test_results = eval_sparse_edit(test_loader, model, device)
         log_info['test_metric'].append(test_results)
 
         print('[TEST]', log_info['test_metric'][-1])
@@ -234,16 +228,11 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_node is None or valid_results['by_node']['fit'] > best_node:
-            best_node, node_ep = valid_results['by_node']['fit'], ep
+        if best_cov is None or valid_results['break_cover'] > best_cov:
+            best_cov, best_ep = valid_results['break_cover'], ep
             torch.save(model.state_dict(), model_dir)
-        if best_edge is None or valid_results['by_edge']['fit'] > best_edge:
-            best_edge, edge_ep = valid_results['by_edge']['fit'], ep
-            torch.save(model.state_dict(), fit_dir)
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            nf = [x['by_node']['fit'] for x in val_his]
-            ef = [x['by_edge']['fit'] for x in val_his]
-
-            if check_early_stop(nf, ef):
+            nf = [x['break_cover'] for x in val_his]
+            if check_early_stop(nf):
                 break
