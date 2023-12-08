@@ -315,17 +315,24 @@ def get_synthons(prod: str, reac: str, kekulize: bool = False):
         for atom in reac_mol.GetAtoms()
     }
 
-    edges2typechange = {}
+    atom2deltaH, edges2typechange = {}, {}
 
     for bond in prod_bonds:
         target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
         edges2typechange[bond] = (prod_bonds[bond][0], target_type)
 
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        numHs_prod = atom.GetTotalNumHs()
+        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+        numHs_reac = reac_atom.GetTotalNumHs()
+        atom2deltaH[amap_num] = numHs_prod - numHs_reac
+
     # We have omitted the formation of new bonds between the product atoms
     # during the reaction process, as this situation occurs
     # only to a small extent.
 
-    return edges2typechange
+    return atom2deltaH, edges2typechange
 
 
 if __name__ == '__main__':

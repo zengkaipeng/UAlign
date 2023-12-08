@@ -40,7 +40,7 @@ def create_edit_dataset(
         graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
         graphs.append(graph)
 
-        deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+        _, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
 
         old_edge, new_edge = {}, {}
         for (src, dst), (otype, ntype) in deltaE.items():
