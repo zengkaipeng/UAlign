@@ -71,7 +71,7 @@ def create_overall_dataset(
     reacts, prods, rxn_class=None, kekulize=False,
     verbose=True, randomize=False, aug_prob=0
 ):
-    graphs, nodes, edges, real_rxns = [], [], [], []
+    graphs, nodes, o_edges, n_edges, real_rxns = [], [], [], []
     lg_graphs, conn_cands, conn_labels = [], [], []
     trans_input, trans_output, lg_act = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
@@ -79,23 +79,19 @@ def create_overall_dataset(
 
         deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
 
-        this_edge, break_edges = {}, set()
+        old_edge, new_edge = {}, {}
         for (src, dst), (otype, ntype) in deltaE.items():
-            os, od = src, dst
             src, dst = amap[src], amap[dst]
-            if otype == ntype:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 1
-            elif ntype == 0:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 2
-                break_edges.update([(od, os), (os, od)])
-            else:
-                this_edge[(src, dst)] = this_edge[(dst, src)] = 0
+            otype = BOND_FLOAT_TO_IDX[otype]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
+            old_edge[(src, dst)] = old_edge[(dst, src)] = otype
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
 
         this_reac, belong = reacts[idx].split('.'), {}
         for tdx, reac in enumerate(this_reac):
             belong.update({k: tdx for k in get_all_amap(reac)})
 
-        synthon_str = break_fragements(prod, break_edges, canonicalize=False)
+        synthon_str = break_fragements(prod, deltaE, canonicalize=False)
         synthon_str = synthon_str.split('.')
         if len(synthon_str) != len(this_reac) or \
                 not check_useful_synthons(synthon_str, belong):

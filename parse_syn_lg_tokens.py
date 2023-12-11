@@ -17,13 +17,10 @@ import os
 
 def get_synthon_lg(reac, prod):
     deltaH, deltaE = get_synthons(prod, reac)
-    break_edges = set()
-    for (src, dst), (otype, ntype) in deltaE.items():
-        if otype != ntype and ntype == 0:
-            break_edges.update([(src, dst), (dst, src)])
-
-    synthon_str = break_fragements(prod, break_edges, canonicalize=True)
+    print('[SYN]')
+    synthon_str = break_fragements(prod, deltaE, canonicalize=True)
     synthon_str = '`'.join(synthon_str.split('.'))
+    print('[LG]')
     lgs, conn_edgs = get_leaving_group(prod, reac)
 
     this_reac, belong = reac.split('.'), {}
@@ -62,6 +59,8 @@ if __name__ == '__main__':
     syn_tokens, lg_tokens = set(), set()
     train_syns, train_lg = [], []
     for idx, prod in enumerate(tqdm(train_prod)):
+        print('REAC', train_rec[idx])
+        print('PROD', prod)
         syn, lg = get_synthon_lg(train_rec[idx], prod)
         train_syns.append(syn)
         train_lg.append(lg)

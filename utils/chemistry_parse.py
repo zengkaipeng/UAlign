@@ -17,6 +17,7 @@ BOND_FLOAT_TO_TYPE = {
 }
 
 BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
+BOND_FLOAT_TYPES = [0.0, 1.0, 2.0, 3.0, 1.5]
 
 
 ATOM_TPYE_TO_IDX = {
@@ -261,29 +262,31 @@ def get_leaving_group(prod: str, reac: str):
     prod_amap = get_all_amap(prod)
     reac_amap = get_all_amap(reac)
 
-    r_mol = get_mol(reac)
+    r_mol = get_mol(reac, kekulize=True)
+
     if r_mol is None:
-        return [], []
+        return [], {}
     break_edges, conn_egs = {}, {}
     for bond in r_mol.GetBonds():
         start_atom = bond.GetBeginAtom()
         end_atom = bond.GetEndAtom()
         start_amap = start_atom.GetAtomMapNum()
         end_amap = end_atom.GetAtomMapNum()
+        e_type = bond.GetBondTypeAsDouble()
 
         if start_amap in prod_amap and end_amap not in prod_amap:
             break_edges[(start_amap, end_amap)] =\
-                break_edges[(end_amap, start_amap)] =\
-                (bond.GetBondTypeAsDouble(), 0)
-            conn_egs.append[(start_amap, end_amap)] =\
-                bond.GetBondTypeAsDouble()
+                break_edges[(end_amap, start_amap)] = (e_type, 0)
+            conn_egs[(start_amap, end_amap)] = e_type
 
-        if start_amap not in prod_amap and end_amap in prod_amap:
+        elif start_amap not in prod_amap and end_amap in prod_amap:
             break_edges[(start_amap, end_amap)] =\
-                break_edges[(end_amap, start_amap)] =\
-                (bond.GetBondTypeAsDouble(), 0)
-            conn_egs[(end_amap, start_amap)] = \
-                bond.GetBondTypeAsDouble()
+                break_edges[(end_amap, start_amap)] = (e_type, 0)
+            conn_egs[(end_amap, start_amap)] = e_type
+
+        else:
+            break_edges[(start_amap, end_amap)] = \
+                break_edges[(end_amap, start_amap)] = (e_type, e_type)
 
     frgs = break_fragements(reac, break_edges).split('.')
     answer = []
@@ -519,15 +522,19 @@ def break_fragements(smiles, edge_types, canonicalize=False):
         start_amap = start_atom.GetAtomMapNum()
         end_amap = end_atom.GetAtomMapNum()
 
-        init_type, curr_type = edge_types[(start_amap, end_amap)]
+        key_pair = (min(start_amap, end_amap), max(start_amap, end_amap))
+        init_type, curr_type = edge_types[key_pair]
+
         if init_type != curr_type:
             tmol.RemoveBond(start_idx, end_idx)
             if curr_type != 0:
-                tmol.AddBond(end_idx, start_idx, BOND_TYPES[curr_type])
+                curr_edge = BOND_FLOAT_TO_TYPE[curr_type]
+                tmol.AddBond(end_idx, start_idx, curr_edge)
 
     answer = Chem.MolToSmiles(tmol.GetMol())
     if Chem.MolFromSmiles(answer) is None:
-        print('\n[Invalid smi]', smiles)
+        print('\n[Invalid smi]', answer)
+        exit()
     if canonicalize:
         answer = clear_map_number(answer)
     return answer
@@ -577,3 +584,10 @@ def get_block(reactants):
             amap2block[x.GetAtomMapNum()] = idx
 
     return amap2block
+
+
+
+def clear_charge(smi):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        pass
