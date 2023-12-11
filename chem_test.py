@@ -9,8 +9,10 @@ from tqdm import tqdm
 def check_n_pos(smi):
     mol = Chem.MolFromSmiles(smi)
     for atom in mol.GetAtoms():
+        if atom.GetSymbol() != 'N':
+            continue
         bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
-        if bond_vals == 4 and atom.GetFormalCharge() != -1:
+        if bond_vals == 4 and atom.GetFormalCharge() != 1:
             return False
     return True
 
@@ -48,5 +50,5 @@ if __name__ == '__main__':
             if not check_n_pos(x):
                 n_pos_ood.add(clear_map_number(x))
 
-    print(n_pos_ood)
+    print(len(n_pos_ood))
     
