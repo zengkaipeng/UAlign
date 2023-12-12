@@ -300,12 +300,91 @@ def get_leaving_group(prod: str, reac: str):
     return answer, conn_egs
 
 
+def edit_to_synthons(smi, edge_types):
+    mol = Chem.MolFromSmiles(smi)
+    Chem.Kekulize(mol, True)
+    # clear all the aromatic information, to avoid invalid breaking
+
+    tmol = Chem.RWMol(mol)
+
+    for bond in tmol.GetBonds():
+        begin_atom, end_atom = bond.GetBeginAtom(), bond.GetEndAtom()
+        a_idx, b_idx = begin_atom.GetIdx(), end_atom.GetIdx()
+        a_amap, b_amap = begin_atom.GetAtomMapNum(), end_atom.GetAtomMapNum()
+        a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
+
+        key_pair = (min(a_amap, b_amap), max(a_amap, b_amap))
+        old_type, new_type = edge_types[key_pair]
+        if old_type == new_type:
+            continue
+
+        if new_type == 0:
+            tmol.RemoveBond(a_idx, b_idx)
+            if old_type == 1:
+                if a_sym == 'N' and b_sym == 'O':
+                    if begin_atom.GetFormalCharge() == 1:
+                        begin_atom.SetFormalCharge(0)
+                        begin_atom.SetNumExplicitHs(0)
+                    if end_atom.GetFormalCharge() == -1:
+                        end_atom.SetFormalCharge(0)
+
+                if a_sym == 'O' and b_sym == 'N':
+                    if begin_atom.GetFormalCharge() == -1:
+                        begin_atom.SetFormalCharge(0)
+                    if end_atom.GetFormalCharge() == 1:
+                        end_atom.SetFormalCharge(0)
+                        end_atom.SetNumExplicitHs(0)
+
+            # we do not add Hs on it because this is to get synthon
+
+        else:
+            tmol.RemoveBond(a_idx, b_idx)
+            tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[new_type])
+            if old_type == 1 and new_type == 2:
+                if a_sym == 'S' and b_sym == 'O' and \
+                        end_atom.GetFormalCharge() == -1:
+                    end_atom.SetFormalCharge(0)
+                if a_sym == 'O' and b_sym == 'S' and \
+                        begin_atom.GetFormalCharge() == -1:
+                    begin_atom.SetFormalCharge(0)
+
+            if new_type > old_type:
+                a_hs = begin_atom.GetNumExplicitHs()
+                b_hs = end_atom.GetNumExplicitHs()
+                delta = new_type - old_type
+                begin_atom.SetNumExplicitHs(max(0, a_hs - delta))
+                end_atom.SetNumExplicitHs(max(0, b_hs - delta))
+
+            # preserve the Hs un added because this is to get synthon
+
+    for atom in tmol.GetAtoms():
+        if atom.GetSymbol() == 'N':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals == 4:
+                atom.SetFormalCharge(1)
+        elif atom.GetSymbol() == 'P':
+            bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]
+            if sum(bond_vals) == 4 and len(bond_vals) == 4:
+                atom.SetFormalCharge(1)
+                atom.SetNumExplicitHs(0)
+
+    new_mol = tmol.GetMol()
+    answer = Chem.MolToSmiles(new_mol)
+    if Chem.MolFromSmiles(answer) is None:
+        print('[smi]', smi)
+        print('[ans]', answer)
+    return answer
+
+
 def get_synthons(prod: str, reac: str, kekulize: bool = False):
     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
     if reac_mol is None or prod_mol is None:
         return {}, {}
     if kekulize:
         reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+    ke_reac_mol = get_mol(reac, kekulize=True)
+    ke_reac_bonds = get_bond_info(ke_reac_mol)
+
     prod_bonds = get_bond_info(prod_mol)
     prod_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
@@ -322,6 +401,11 @@ def get_synthons(prod: str, reac: str, kekulize: bool = False):
 
     for bond in prod_bonds:
         target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
+        if prod_bonds[bond][0] != 1.5 and target_type == 1.5:
+            target_type = ke_reac_bonds[bond][0]
+        # when there is an aromatic bond of reactants breaks
+        # we choose to recover it using only single or double bond
+        # instead of aromatic bond to make the code short
         edges2typechange[bond] = (prod_bonds[bond][0], target_type)
 
     for atom in prod_mol.GetAtoms():
@@ -405,96 +489,6 @@ def convert_res_into_smiles(
     mol = mol.GetMol()
     t_str = Chem.MolToSmiles(mol)
     return canonical_smiles(t_str)
-
-
-def extend_by_dfs(reac, activate_nodes, prod_amap):
-    def dfs(mol, x, vis, curr_nodes):
-        curr = mol.GetAtomWithIdx(x)
-        curr_amap = curr.GetAtomMapNum()
-        if curr_amap in vis:
-            return
-        curr_nodes.append(curr_amap)
-        vis.add(curr_amap)
-        for nei in curr.GetNeighbors():
-            dfs(mol, nei.GetIdx(), vis, curr_nodes)
-
-    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
-    for k, v in prod_amap.items():
-        curr_nodes[v] = k
-
-    vis = set(prod_amap.keys())
-    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
-
-    mol = Chem.MolFromSmiles(reac)
-    if mol is None:
-        raise ValueError(f'Invalid smiles {reac}')
-
-    # mark connected parts
-    for atom in mol.GetAtoms():
-        am = atom.GetAtomMapNum()
-        if am in activate_nodes:
-            for nei in atom.GetNeighbors():
-                dfs(mol, nei.GetIdx(), vis, curr_nodes)
-
-    # mark isolated part
-    for atom in mol.GetAtoms():
-        am = atom.GetAtomMapNum()
-        if am not in vis:
-            dfs(mol, atom.GetIdx(), vis, curr_nodes)
-
-    return {v: idx for idx, v in enumerate(curr_nodes)}
-
-
-def extend_by_bfs(reac, activate_nodes, prod_amap):
-
-    def bfs_with_Q(Q, lf, mol, vis):
-        while lf < len(Q):
-            top = Q[lf]
-            top_atom = mol.GetAtomWithIdx(top)
-            # print('[top atom]', lf, top_atom.GetAtomMapNum())
-            for nei in top_atom.GetNeighbors():
-                nei_amap = nei.GetAtomMapNum()
-                if nei_amap not in vis:
-                    vis.add(nei_amap)
-                    curr_nodes.append(nei_amap)
-                    Q.append(nei.GetIdx())
-            lf += 1
-
-        # print('\n[done]\n')
-
-    curr_nodes = [-1 for _ in range(max(prod_amap.values()) + 1)]
-    for k, v in prod_amap.items():
-        curr_nodes[v] = k
-    vis = set(prod_amap.keys())
-    # print(vis)
-
-    assert all(x != -1 for x in curr_nodes), 'Invalid prod_amap'
-
-    mol = Chem.MolFromSmiles(reac)
-    if mol is None:
-        raise ValueError(f'Invalid smiles {reac}')
-
-    # mark connected part
-    Q, lf = [], 0
-
-    for atom in mol.GetAtoms():
-        am = atom.GetAtomMapNum()
-        if am in activate_nodes:
-            Q.append(atom.GetIdx())
-
-    bfs_with_Q(Q, lf, mol, vis)
-
-    # mark isolated part
-
-    for atom in mol.GetAtoms():
-        am = atom.GetAtomMapNum()
-        if am not in vis:
-            Q = [atom.GetIdx()]
-            vis.add(am)
-            curr_nodes.append(am)
-            bfs_with_Q(Q, 0, mol, vis)
-
-    return {v: idx for idx, v in enumerate(curr_nodes)}
 
 
 def add_random_Amap(smiles):
@@ -584,10 +578,3 @@ def get_block(reactants):
             amap2block[x.GetAtomMapNum()] = idx
 
     return amap2block
-
-
-
-def clear_charge(smi):
-    mol = Chem.MolFromSmiles(smi)
-    if mol is None:
-        pass
