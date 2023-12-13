@@ -354,10 +354,24 @@ def get_leaving_group_synthon(
     return lgs, syns, conn_edges
 
 
+def get_synthon_breaks(reac: str, prod: str):
+    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+    if reac_mol is None or prod_mol is None:
+        raise NotImplementedError('[SYN BREAK] Invalid Smiles Given')
+
+    prod_bonds = get_bond_info(prod_mol)
+    reac_bonds = get_bond_info(reac_mol)
+    break_edges = set(prod_bonds.keys()) - set(reac_bonds.keys())
+    modified_atoms = set()
+    for a, b in break_edges:
+        modified_atoms.update((a, b))
+    return modified_atoms, break_edges
+
+
 def get_synthon_edits(
-    broken_reac: str, prod: str, consider_inner_bonds: bool = False
+    broken_reac: str, broken_prod: str, consider_inner_bonds: bool = False
 ) -> Set[int], Dict[Tuple[int, int], float]:
-    reac_mol, prod_mol = get_mol(broken_reac), get_mol(prod)
+    reac_mol, prod_mol = get_mol(broken_reac), get_mol(broken_prod)
     if reac_mol is None or prod_mol is None:
         raise NotImplementedError('[SYN EDIT] Invalid Smiles Given')
 
@@ -375,8 +389,9 @@ def get_synthon_edits(
 
     modified_atoms, deltaE = set(), {}
     for bond in prod_bonds:
-        target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
-        deltaE[bond] = (prod_bonds[bond][0], target_type)
+        if prod_bonds[bond][0] == reac_bonds[bond][0]:
+            continue
+        deltaE[bond] = (prod_bonds[bond][0], reac_bonds[bond][0])
         modified_atoms.update(bond)
 
     if consider_inner_bonds:
