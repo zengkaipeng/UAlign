@@ -354,12 +354,46 @@ def get_leaving_group_synthon(
     return lgs, syns, conn_edges
 
 
-def get_synthon_edits(broken_reac: str, prod: str):
-    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+def get_synthon_edits(
+    broken_reac: str, prod: str, consider_inner_bonds: bool = False
+) -> Set[int], Dict[Tuple[int, int], float]:
+    reac_mol, prod_mol = get_mol(broken_reac), get_mol(prod)
     if reac_mol is None or prod_mol is None:
         raise NotImplementedError('[SYN EDIT] Invalid Smiles Given')
 
-    
+    prod_bonds = get_bond_info(prod_mol)
+    prod_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in prod_mol.GetAtoms()
+    }
+
+    reac_bonds = get_bond_info(reac_mol)
+    reac_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in reac_mol.GetAtoms()
+    }
+
+    modified_atoms, deltaE = set(), {}
+    for bond in prod_bonds:
+        target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
+        deltaE[bond] = (prod_bonds[bond][0], target_type)
+        modified_atoms.update(bond)
+
+    if consider_inner_bonds:
+        for bond in reac_bonds:
+            if bond not in prod_bonds:
+                deltaE[bond] = (0, reac_bonds[bond][0])
+                modified_atoms.update(bond)
+
+    for atom in prod_mol.GetAtoms():
+        amap_num = atom.GetAtomMapNum()
+        numHs_prod = atom.GetTotalNumHs()
+        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+        numHs_reac = reac_atom.GetTotalNumHs()
+        if numHs_reac != numHs_prod:
+            modified_atoms.add(amap_num)
+
+    return modified_atoms, deltaE
 
 
 def edit_to_synthons(smi, edge_types, break_only=False):
@@ -409,9 +443,6 @@ def edit_to_synthons(smi, edge_types, break_only=False):
 
     broken_mol = Chem.MolFromSmiles(break_smi)
     tmol = Chem.RWMol(broken_mol)
-
-
-
 
 
 def edit_to_synthons(smi, edge_types):
@@ -503,50 +534,50 @@ def edit_to_synthons(smi, edge_types):
     return answer
 
 
-def get_synthons(prod: str, reac: str, kekulize: bool = False):
-    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
-    if reac_mol is None or prod_mol is None:
-        return {}, {}
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
-    ke_reac_mol = get_mol(reac, kekulize=True)
-    ke_reac_bonds = get_bond_info(ke_reac_mol)
+# def get_synthons(prod: str, reac: str, kekulize: bool = False):
+#     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+#     if reac_mol is None or prod_mol is None:
+#         return {}, {}
+#     if kekulize:
+#         reac_mol, prod_mol = align_kekule_pairs(reac, prod)
+#     ke_reac_mol = get_mol(reac, kekulize=True)
+#     ke_reac_bonds = get_bond_info(ke_reac_mol)
 
-    prod_bonds = get_bond_info(prod_mol)
-    prod_amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in prod_mol.GetAtoms()
-    }
+#     prod_bonds = get_bond_info(prod_mol)
+#     prod_amap_idx = {
+#         atom.GetAtomMapNum(): atom.GetIdx()
+#         for atom in prod_mol.GetAtoms()
+#     }
 
-    reac_bonds = get_bond_info(reac_mol)
-    reac_amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in reac_mol.GetAtoms()
-    }
+#     reac_bonds = get_bond_info(reac_mol)
+#     reac_amap_idx = {
+#         atom.GetAtomMapNum(): atom.GetIdx()
+#         for atom in reac_mol.GetAtoms()
+#     }
 
-    atom2deltaH, edges2typechange = {}, {}
+#     atom2deltaH, edges2typechange = {}, {}
 
-    for bond in prod_bonds:
-        target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
-        if prod_bonds[bond][0] != 1.5 and target_type == 1.5:
-            target_type = ke_reac_bonds[bond][0]
-        # when there is an aromatic bond of reactants breaks
-        # we choose to recover it using only single or double bond
-        # instead of aromatic bond to make the code short
-        edges2typechange[bond] = (prod_bonds[bond][0], target_type)
+#     for bond in prod_bonds:
+#         target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
+#         if prod_bonds[bond][0] != 1.5 and target_type == 1.5:
+#             target_type = ke_reac_bonds[bond][0]
+#         # when there is an aromatic bond of reactants breaks
+#         # we choose to recover it using only single or double bond
+#         # instead of aromatic bond to make the code short
+#         edges2typechange[bond] = (prod_bonds[bond][0], target_type)
 
-    for atom in prod_mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-        numHs_prod = atom.GetTotalNumHs()
-        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
-        numHs_reac = reac_atom.GetTotalNumHs()
-        atom2deltaH[amap_num] = numHs_prod - numHs_reac
+#     for atom in prod_mol.GetAtoms():
+#         amap_num = atom.GetAtomMapNum()
+#         numHs_prod = atom.GetTotalNumHs()
+#         reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+#         numHs_reac = reac_atom.GetTotalNumHs()
+#         atom2deltaH[amap_num] = numHs_prod - numHs_reac
 
-    # We have omitted the formation of new bonds between the product atoms
-    # during the reaction process, as this situation occurs
-    # only to a small extent.
+#     # We have omitted the formation of new bonds between the product atoms
+#     # during the reaction process, as this situation occurs
+#     # only to a small extent.
 
-    return atom2deltaH, edges2typechange
+#     return atom2deltaH, edges2typechange
 
 
 if __name__ == '__main__':
