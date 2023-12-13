@@ -3,7 +3,7 @@ from data_utils import load_data
 import argparse
 from utils.chemistry_parse import clear_map_number
 from tqdm import tqdm
-from utils.chemistry_parse import get_synthons
+from utils.chemistry_parse import get_synthons, get_synthon_smiles
 
 
 def check_n_pos(smi):
@@ -131,24 +131,7 @@ if __name__ == '__main__':
     #     all_atoms.update(get_all_atoms(prod))
 
     # print(all_atoms)
-
-    an_break, an_form = [], []
+    
     for idx, prod in enumerate(tqdm(train_prod)):
-        deltH, deltE = get_synthons(prod, train_rec[idx])
-        vis1, vis2 = False, False
-        for k, v in deltE.items():
-            o_type, n_type = v
-            if n_type == 1.5 and o_type != 1.5:
-                vis1 = True
-
-            if n_type != 1.5 and o_type == 1.5:
-                vis2 = True
-        if vis1:
-            an_break.append(f'{train_rec[idx]}>>{prod}')
-        if vis2:
-            an_form.append(f'{train_rec[idx]}>>{prod}')
-
-    for x in an_break:
-        print(x)
-
-    print(len(an_break))
+        deltaH, deltaE = get_synthons(prod, train_rec[idx])
+        str_synthon = get_synthon_smiles(prod, deltaE, mode='change')

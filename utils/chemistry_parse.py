@@ -306,17 +306,28 @@ def edit_to_synthons(smi, edge_types):
     # clear all the aromatic information, to avoid invalid breaking
 
     tmol = Chem.RWMol(mol)
-
-    for bond in tmol.GetBonds():
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+    bonds = []
+    for bond in mol.GetBonds():
         begin_atom, end_atom = bond.GetBeginAtom(), bond.GetEndAtom()
-        a_idx, b_idx = begin_atom.GetIdx(), end_atom.GetIdx()
         a_amap, b_amap = begin_atom.GetAtomMapNum(), end_atom.GetAtomMapNum()
+        key_pair = (min(a_amap, b_amap), max(a_amap, b_amap))
+        bonds.append(key_pair)
+
+    for (a_amap, b_amap) in bonds:
+        a_idx, b_idx = amap[a_amap], a_amap[b_amap]
+        begin_atom = tmol.GetAtomWithIdx(a_idx)
+        end_atom = tmol.GetAtomWithIdx(b_idx)
         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
 
-        key_pair = (min(a_amap, b_amap), max(a_amap, b_amap))
-        old_type, new_type = edge_types[key_pair]
+        old_type, new_type = edge_types[(a_amap, b_amap)]
         if old_type == new_type:
             continue
+        if new_type == 1.5:
+            raise NotImplementedError('Building aromatic edges forbidden')
+
+        ke_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+        ke_old_bond = 0 if ke_bond is None else ke_bond.GetBondTypeAsDouble()
 
         if new_type == 0:
             tmol.RemoveBond(a_idx, b_idx)
@@ -348,10 +359,10 @@ def edit_to_synthons(smi, edge_types):
                         begin_atom.GetFormalCharge() == -1:
                     begin_atom.SetFormalCharge(0)
 
-            if new_type > old_type:
+            if new_type > ke_old_type:
                 a_hs = begin_atom.GetNumExplicitHs()
                 b_hs = end_atom.GetNumExplicitHs()
-                delta = new_type - old_type
+                delta = new_type - ke_old_type
                 begin_atom.SetNumExplicitHs(max(0, a_hs - delta))
                 end_atom.SetNumExplicitHs(max(0, b_hs - delta))
 
@@ -500,9 +511,19 @@ def add_random_Amap(smiles):
     return Chem.MolToSmiles(mol)
 
 
-def break_fragements(smiles, edge_types, canonicalize=False):
+def break_fragements(smiles, break_edges, canonicalize=False):
+    """ 
+
+    break a smilse into synthons according to the given break edges
+    the break edges is a Iterable of tuples. tuple contains the amap 
+    numbers of end atoms.
+    """
+
     Mol = Chem.MolFromSmiles(smiles)
     Chem.Kekulize(Mol, True)
+    # The kekulize is required otherwise you can not get the
+    # correct synthons
+
     assert all(x.GetAtomMapNum() != 0 for x in Mol.GetAtoms()), \
         'Invalid atom mapping is founded, please correct it'
 
@@ -516,19 +537,12 @@ def break_fragements(smiles, edge_types, canonicalize=False):
         start_amap = start_atom.GetAtomMapNum()
         end_amap = end_atom.GetAtomMapNum()
 
-        key_pair = (min(start_amap, end_amap), max(start_amap, end_amap))
-        init_type, curr_type = edge_types[key_pair]
-
-        if init_type != curr_type:
+        if (start_amap, end_amap) in break_edges:
             tmol.RemoveBond(start_idx, end_idx)
-            if curr_type != 0:
-                curr_edge = BOND_FLOAT_TO_TYPE[curr_type]
-                tmol.AddBond(end_idx, start_idx, curr_edge)
 
     answer = Chem.MolToSmiles(tmol.GetMol())
     if Chem.MolFromSmiles(answer) is None:
-        print('\n[Invalid smi]', answer)
-        exit()
+        print('\n[smi]', smiles)
     if canonicalize:
         answer = clear_map_number(answer)
     return answer
@@ -578,3 +592,14 @@ def get_block(reactants):
             amap2block[x.GetAtomMapNum()] = idx
 
     return amap2block
+
+
+def get_synthon_smiles(prod, edge_types, mode='break_only'):
+    assert mode in ['break_only', 'change'], f'Invalid mode: {mode}'
+    if mode == 'break_only':
+        break_edges = [k for k, (a, b) in edge_types.items() if b == 0]
+        str_synthon = break_fragements(prod, break_edges, canonicalize=False)
+        return str_synthon
+    else:
+        str_synthon = edit_to_synthons(prod, edge_types)
+        return str_synthon
