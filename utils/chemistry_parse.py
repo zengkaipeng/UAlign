@@ -411,30 +411,22 @@ def get_synthon_edits(
     return modified_atoms, deltaE
 
 
-def edit_to_synthons(smi, edge_types, break_only=False):
-
+def edit_to_synthons(smi, break_edge, edge_edits):
     mol = Chem.MolFromSmiles(smi)
     Chem.Kekulize(mol, True)
     # clear all the aromatic information, to avoid invalid breaking
 
     tmol = Chem.RWMol(mol)
     amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
-    bonds = []
-    for bond in mol.GetBonds():
-        begin_atom, end_atom = bond.GetBeginAtom(), bond.GetEndAtom()
-        a_amap, b_amap = begin_atom.GetAtomMapNum(), end_atom.GetAtomMapNum()
-        key_pair = (min(a_amap, b_amap), max(a_amap, b_amap))
-        bonds.append(key_pair)
-
-    # break first
-
-    for (a_amap, b_amap) in bonds:
-        a_idx, b_idx = amap[a_amap], amap[b_amap]
+    for (a, b) in break_edges:
+        a_idx, b_idx = amap[a], amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
         end_atom = tmol.GetAtomWithIdx(b_idx)
-        a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
-        if new_type == 0 and new_type != old_type:
+        a_sym, b_symb = begin_atom.GetSymbol(), end_atom.GetSymbol()
+        old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+        if old_bond is not None:
             tmol.RemoveBond(a_idx, b_idx)
+            old_type = old_bond.GetBondTypeAsDouble()
             if old_type == 1:
                 if a_sym == 'N' and b_sym == 'O':
                     if begin_atom.GetFormalCharge() == 1:
@@ -450,14 +442,41 @@ def edit_to_synthons(smi, edge_types, break_only=False):
                         end_atom.SetFormalCharge(0)
                         end_atom.SetNumExplicitHs(0)
 
+    # break first
     break_mol = tmol.GetMol()
     break_smi = Chem.MolToSmiles(break_mol)
 
-    if break_only:
-        return break_smi
-
     broken_mol = Chem.MolFromSmiles(break_smi)
     tmol = Chem.RWMol(broken_mol)
+
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+    for (a_amap, b_amap), new_type in edge_edits.items():
+        a_idx, b_idx = amap[a], amap[b]
+        begin_atom = tmol.GetAtomWithIdx(a_idx)
+        end_atom = tmol.GetAtomWithIdx(b_idx)
+        a_sym, b_symb = begin_atom.GetSymbol(), end_atom.GetSymbol()
+        old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+        old_type = 0 if old_bond is None else old_bond.GetBondTypeAsDouble()
+        if old_type != new_type:
+            tmol.RemoveBond(a_idx, b_idx)
+            tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[new_type])
+
+            if old_type == 1 and new_type == 2:
+                if a_sym == 'S' and b_sym == 'O' and \
+                        end_atom.GetFormalCharge() == -1:
+                    end_atom.SetFormalCharge(0)
+                if a_sym == 'O' and b_sym == 'S' and \
+                        begin_atom.GetFormalCharge() == -1:
+                    begin_atom.SetFormalCharge(0)
+
+            elif new_type > old_type:
+                a_hs = begin_atom.GetNumExplicitHs()
+                b_hs = end_atom.GetNumExplicitHs()
+                delta = new_type - ke_old_bond
+                begin_atom.SetNumExplicitHs(int(max(0, a_hs - delta)))
+                end_atom.SetNumExplicitHs(int(max(0, b_hs - delta)))
+    syn_mol = tmol.GetMol()
+    return Chem.MolToSmiles(syn_mol)
 
 
 def edit_to_synthons(smi, edge_types):
