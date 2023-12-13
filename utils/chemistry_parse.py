@@ -374,6 +374,8 @@ def get_synthon_edits(
     reac_mol, prod_mol = get_mol(broken_reac), get_mol(broken_prod)
     if reac_mol is None or prod_mol is None:
         raise NotImplementedError('[SYN EDIT] Invalid Smiles Given')
+    ke_reac_mol = get_mol(broken_reac, kekulize=True)
+    ke_reac_bonds = get_bond_info(ke_reac_mol)
 
     prod_bonds = get_bond_info(prod_mol)
     prod_amap_idx = {
@@ -389,8 +391,11 @@ def get_synthon_edits(
 
     modified_atoms, deltaE = set(), {}
     for bond in prod_bonds:
-        if prod_bonds[bond][0] == reac_bonds[bond][0]:
+        target = reac_bonds[bond][0]
+        if prod_bonds[bond][0] == target:
             continue
+        if target == 1.5:
+            target = ke_reac_bonds[bond][0]
         deltaE[bond] = (prod_bonds[bond][0], reac_bonds[bond][0])
         modified_atoms.update(bond)
 
