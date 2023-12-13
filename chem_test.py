@@ -133,5 +133,11 @@ if __name__ == '__main__':
     # print(all_atoms)
     
     for idx, prod in enumerate(tqdm(train_prod)):
-        deltaH, deltaE = get_synthons(prod, train_rec[idx])
+
+        deltaH, deltaE = get_synthons(prod, train_rec[idx], kekulize=True)
         str_synthon = get_synthon_smiles(prod, deltaE, mode='change')
+        if prod == '[O:1]=[C:2]([OH:3])[CH:4]1[CH2:5][CH2:6][c:7]2[c:8]([Cl:9])[cH:10][cH:11][cH:12][c:13]2[NH:14]1':
+            print('reac', train_rec[idx])
+            print('prod', prod)
+            print('delta', deltaE)
+            exit()
