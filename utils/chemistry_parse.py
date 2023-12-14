@@ -349,80 +349,40 @@ def get_leaving_group_synthon(
     return lgs, syns, conn_edges
 
 
-def get_synthon_breaks(reac: str, prod: str):
+def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+    ke_reac_mol = get_mol(reac, kekulize=True)
     if reac_mol is None or prod_mol is None:
         raise NotImplementedError('[SYN BREAK] Invalid Smiles Given')
 
     prod_bonds = get_bond_info(prod_mol)
     reac_bonds = get_bond_info(reac_mol)
-    break_edges = set(prod_bonds.keys()) - set(reac_bonds.keys())
-    modified_atoms = set()
-    for a, b in break_edges:
-        modified_atoms.update((a, b))
-    return modified_atoms, break_edges
 
-
-def get_synthon_edits(
-    broken_reac: str, broken_prod: str, reac: str,
-    prod: str, consider_inner_bonds: bool = False
-) -> Tuple[Set[int], Dict[Tuple[int, int], float]]:
-    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
-    if reac_mol is None or prod_mol is None:
-        raise NotImplementedError('[SYN EDIT] Invalid Smiles Given')
-    break_reac_mol = get_mol(broken_reac, kekulize=True)
-    break_prod_mol = get_mol(broken_prod)
-
-    if break_reac_mol is None or break_prod_mol is None:
-        raise NotImplementedError('[SYN EDIT] Invalid Smiles Given')
-
-    prod_bonds = get_bond_info(prod_mol)
-    reac_bonds = get_bond_info(reac_mol)
     reac_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
         for atom in reac_mol.GetAtoms()
     }
-
-    break_prod_bonds = get_bond_info(break_prod_mol)
-    break_reac_bonds = get_bond_info(break_reac_mol)
+    ke_reac_bonds = get_bond_info(ke_reac_mol)
 
     modified_atoms, deltaE = set(), {}
-
-    for bond, (ftype, bidx) in break_prod_bonds.items():
-        if prod_bonds[bond][0] == reac_bonds[bond][0]:
+    for bond, (ftype, bidx) in prod_bonds.items():
+        if bond not in reac_bonds[bond]:
+            target = 0
+        elif ftype == reac_bonds[bond][0]:
             continue
-        if reac_bonds[bond][0] == 1.5:
-            target = break_reac_bonds[bond][0]
+        elif reac_bonds[bond][0] == 1.5:
+            target = ke_reac_bonds[bond][0]
         else:
             target = reac_bonds[bond][0]
-
         assert target != 1.5, 'Building aromatic bonds!'
-
         deltaE[bond] = (ftype, target)
         modified_atoms.update(bond)
 
     if consider_inner_bonds:
-        for bond in break_reac_bonds:
-            if bond not in break_prod_bonds:
-                deltaE[bond] = (0, reac_bonds[bond][0])
+        for bond, (ftype, bidx) in reac_bonds.items():
+            if bond not in prod_bonds:
+                deltaE[bond] = (0, ke_reac_bonds[ftype])
                 modified_atoms.update(bond)
-
-    # for bond in prod_bonds:
-    #     target = reac_bonds[bond][0]
-    #     if prod_bonds[bond][0] == target:
-    #         continue
-    #     if target == 1.5:
-    #         target = ke_reac_bonds[bond][0]
-    #     if target == prod_bonds[bond][0]:
-    #         continue
-    #     deltaE[bond] = (prod_bonds[bond][0], target)
-    #     modified_atoms.update(bond)
-
-    # if consider_inner_bonds:
-    #     for bond in reac_bonds:
-    #         if bond not in prod_bonds:
-    #             deltaE[bond] = (0, reac_bonds[bond][0])
-    #             modified_atoms.update(bond)
 
     for atom in prod_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
@@ -435,14 +395,38 @@ def get_synthon_edits(
     return modified_atoms, deltaE
 
 
-def edit_to_synthons(smi, break_edge, edge_edits):
+def edit_to_synthons(smi, edge_edits):
     mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        raise ValueError(f'Invalid smiles {smi} given')
+
+    assert all(x.GetAtomMapNum() != 0 for x in mol.GetAtoms()), \
+        'atom mapping are required for editing the mol'
+
+    old_types = {}
+    for bond in mol.GetBonds():
+        a_atom, b_atom = bond.GetBeginAtom(), bond.GetEndAtom()
+        a_amap, b_amap = a_atom.GetAtomMapNum(), b_atom.GetAtomMapNum()
+        old_types[(a_amap, b_amap)] = old_types[(b_amap, a_amap)] = \
+            bond.GetBondTypeAsDouble()
+
     Chem.Kekulize(mol, True)
     # clear all the aromatic information, to avoid invalid breaking
 
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
+
+    ke_old_bond_vals = {
+        x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
+        for x in mol.GetAtoms()
+    }
+
     tmol = Chem.RWMol(mol)
-    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
-    for (a, b) in break_edge:
+
+    modified_atoms = set()
+
+    for (a, b), n_type in edge_edits.items():
+        if n_type == old_types[(a, b)]:
+            continue
         a_idx, b_idx = amap[a], amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
         end_atom = tmol.GetAtomWithIdx(b_idx)
@@ -450,62 +434,56 @@ def edit_to_synthons(smi, break_edge, edge_edits):
         old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
         if old_bond is not None:
             tmol.RemoveBond(a_idx, b_idx)
-            old_type = old_bond.GetBondTypeAsDouble()
-            if old_type == 1:
-                if a_sym == 'N' and b_sym == 'O':
-                    if begin_atom.GetFormalCharge() == 1:
-                        begin_atom.SetFormalCharge(0)
-                        begin_atom.SetNumExplicitHs(0)
-                    if end_atom.GetFormalCharge() == -1:
-                        end_atom.SetFormalCharge(0)
-                    continue
+            modified_atoms.update((a, b))
 
-                if a_sym == 'O' and b_sym == 'N':
-                    if begin_atom.GetFormalCharge() == -1:
-                        begin_atom.SetFormalCharge(0)
-                    if end_atom.GetFormalCharge() == 1:
-                        end_atom.SetFormalCharge(0)
-                        end_atom.SetNumExplicitHs(0)
-                    continue
+            if old_types[(a, b)] == 1 and a_sym == 'N' and b_sym == 'O':
+                if begin_atom.GetFormalCharge() == 1:
+                    begin_atom.SetFormalCharge(0)
+                    begin_atom.SetNumExplicitHs(0)
+                if end_atom.GetFormalCharge() == -1:
+                    end_atom.SetFormalCharge(0)
+            elif old_types[(a, b)] == 1 and a_sym == 'O' and b_sym == 'N':
+                if begin_atom.GetFormalCharge() == -1:
+                    begin_atom.SetFormalCharge(0)
+                if end_atom.GetFormalCharge() == 1:
+                    end_atom.SetFormalCharge(0)
+                    end_atom.SetNumExplicitHs(0)
 
-    # break first
-    break_mol = tmol.GetMol()
-    break_smi = Chem.MolToSmiles(break_mol)
+    broken_smi = Chem.MolToSmiles(tmol.GetMol())
+    broken_mol = Chem.MolFromSmiles(broken_smi)
+    broken_amap = {
+        x.GetAtomMapNum(): x.GetIdx() for x in broken_mol.GetAtoms()
+    }
 
-    broken_mol = Chem.MolFromSmiles(break_smi)
     tmol = Chem.RWMol(broken_mol)
 
-    print('broken', Chem.MolToSmiles(broken_mol))
+    # reload the aromatic edges
 
-    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
-    for (a_amap, b_amap), new_type in edge_edits.items():
-        a_idx, b_idx = amap[a_amap], amap[b_amap]
+    for (a, b), n_type in edge_edits.items():
+        if n_type == old_types[(a, b)] or n_type == 0:
+            continue
+        assert n_type != 1.5, "Building aromatic bonds"
+        a_idx, b_idx = amap[a], amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
         end_atom = tmol.GetAtomWithIdx(b_idx)
         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
-        old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
-        old_type = 0 if old_bond is None else old_bond.GetBondTypeAsDouble()
-        if old_type != new_type:
-            tmol.RemoveBond(a_idx, b_idx)
-            tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[new_type])
 
-            if a_sym == 'S' and b_sym == 'O' and old_type == 1 and \
-                    new_type == 2 and end_atom.GetFormalCharge() == -1:
-                end_atom.SetFormalCharge(0)
-                continue
-            if a_sym == 'O' and b_sym == 'S' and old_type == 1 and \
-                    new_type == 2 and begin_atom.GetFormalCharge() == -1:
-                begin_atom.SetFormalCharge(0)
-                continue
+        tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[n_type])
 
-            if new_type > old_type:
-                a_hs = begin_atom.GetNumExplicitHs()
-                b_hs = end_atom.GetNumExplicitHs()
-                delta = new_type - old_type
-                begin_atom.SetNumExplicitHs(int(max(0, a_hs - delta)))
-                end_atom.SetNumExplicitHs(int(max(0, b_hs - delta)))
+        if old_types[(a, b)] == 1 and n_type == 2 and a_sym == 'S'\
+                and b_sym == 'O' and end_atom.GetFormalCharge() == -1:
+            end_atom.SetFormalCharge(0)
+        elif old_types[(a, b)] == 1 and n_type == 2 and a_sym == 'O'\
+                and b_sym == 'S' and begin_atom.GetFormalCharge() == -1:
+            begin_atom.SetFormalCharge(-1)
 
-    # Chem.Kekulize(tmol, False)
+    for ax in modified_atoms:
+        atom = tmol.GetAtomWithIdx(broken_amap[ax])
+        curr_bv = sum(y.GetBondTypeAsDouble() for y in atom.GetBonds())
+        if curr_bv >= ke_old_bond_vals[ax]:
+            delta = curr_bv - ke_old_bond_vals[ax]
+            curr_hs = int(max(0, atom.GetNumExplicitHs() - delta))
+            atom.SetNumExplicitHs(curr_hs)
 
     for atom in tmol.GetAtoms():
         if atom.GetSymbol() == 'N':
@@ -522,6 +500,93 @@ def edit_to_synthons(smi, break_edge, edge_edits):
     return Chem.MolToSmiles(syn_mol)
 
 
+# def edit_to_synthons(smi, break_edge, edge_edits):
+#     mol = Chem.MolFromSmiles(smi)
+#     Chem.Kekulize(mol, True)
+#     # clear all the aromatic information, to avoid invalid breaking
+
+#     tmol = Chem.RWMol(mol)
+#     amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+#     for (a, b) in break_edge:
+#         a_idx, b_idx = amap[a], amap[b]
+#         begin_atom = tmol.GetAtomWithIdx(a_idx)
+#         end_atom = tmol.GetAtomWithIdx(b_idx)
+#         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
+#         old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+#         if old_bond is not None:
+#             tmol.RemoveBond(a_idx, b_idx)
+#             old_type = old_bond.GetBondTypeAsDouble()
+#             if old_type == 1:
+#                 if a_sym == 'N' and b_sym == 'O':
+#                     if begin_atom.GetFormalCharge() == 1:
+#                         begin_atom.SetFormalCharge(0)
+#                         begin_atom.SetNumExplicitHs(0)
+#                     if end_atom.GetFormalCharge() == -1:
+#                         end_atom.SetFormalCharge(0)
+#                     continue
+
+#                 if a_sym == 'O' and b_sym == 'N':
+#                     if begin_atom.GetFormalCharge() == -1:
+#                         begin_atom.SetFormalCharge(0)
+#                     if end_atom.GetFormalCharge() == 1:
+#                         end_atom.SetFormalCharge(0)
+#                         end_atom.SetNumExplicitHs(0)
+#                     continue
+
+#     # break first
+#     break_mol = tmol.GetMol()
+#     break_smi = Chem.MolToSmiles(break_mol)
+
+#     broken_mol = Chem.MolFromSmiles(break_smi)
+#     tmol = Chem.RWMol(broken_mol)
+
+#     print('broken', Chem.MolToSmiles(broken_mol))
+
+#     amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+#     for (a_amap, b_amap), new_type in edge_edits.items():
+#         a_idx, b_idx = amap[a_amap], amap[b_amap]
+#         begin_atom = tmol.GetAtomWithIdx(a_idx)
+#         end_atom = tmol.GetAtomWithIdx(b_idx)
+#         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
+#         old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+#         old_type = 0 if old_bond is None else old_bond.GetBondTypeAsDouble()
+#         if old_type != new_type:
+#             tmol.RemoveBond(a_idx, b_idx)
+#             tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[new_type])
+
+#             if a_sym == 'S' and b_sym == 'O' and old_type == 1 and \
+#                     new_type == 2 and end_atom.GetFormalCharge() == -1:
+#                 end_atom.SetFormalCharge(0)
+#                 continue
+#             if a_sym == 'O' and b_sym == 'S' and old_type == 1 and \
+#                     new_type == 2 and begin_atom.GetFormalCharge() == -1:
+#                 begin_atom.SetFormalCharge(0)
+#                 continue
+
+#             if new_type > old_type:
+#                 a_hs = begin_atom.GetNumExplicitHs()
+#                 b_hs = end_atom.GetNumExplicitHs()
+#                 delta = new_type - old_type
+#                 begin_atom.SetNumExplicitHs(int(max(0, a_hs - delta)))
+#                 end_atom.SetNumExplicitHs(int(max(0, b_hs - delta)))
+
+#     # Chem.Kekulize(tmol, False)
+
+#     for atom in tmol.GetAtoms():
+#         if atom.GetSymbol() == 'N':
+#             bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+#             if bond_vals == 4 and not atom.GetIsAromatic():
+#                 atom.SetFormalCharge(1)
+#         elif atom.GetSymbol() == 'P':
+#             bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]
+#             if sum(bond_vals) == 4 and len(bond_vals) == 4:
+#                 atom.SetFormalCharge(1)
+#                 atom.SetNumExplicitHs(0)
+
+#     syn_mol = tmol.GetMol()
+#     return Chem.MolToSmiles(syn_mol)
+
+
 # def get_synthons(prod: str, reac: str, kekulize: bool = False):
 #     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
 #     if reac_mol is None or prod_mol is None:
@@ -536,15 +601,12 @@ def edit_to_synthons(smi, break_edge, edge_edits):
 #         atom.GetAtomMapNum(): atom.GetIdx()
 #         for atom in prod_mol.GetAtoms()
 #     }
-
 #     reac_bonds = get_bond_info(reac_mol)
 #     reac_amap_idx = {
 #         atom.GetAtomMapNum(): atom.GetIdx()
 #         for atom in reac_mol.GetAtoms()
 #     }
-
 #     atom2deltaH, edges2typechange = {}, {}
-
 #     for bond in prod_bonds:
 #         target_type = reac_bonds[bond][0] if bond in reac_bonds else 0.0
 #         if prod_bonds[bond][0] != 1.5 and target_type == 1.5:
@@ -553,20 +615,16 @@ def edit_to_synthons(smi, break_edge, edge_edits):
 #         # we choose to recover it using only single or double bond
 #         # instead of aromatic bond to make the code short
 #         edges2typechange[bond] = (prod_bonds[bond][0], target_type)
-
 #     for atom in prod_mol.GetAtoms():
 #         amap_num = atom.GetAtomMapNum()
 #         numHs_prod = atom.GetTotalNumHs()
 #         reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
 #         numHs_reac = reac_atom.GetTotalNumHs()
 #         atom2deltaH[amap_num] = numHs_prod - numHs_reac
-
 #     # We have omitted the formation of new bonds between the product atoms
 #     # during the reaction process, as this situation occurs
 #     # only to a small extent.
-
 #     return atom2deltaH, edges2typechange
-
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
         content = Fin.readlines()
