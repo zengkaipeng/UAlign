@@ -1,10 +1,10 @@
 import pandas
 import os
-from utils.chemistry_parse import (
-    get_synthons, ACHANGE_TO_IDX, break_fragements,
-    get_all_amap, get_leaving_group, get_mol_belong,
-    clear_map_number, BOND_FLOAT_TO_IDX
-)
+# from utils.chemistry_parse import (
+#      ACHANGE_TO_IDX, break_fragements,
+#     get_all_amap, get_leaving_group, get_mol_belong,
+#     clear_map_number, BOND_FLOAT_TO_IDX
+# )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
 from Dataset import SynthonDataset

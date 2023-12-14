@@ -3,7 +3,11 @@ from data_utils import load_data
 import argparse
 from utils.chemistry_parse import clear_map_number
 from tqdm import tqdm
-from utils.chemistry_parse import get_synthons, get_synthon_smiles
+from utils.chemistry_parse import (
+    get_synthon_breaks, get_synthon_edits,
+    get_leaving_group_synthon, break_fragements,
+    edit_to_synthons
+)
 
 
 def check_n_pos(smi):
@@ -71,6 +75,41 @@ def check_rules(smi):
                 f"Invalid O:{atom.GetAtomMapNum()} of smiles {smi}"
 
 
+def qval_a_mole(reac, prod):
+    lgs, syns, conn_edges = get_leaving_group_synthon(
+        prod, reac, consider_inner_bonds=False
+    )
+    mod_atoms, break_edges = get_synthon_breaks(reac, prod)
+    break_reac = '.'.join(syns)
+    break_prod = break_fragements(prod, break_edges, False)
+
+
+
+    mod_a2, edge_edit = get_synthon_edits(
+        break_reac, break_prod, consider_inner_bonds=False
+    )
+
+    print(f'before, rxn  {reac}>>{prod}')
+    print(f'before, break reac  ', break_reac)
+    print(f'before, break prod  ', break_prod)
+    print(f'before, breaks', break_edges)
+    print(f'before, edits', edge_edit)
+
+    processed_syn = edit_to_synthons(
+        prod, break_edges,
+        {k: v[1] for k, v in edge_edit.items()}
+    )
+
+    if Chem.MolFromSmiles(processed_syn) is None:
+        print(f'[rxn] {reac}>>{prod}')
+        print(f'[breaks]', break_edges)
+        print(f'[edits]', edge_edit)
+        print(f'[broken reac] {break_reac}')
+        print(f'[broken prod] {break_prod}')
+        print(f'[result] {processed_syn}')
+        exit()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('')
     parser.add_argument('--dir', required=True)
@@ -133,11 +172,7 @@ if __name__ == '__main__':
     # print(all_atoms)
     
     for idx, prod in enumerate(tqdm(train_prod)):
+        qval_a_mole(train_rec[idx], prod)
 
-        deltaH, deltaE = get_synthons(prod, train_rec[idx], kekulize=True)
-        str_synthon = get_synthon_smiles(prod, deltaE, mode='change')
-        if prod == '[O:1]=[C:2]([OH:3])[CH:4]1[CH2:5][CH2:6][c:7]2[c:8]([Cl:9])[cH:10][cH:11][cH:12][c:13]2[NH:14]1':
-            print('reac', train_rec[idx])
-            print('prod', prod)
-            print('delta', deltaE)
-            exit()
+    
+
