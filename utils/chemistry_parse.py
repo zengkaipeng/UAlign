@@ -396,6 +396,8 @@ def get_synthon_edits(
         else:
             target = reac_bonds[bond][0]
 
+        assert target != 1.5, 'Building aromatic bonds!'
+
         deltaE[bond] = (ftype, target)
         modified_atoms.update(bond)
 
@@ -503,12 +505,12 @@ def edit_to_synthons(smi, break_edge, edge_edits):
                 begin_atom.SetNumExplicitHs(int(max(0, a_hs - delta)))
                 end_atom.SetNumExplicitHs(int(max(0, b_hs - delta)))
 
-    Chem.Kekulize(tmol, False)
+    # Chem.Kekulize(tmol, False)
 
     for atom in tmol.GetAtoms():
         if atom.GetSymbol() == 'N':
             bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
-            if bond_vals == 4:
+            if bond_vals == 4 and not atom.GetIsAromatic():
                 atom.SetFormalCharge(1)
         elif atom.GetSymbol() == 'P':
             bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]

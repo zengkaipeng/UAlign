@@ -86,7 +86,8 @@ def qval_a_mole(reac, prod):
 
 
     mod_a2, edge_edit = get_synthon_edits(
-        break_reac, break_prod, consider_inner_bonds=False
+        break_reac, break_prod, reac, prod,
+        consider_inner_bonds=False
     )
 
     print(f'before, rxn  {reac}>>{prod}')
