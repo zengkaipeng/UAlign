@@ -4,9 +4,8 @@ import argparse
 from utils.chemistry_parse import clear_map_number
 from tqdm import tqdm
 from utils.chemistry_parse import (
-    get_synthon_breaks, get_synthon_edits,
-    get_leaving_group_synthon, break_fragements,
-    edit_to_synthons
+    get_synthon_edits, get_leaving_group_synthon,
+    break_fragements, edit_to_synthons
 )
 
 
@@ -79,35 +78,17 @@ def qval_a_mole(reac, prod):
     lgs, syns, conn_edges = get_leaving_group_synthon(
         prod, reac, consider_inner_bonds=False
     )
-    mod_atoms, break_edges = get_synthon_breaks(reac, prod)
-    break_reac = '.'.join(syns)
-    break_prod = break_fragements(prod, break_edges, False)
 
-
-
-    mod_a2, edge_edit = get_synthon_edits(
-        break_reac, break_prod, reac, prod,
-        consider_inner_bonds=False
+    modified_atoms, deltsE = get_synthon_edits(
+        reac, prod, consider_inner_bonds=False
     )
 
-    print(f'before, rxn  {reac}>>{prod}')
-    print(f'before, break reac  ', break_reac)
-    print(f'before, break prod  ', break_prod)
-    print(f'before, breaks', break_edges)
-    print(f'before, edits', edge_edit)
-
-    processed_syn = edit_to_synthons(
-        prod, break_edges,
-        {k: v[1] for k, v in edge_edit.items()}
-    )
-
-    if Chem.MolFromSmiles(processed_syn) is None:
+    syn_str = edit_to_synthons(prod, {k: v[1] for k, v in deltsE.items()})
+    if Chem.MolFromSmiles(syn_str) is None:
         print(f'[rxn] {reac}>>{prod}')
-        print(f'[breaks]', break_edges)
-        print(f'[edits]', edge_edit)
-        print(f'[broken reac] {break_reac}')
-        print(f'[broken prod] {break_prod}')
-        print(f'[result] {processed_syn}')
+        print(f'[edits]', deltsE)
+        print(f'[broken reac] {".".join(syns)}')
+        print(f'[result] {syn_str}')
         exit()
 
 
@@ -171,9 +152,6 @@ if __name__ == '__main__':
     #     all_atoms.update(get_all_atoms(prod))
 
     # print(all_atoms)
-    
+
     for idx, prod in enumerate(tqdm(train_prod)):
         qval_a_mole(train_rec[idx], prod)
-
-    
-

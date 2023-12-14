@@ -366,7 +366,7 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
 
     modified_atoms, deltaE = set(), {}
     for bond, (ftype, bidx) in prod_bonds.items():
-        if bond not in reac_bonds[bond]:
+        if bond not in reac_bonds:
             target = 0
         elif ftype == reac_bonds[bond][0]:
             continue
@@ -410,11 +410,11 @@ def edit_to_synthons(smi, edge_edits):
         old_types[(a_amap, b_amap)] = old_types[(b_amap, a_amap)] = \
             bond.GetBondTypeAsDouble()
 
+    old_ExpHs = {x.GetAtomMapNum(): x.GetNumExplicitHs() for x in mol.GetAtoms()}
     Chem.Kekulize(mol, True)
     # clear all the aromatic information, to avoid invalid breaking
 
     amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
-
     ke_old_bond_vals = {
         x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
         for x in mol.GetAtoms()
@@ -448,6 +448,7 @@ def edit_to_synthons(smi, edge_edits):
                 if end_atom.GetFormalCharge() == 1:
                     end_atom.SetFormalCharge(0)
                     end_atom.SetNumExplicitHs(0)
+    
 
     broken_smi = Chem.MolToSmiles(tmol.GetMol())
     broken_mol = Chem.MolFromSmiles(broken_smi)
@@ -457,13 +458,20 @@ def edit_to_synthons(smi, edge_edits):
 
     tmol = Chem.RWMol(broken_mol)
 
+    for atom in tmol.GetAtoms():
+        ax = atom.GetAtomMapNum()
+        atom.SetNumExplicitHs(old_ExpHs[ax])
+
+    tmol.UpdatePropertyCache()
+
     # reload the aromatic edges
+    # recover the num of explicit Hs, solve the conflict of exp atoms
 
     for (a, b), n_type in edge_edits.items():
         if n_type == old_types[(a, b)] or n_type == 0:
             continue
         assert n_type != 1.5, "Building aromatic bonds"
-        a_idx, b_idx = amap[a], amap[b]
+        a_idx, b_idx = broken_amap[a], broken_amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
         end_atom = tmol.GetAtomWithIdx(b_idx)
         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
