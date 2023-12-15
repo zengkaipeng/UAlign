@@ -412,8 +412,9 @@ def edit_to_synthons(smi, edge_edits):
         old_types[(a_amap, b_amap)] = old_types[(b_amap, a_amap)] = \
             bond.GetBondTypeAsDouble()
 
-    old_ExpHs = {x.GetAtomMapNum(): x.GetNumExplicitHs()
-                 for x in mol.GetAtoms()}
+    old_ExpHs = {
+        x.GetAtomMapNum(): x.GetNumExplicitHs() for x in mol.GetAtoms()
+    }
     Chem.Kekulize(mol, True)
     # clear all the aromatic information, to avoid invalid breaking
 
@@ -470,7 +471,7 @@ def edit_to_synthons(smi, edge_edits):
     # recover the num of explicit Hs, solve the conflict of exp atoms
 
     for (a, b), n_type in edge_edits.items():
-        if n_type == old_types[(a, b)] or n_type == 0:
+        if n_type == old_types.get((a, b), 0) or n_type == 0:
             continue
         assert n_type != 1.5, "Building aromatic bonds"
         a_idx, b_idx = broken_amap[a], broken_amap[b]
@@ -479,11 +480,12 @@ def edit_to_synthons(smi, edge_edits):
         a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
 
         tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[n_type])
+        modified_atoms.update((a, b))
 
-        if old_types[(a, b)] == 1 and n_type == 2 and a_sym == 'S'\
+        if old_types.get((a, b), 0) == 1 and n_type == 2 and a_sym == 'S'\
                 and b_sym == 'O' and end_atom.GetFormalCharge() == -1:
             end_atom.SetFormalCharge(0)
-        elif old_types[(a, b)] == 1 and n_type == 2 and a_sym == 'O'\
+        elif old_types.get((a, b), 0) == 1 and n_type == 2 and a_sym == 'O'\
                 and b_sym == 'S' and begin_atom.GetFormalCharge() == -1:
             begin_atom.SetFormalCharge(-1)
 
@@ -532,8 +534,67 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     new_mol = Chem.Mol(prod_mol)
     new_mol = Chem.CombineMols(new_mol, lg_mol)
 
-    
+    old_types = {}
+    for bond in new_mol.GetBonds():
+        a_atom, b_atom = bond.GetBeginAtom(), bond.GetEndAtom()
+        a_amap, b_amap = a_atom.GetAtomMapNum(), b_atom.GetAtomMapNum()
+        old_types[(a_amap, b_amap)] = old_types[(b_amap, a_amap)] = \
+            bond.GetBondTypeAsDouble()
 
+    old_ExpHs = {
+        x.GetAtomMapNum(): x.GetNumExplicitHs() for x in new_mol.GetAtoms()
+    }
+    Chem.Kekulize(new_mol, True)
+    # clear all the aromatic information, to avoid invalid breaking
+
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in new_mol.GetAtoms()}
+    ke_old_bond_vals = {
+        x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
+        for x in new_mol.GetAtoms()
+    }
+
+    tmol = Chem.RWMol(new_mol)
+
+    modified_atoms = set()
+
+    for (a, b), n_type in edge_edits.items():
+        if n_type == old_types[(a, b)]:
+            continue
+        a_idx, b_idx = amap[a], amap[b]
+        begin_atom = tmol.GetAtomWithIdx(a_idx)
+        end_atom = tmol.GetAtomWithIdx(b_idx)
+        a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
+        old_bond = tmol.GetBondBetweenAtoms(a_idx, b_idx)
+        if old_bond is not None:
+            tmol.RemoveBond(a_idx, b_idx)
+            modified_atoms.update((a, b))
+
+            if old_types[(a, b)] == 1 and a_sym == 'N' and b_sym == 'O':
+                if begin_atom.GetFormalCharge() == 1:
+                    begin_atom.SetFormalCharge(0)
+                    begin_atom.SetNumExplicitHs(0)
+                if end_atom.GetFormalCharge() == -1:
+                    end_atom.SetFormalCharge(0)
+            elif old_types[(a, b)] == 1 and a_sym == 'O' and b_sym == 'N':
+                if begin_atom.GetFormalCharge() == -1:
+                    begin_atom.SetFormalCharge(0)
+                if end_atom.GetFormalCharge() == 1:
+                    end_atom.SetFormalCharge(0)
+                    end_atom.SetNumExplicitHs(0)
+
+    broken_smi = Chem.MolToSmiles(tmol.GetMol())
+    broken_mol = Chem.MolFromSmiles(broken_smi)
+    broken_amap = {
+        x.GetAtomMapNum(): x.GetIdx() for x in broken_mol.GetAtoms()
+    }
+
+    tmol = Chem.RWMol(broken_mol)
+
+    for atom in tmol.GetAtoms():
+        ax = atom.GetAtomMapNum()
+        atom.SetNumExplicitHs(old_ExpHs[ax])
+
+    tmol.UpdatePropertyCache()
 
 
 if __name__ == '__main__':
