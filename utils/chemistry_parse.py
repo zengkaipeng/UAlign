@@ -358,6 +358,11 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
     prod_bonds = get_bond_info(prod_mol)
     reac_bonds = get_bond_info(reac_mol)
 
+    prod_amap_idx = {
+        atom.GetAtomMapNum(): atom.GetIdx()
+        for atom in prod_mol.GetAtoms()
+    }
+
     reac_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
         for atom in reac_mol.GetAtoms()
@@ -381,9 +386,11 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
             modified_atoms.update(bond)
 
     if consider_inner_bonds:
-        for bond, (ftype, bidx) in reac_bonds.items():
+        for bond in reac_bonds:
+            if bond[0] not in prod_amap_idx or bond[1] not in prod_amap_idx:
+                continue
             if bond not in prod_bonds:
-                deltaE[bond] = (0, ke_reac_bonds[ftype])
+                deltaE[bond] = (0, ke_reac_bonds[bond])
                 modified_atoms.update(bond)
 
     for atom in prod_mol.GetAtoms():
@@ -395,6 +402,58 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
             modified_atoms.add(amap_num)
 
     return modified_atoms, deltaE
+
+
+
+def save_N_aromatic(smi, old_types, edge_edits, modified_atoms):
+
+    def check_in(a, b, c, d):
+        if (b, c) in a and a[(b, c)] != d:
+            return True
+        if (c, b) in a and a[(c, b)] != d:
+            return True
+        return False
+
+    mol = Chem.MolFromSmiles(smi)
+    Chem.Kekulize(mol, True)
+    ke_old_bond_vals = {
+        x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
+        for x in mol.GetAtoms()
+    }
+
+    tmol = Chem.RWMol(mol)
+
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+
+    for ax in modified_atoms:
+        atom = tmol.GetAtomWithIdx(amap[ax])
+        if atom.GetSymbol() == 'N' and atom.GetFormalCharge() == 0:
+            ke_nei = []
+            for nei in atom.GetNeighbors():
+                if old_types[(ax, nei.GetAtomMapNum())] == 1.5 and \
+                    not check_in(edge_edits, ax, nei.GetAtomMapNum(), 1.5):
+                    ke_nei.append(nei)
+
+
+            if len(ke_nei) == 2 and ke_old_bond_vals[ax] == 2:
+                if ke_nei[0].GetSymbol() == 'C' and all(
+                    y.GetBondTypeAsDouble() != 2 for y in ke_nei[0].GetBonds()
+                ):
+                    nei = ke_nei[0]
+                    bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
+                    bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
+                    atom.SetNumExplicitHs(0)
+                    nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
+                elif ke_nei[1].GetSymbol() == 'C' and all(
+                    y.GetBondTypeAsDouble() != 2 for y in ke_nei[1].GetBonds()
+                ):
+                    nei = ke_nei[1]
+                    bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
+                    bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
+                    atom.SetNumExplicitHs(0)
+                    nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
+    mol = tmol.GetMol()
+    return Chem.MolToSmiles(mol)
 
 
 def edit_to_synthons(smi, edge_edits):
@@ -429,7 +488,7 @@ def edit_to_synthons(smi, edge_edits):
     modified_atoms = set()
 
     for (a, b), n_type in edge_edits.items():
-        if n_type == old_types[(a, b)]:
+        if n_type == old_types.get((a, b), 0):
             continue
         a_idx, b_idx = amap[a], amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
@@ -509,7 +568,9 @@ def edit_to_synthons(smi, edge_edits):
                 atom.SetNumExplicitHs(0)
 
     syn_mol = tmol.GetMol()
-    return Chem.MolToSmiles(syn_mol)
+    answer = Chem.MolToSmiles(syn_mol)
+    answer = save_N_aromatic(answer, old_types, edge_edits, modified_atoms)
+    return answer
 
 
 def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
@@ -596,7 +657,6 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
 
     tmol.UpdatePropertyCache()
 
-
     # reload the aromatic edges
     # recover the num of explicit Hs, solve the conflict of exp atoms
 
@@ -628,7 +688,6 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
         tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[v])
         modified_atoms.update((a, b))
 
-
     for ax in modified_atoms:
         atom = tmol.GetAtomWithIdx(broken_amap[ax])
         curr_bv = sum(y.GetBondTypeAsDouble() for y in atom.GetBonds())
@@ -641,11 +700,9 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             curr_hs = atom.GetNumExplicitHs() + delt_amap
             atom.SetNumExplicitHs(curr_hs)
 
-
     Chem.Kekulize(tmol, False)
-    raise NotImplementedError('pending here, charge and hs correcting not done')
-    
-
+    raise NotImplementedError(
+        'pending here, charge and hs correcting not done')
 
 
 if __name__ == '__main__':
@@ -770,3 +827,24 @@ def get_block(reactants):
             amap2block[x.GetAtomMapNum()] = idx
 
     return amap2block
+
+
+def eval_by_atom_bond(smi1, smi2):
+    mol1, mol2 = get_mol(smi1), get_mol(smi2)
+    ke_mol1 = get_mol(smi1, kekulize=True)
+    ke_mol2 = get_mol(smi2, kekulize=True)
+
+    bond1 = get_bond_info(mol1)
+    bond2 = get_bond_info(mol2)
+    ke_bond1 = get_bond_info(ke_mol1)
+    ke_bond2 = get_bond_info(ke_mol2)
+
+    if set(bond1.keys()) != set(bond2.keys()):
+        return False
+
+    for k, v in bond1.items():
+        if v[0] != bond2[k][0] and ke_bond1[k][0] != ke_bond2[k][0]:
+            # print('die', k, ke_bond1[k][0], ke_bond2[k][0])
+            return False
+
+    return True

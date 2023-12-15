@@ -5,7 +5,8 @@ from utils.chemistry_parse import clear_map_number
 from tqdm import tqdm
 from utils.chemistry_parse import (
     get_synthon_edits, get_leaving_group_synthon,
-    break_fragements, edit_to_synthons
+    break_fragements, edit_to_synthons, canonical_smiles,
+    eval_by_atom_bond
 )
 
 
@@ -76,20 +77,36 @@ def check_rules(smi):
 
 def qval_a_mole(reac, prod):
     lgs, syns, conn_edges = get_leaving_group_synthon(
-        prod, reac, consider_inner_bonds=False
+        prod, reac, consider_inner_bonds=True
     )
 
     modified_atoms, deltsE = get_synthon_edits(
-        reac, prod, consider_inner_bonds=False
+        reac, prod, consider_inner_bonds=True
     )
 
+
+    print(f'{reac}>>{prod}')
+    
     syn_str = edit_to_synthons(prod, {k: v[1] for k, v in deltsE.items()})
+
+
     if Chem.MolFromSmiles(syn_str) is None:
         print(f'[rxn] {reac}>>{prod}')
         print(f'[edits]', deltsE)
         print(f'[broken reac] {".".join(syns)}')
         print(f'[result] {syn_str}')
         exit()
+
+    syn_str = canonical_smiles(syn_str)
+    syns = canonical_smiles('.'.join(syns))
+
+    if syn_str != syns and not eval_by_atom_bond(syns, syn_str):
+        print(f'[rxn] {reac}>>{prod}')
+        print(f'[gt]  {syns}')
+        print(f'[edt] {syn_str}')
+        exit()
+
+
 
 
 if __name__ == '__main__':
