@@ -597,6 +597,57 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     tmol.UpdatePropertyCache()
 
 
+    # reload the aromatic edges
+    # recover the num of explicit Hs, solve the conflict of exp atoms
+
+    for (a, b), n_type in edge_edits.items():
+        if n_type == old_types.get((a, b), 0) or n_type == 0:
+            continue
+        assert n_type != 1.5, "Building aromatic bonds"
+        a_idx, b_idx = broken_amap[a], broken_amap[b]
+        begin_atom = tmol.GetAtomWithIdx(a_idx)
+        end_atom = tmol.GetAtomWithIdx(b_idx)
+        a_sym, b_sym = begin_atom.GetSymbol(), end_atom.GetSymbol()
+
+        tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[n_type])
+        modified_atoms.update((a, b))
+
+        if old_types.get((a, b), 0) == 1 and n_type == 2 and a_sym == 'S'\
+                and b_sym == 'O' and end_atom.GetFormalCharge() == -1:
+            end_atom.SetFormalCharge(0)
+        elif old_types.get((a, b), 0) == 1 and n_type == 2 and a_sym == 'O'\
+                and b_sym == 'S' and begin_atom.GetFormalCharge() == -1:
+            begin_atom.SetFormalCharge(-1)
+
+    for (a, b), v in real_conns.items():
+        assert v != 1.5, "Building aromatic bonds"
+        a_idx, b_idx = broken_amap[a], broken_amap[b]
+        begin_atom = tmol.GetAtomWithIdx(a_idx)
+        end_atom = tmol.GetAtomWithIdx(b_idx)
+
+        tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[v])
+        modified_atoms.update((a, b))
+
+
+    for ax in modified_atoms:
+        atom = tmol.GetAtomWithIdx(broken_amap[ax])
+        curr_bv = sum(y.GetBondTypeAsDouble() for y in atom.GetBonds())
+        if curr_bv >= ke_old_bond_vals[ax]:
+            delta = curr_bv - ke_old_bond_vals[ax]
+            curr_hs = int(max(0, atom.GetNumExplicitHs() - delta))
+            atom.SetNumExplicitHs(curr_hs)
+        else:
+            delta = ke_old_bond_vals[ax] - curr_bv
+            curr_hs = atom.GetNumExplicitHs() + delt_amap
+            atom.SetNumExplicitHs(curr_hs)
+
+
+    Chem.Kekulize(tmol, False)
+    raise NotImplementedError('pending here, charge and hs correcting not done')
+    
+
+
+
 if __name__ == '__main__':
     with open('test_examples.txt') as Fin:
         content = Fin.readlines()
