@@ -37,6 +37,8 @@ ATOM_REMAP = {
 
 ACHANGE_TO_IDX = {0: 0, 1: 1, 2: 2, 3: 3, -1: 4, -2: 5, - 3: 6}
 
+MAX_VALENCE = {'N': 3, 'C': 4, 'O': 2, 'Br': 1, 'Cl': 1, 'F': 1, 'I': 1}
+
 
 def get_all_amap(smi):
     mol = Chem.MolFromSmiles(smi)
@@ -390,7 +392,7 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
             if bond[0] not in prod_amap_idx or bond[1] not in prod_amap_idx:
                 continue
             if bond not in prod_bonds:
-                deltaE[bond] = (0, ke_reac_bonds[bond])
+                deltaE[bond] = (0, ke_reac_bonds[bond][0])
                 modified_atoms.update(bond)
 
     for atom in prod_mol.GetAtoms():
@@ -404,56 +406,55 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
     return modified_atoms, deltaE
 
 
+# def save_N_aromatic(smi, old_types, edge_edits, modified_atoms):
 
-def save_N_aromatic(smi, old_types, edge_edits, modified_atoms):
+#     def check_in(a, b, c, d):
+#         if (b, c) in a and a[(b, c)] != d:
+#             return True
+#         if (c, b) in a and a[(c, b)] != d:
+#             return True
+#         return False
 
-    def check_in(a, b, c, d):
-        if (b, c) in a and a[(b, c)] != d:
-            return True
-        if (c, b) in a and a[(c, b)] != d:
-            return True
-        return False
+#     mol = Chem.MolFromSmiles(smi)
+#     Chem.Kekulize(mol, True)
+#     ke_old_bond_vals = {
+#         x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
+#         for x in mol.GetAtoms()
+#     }
 
-    mol = Chem.MolFromSmiles(smi)
-    Chem.Kekulize(mol, True)
-    ke_old_bond_vals = {
-        x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
-        for x in mol.GetAtoms()
-    }
+#     tmol = Chem.RWMol(mol)
 
-    tmol = Chem.RWMol(mol)
+#     amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
 
-    amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
-
-    for ax in modified_atoms:
-        atom = tmol.GetAtomWithIdx(amap[ax])
-        if atom.GetSymbol() == 'N' and atom.GetFormalCharge() == 0:
-            ke_nei = []
-            for nei in atom.GetNeighbors():
-                if old_types[(ax, nei.GetAtomMapNum())] == 1.5 and \
-                    not check_in(edge_edits, ax, nei.GetAtomMapNum(), 1.5):
-                    ke_nei.append(nei)
+#     for ax in modified_atoms:
+#         atom = tmol.GetAtomWithIdx(amap[ax])
+#         if atom.GetSymbol() == 'N' and atom.GetFormalCharge() == 0:
+#             ke_nei = []
+#             for nei in atom.GetNeighbors():
+#                 if old_types.get((ax, nei.GetAtomMapNum()), 0) == 1.5 and \
+#                     not check_in(edge_edits, ax, nei.GetAtomMapNum(), 1.5):
+#                     ke_nei.append(nei)
 
 
-            if len(ke_nei) == 2 and ke_old_bond_vals[ax] == 2:
-                if ke_nei[0].GetSymbol() == 'C' and all(
-                    y.GetBondTypeAsDouble() != 2 for y in ke_nei[0].GetBonds()
-                ):
-                    nei = ke_nei[0]
-                    bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
-                    bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
-                    atom.SetNumExplicitHs(0)
-                    nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
-                elif ke_nei[1].GetSymbol() == 'C' and all(
-                    y.GetBondTypeAsDouble() != 2 for y in ke_nei[1].GetBonds()
-                ):
-                    nei = ke_nei[1]
-                    bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
-                    bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
-                    atom.SetNumExplicitHs(0)
-                    nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
-    mol = tmol.GetMol()
-    return Chem.MolToSmiles(mol)
+#             if len(ke_nei) == 2 and ke_old_bond_vals[ax] == 2:
+#                 if ke_nei[0].GetSymbol() == 'C' and all(
+#                     y.GetBondTypeAsDouble() != 2 for y in ke_nei[0].GetBonds()
+#                 ):
+#                     nei = ke_nei[0]
+#                     bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
+#                     bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
+#                     atom.SetNumExplicitHs(0)
+#                     nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
+#                 elif ke_nei[1].GetSymbol() == 'C' and all(
+#                     y.GetBondTypeAsDouble() != 2 for y in ke_nei[1].GetBonds()
+#                 ):
+#                     nei = ke_nei[1]
+#                     bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
+#                     bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
+#                     atom.SetNumExplicitHs(0)
+#                     nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
+#     mol = tmol.GetMol()
+#     return Chem.MolToSmiles(mol)
 
 
 def edit_to_synthons(smi, edge_edits):
@@ -568,15 +569,13 @@ def edit_to_synthons(smi, edge_edits):
                 atom.SetNumExplicitHs(0)
 
     syn_mol = tmol.GetMol()
-    answer = Chem.MolToSmiles(syn_mol)
-    answer = save_N_aromatic(answer, old_types, edge_edits, modified_atoms)
-    return answer
+    return Chem.MolToSmiles(syn_mol)
 
 
 def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     prod_mol = Chem.MolFromSmiles(prod_smi)
     lg_mol = Chem.MolFromSmiles(lgs)
-    if lg_mol is Nont or prod_mol is None:
+    if lg_mol is None or prod_mol is None:
         raise ValueError(f'Invalid Smiles passed, {prod_smi}\n{lgs}')
 
     assert all(x.GetAtomMapNum() != 0 for x in prod_mol.GetAtoms()), \
@@ -701,8 +700,50 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             atom.SetNumExplicitHs(curr_hs)
 
     Chem.Kekulize(tmol, False)
-    raise NotImplementedError(
-        'pending here, charge and hs correcting not done')
+
+    for atom in tmol.GetAtoms():
+        if atom.GetSymbol() == 'C':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals >= MAX_VALENCE['C']:
+                atom.SetNumExplicitHs(0)
+                atom.SetFormalCharge(int(bond_vals - MAX_VALENCE['C']))
+
+            elif bond_vals < MAX_VALENCE['C']:
+                atom.SetNumExplicitHs(int(MAX_VALENCE['C'] - bond_vals))
+                atom.SetFormalCharge(0)
+        elif atom.GetSymbol() == 'S':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals in [2, 4, 6]:
+                atom.SetFormalCharge(0)
+                atom.SetNumExplicitHs(0)
+
+        elif atom.GetSymbol() == 'Sn':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals >= 4:
+                atom.SetNumExplicitHs(0)
+        elif atom.GetSymbol() == 'O':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals >= MAX_VALENCE['O']:
+                atom.SetNumExplicitHs(0)
+            elif bond_vals == 0:
+                atom.SetNumExplicitHs(2)
+            elif bond_vals < MAX_VALENCE['O'] and atom.GetFormalCharge() != -1:
+                atom.SetNumExplicitHs(int(MAX_VALENCE['O'] - bond_vals))
+                atom.SetFormalCharge(0)
+        elif atom.GetSymbol() == 'B':
+            bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]
+            if len(bond_vals) == 4 and sum(bond_vals) == 4:
+                atom.SetFormalCharge(-1)
+                atom.SetNumExplicitHs(0)
+            elif sum(bond_vals) >= 3:
+                atom.SetNumExplicitHs(0)
+        elif atom.GetSymbol() in ['Br', 'Cl', 'I', 'F']:
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if bond_vals >= MAX_VALENCE[atom.GetSymbol()]:
+                atom.SetNumExplicitHs(0)
+
+    reac_smi = Chem.MolToSmiles(tmol.GetMol())
+    return reac_smi
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ from tqdm import tqdm
 from utils.chemistry_parse import (
     get_synthon_edits, get_leaving_group_synthon,
     break_fragements, edit_to_synthons, canonical_smiles,
-    eval_by_atom_bond
+    eval_by_atom_bond, get_reactants_from_edits
 )
 
 
@@ -84,11 +84,9 @@ def qval_a_mole(reac, prod):
         reac, prod, consider_inner_bonds=True
     )
 
+    # print(f'{reac}>>{prod}')
 
-    print(f'{reac}>>{prod}')
-    
     syn_str = edit_to_synthons(prod, {k: v[1] for k, v in deltsE.items()})
-
 
     if Chem.MolFromSmiles(syn_str) is None:
         print(f'[rxn] {reac}>>{prod}')
@@ -100,13 +98,17 @@ def qval_a_mole(reac, prod):
     syn_str = canonical_smiles(syn_str)
     syns = canonical_smiles('.'.join(syns))
 
-    if syn_str != syns and not eval_by_atom_bond(syns, syn_str):
+    reactants = get_reactants_from_edits(
+        prod_smi=prod, edge_edits={k: v[1] for k, v in deltsE.items()},
+        lgs='.'.join(lgs), conns=conn_edges
+    )
+
+    if Chem.MolFromSmiles(reactants) is None:
         print(f'[rxn] {reac}>>{prod}')
-        print(f'[gt]  {syns}')
-        print(f'[edt] {syn_str}')
+        print(f'[edits]', deltsE)
+        print(f'[broken reac] {".".join(syns)}')
+        print(f'[result] {reactants}')
         exit()
-
-
 
 
 if __name__ == '__main__':
@@ -172,3 +174,17 @@ if __name__ == '__main__':
 
     for idx, prod in enumerate(tqdm(train_prod)):
         qval_a_mole(train_rec[idx], prod)
+
+    # for idx , prod in enumerate(tqdm(train_prod)):
+    #     mol1 = Chem.MolFromSmiles(prod)
+    #     for atom in mol1.GetAtoms():
+    #         if atom.GetIsAromatic() and atom.GetSymbol() == 'N':
+    #             bv = sum(x.GetBondTypeAsDouble() for x in atom.GetBonds())
+    #             if bv == 4:
+    #                 print(prod, '   ', atom.GetAtomMapNum())
+    #     mol2 = Chem.MolFromSmiles(train_rec[idx])
+    #     for atom in mol2.GetAtoms():
+    #         if atom.GetIsAromatic() and atom.GetSymbol() == 'N':
+    #             bv = sum(x.GetBondTypeAsDouble() for x in atom.GetBonds())
+    #             if bv == 4:
+    #                 print(train_rec[idx], '   ', atom.GetAtomMapNum())
