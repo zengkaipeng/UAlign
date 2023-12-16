@@ -581,7 +581,7 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     assert all(x.GetAtomMapNum() != 0 for x in prod_mol.GetAtoms()), \
         'atom mapping are required for editing the mol'
 
-    max_amap = max(x.GetAtomMapNum() for x in prod_mol)
+    max_amap = max(x.GetAtomMapNum() for x in prod_mol.GetAtoms())
     delt_amap = max_amap + 100
 
     real_conns = {(x, y + delt_amap): v for (x, y), v in conns.items()}
@@ -618,7 +618,7 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     modified_atoms = set()
 
     for (a, b), n_type in edge_edits.items():
-        if n_type == old_types[(a, b)]:
+        if n_type == old_types.get((a, b), 0):
             continue
         a_idx, b_idx = amap[a], amap[b]
         begin_atom = tmol.GetAtomWithIdx(a_idx)
@@ -633,14 +633,18 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
                 if begin_atom.GetFormalCharge() == 1:
                     begin_atom.SetFormalCharge(0)
                     begin_atom.SetNumExplicitHs(0)
+                    ke_old_bond_vals[a] -= 1
                 if end_atom.GetFormalCharge() == -1:
                     end_atom.SetFormalCharge(0)
+                    ke_old_bond_vals[b] += 1
             elif old_types[(a, b)] == 1 and a_sym == 'O' and b_sym == 'N':
                 if begin_atom.GetFormalCharge() == -1:
                     begin_atom.SetFormalCharge(0)
+                    ke_old_bond_vals[a] += 1
                 if end_atom.GetFormalCharge() == 1:
                     end_atom.SetFormalCharge(0)
                     end_atom.SetNumExplicitHs(0)
+                    ke_old_bond_vals[b] -= 1
 
     broken_smi = Chem.MolToSmiles(tmol.GetMol())
     broken_mol = Chem.MolFromSmiles(broken_smi)
@@ -696,25 +700,53 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             atom.SetNumExplicitHs(curr_hs)
         else:
             delta = ke_old_bond_vals[ax] - curr_bv
-            curr_hs = atom.GetNumExplicitHs() + delt_amap
+            curr_hs = int(atom.GetNumExplicitHs() + delta)
             atom.SetNumExplicitHs(curr_hs)
 
-    Chem.Kekulize(tmol, False)
 
     for atom in tmol.GetAtoms():
         if atom.GetSymbol() == 'C':
             bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
-            if bond_vals >= MAX_VALENCE['C']:
-                atom.SetNumExplicitHs(0)
-                atom.SetFormalCharge(int(bond_vals - MAX_VALENCE['C']))
+            nei_sym = [nei.GetSymbol() for nei in atom.GetNeighbors()]
+            check1 = 'O' in nei_sym and 'N' in nei_sym and \
+                atom.GetIsAromatic() and len(atom.GetBonds()) == 3
 
-            elif bond_vals < MAX_VALENCE['C']:
-                atom.SetNumExplicitHs(int(MAX_VALENCE['C'] - bond_vals))
-                atom.SetFormalCharge(0)
+            check2 = 'O' in nei_sym and len(atom.GetBonds()) == 3 \
+                and atom.GetIsAromatic()
+
+            check3 = 'N' in nei_sym and len(atom.GetBonds()) == 3 \
+                and atom.GetIsAromatic()
+            check4 = 'S' in nei_sym and len(atom.GetBonds()) == 3 \
+                and atom.GetIsAromatic()
+
+            if check1 or check2 or check3 or check4:
+                if bond_vals >= MAX_VALENCE['C']:
+                    atom.SetNumExplicitHs(0)
+            else:
+                if bond_vals >= MAX_VALENCE['C']:
+                    atom.SetNumExplicitHs(0)
+                    atom.SetFormalCharge(int(bond_vals - MAX_VALENCE['C']))
+                else:
+                    atom.SetNumExplicitHs(int(MAX_VALENCE['C'] - bond_vals))
+                    atom.SetFormalCharge(0)
+
+        elif atom.GetSymbol() == 'N':
+            bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
+            if not atom.GetIsAromatic():
+                if bond_vals >= MAX_VALENCE['N']:
+                    atom.SetNumExplicitHs(0)
+                    atom.SetFormalCharge(int(bond_vals - MAX_VALENCE['N']))
+            elif atom.GetFormalCharge() == 1:
+                if bond_vals == MAX_VALENCE['N']:
+                    atom.SetFormalCharge(0)
+                    atom.SetNumExplicitHs(0)
+
         elif atom.GetSymbol() == 'S':
             bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
-            if bond_vals in [2, 4, 6]:
+            if not atom.GetIsAromatic() and bond_vals in [2, 4, 6]:
                 atom.SetFormalCharge(0)
+                atom.SetNumExplicitHs(0)
+            elif atom.GetIsAromatic() and bond_vals in [3, 5]:
                 atom.SetNumExplicitHs(0)
 
         elif atom.GetSymbol() == 'Sn':
@@ -742,8 +774,8 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             if bond_vals >= MAX_VALENCE[atom.GetSymbol()]:
                 atom.SetNumExplicitHs(0)
 
-    reac_smi = Chem.MolToSmiles(tmol.GetMol())
-    return reac_smi
+    reac_mol = tmol.GetMol()
+    return Chem.MolToSmiles(reac_mol)
 
 
 if __name__ == '__main__':

@@ -98,6 +98,11 @@ def qval_a_mole(reac, prod):
     syn_str = canonical_smiles(syn_str)
     syns = canonical_smiles('.'.join(syns))
 
+    # print(f'[rxn] {reac}>>{prod}')
+    # print(f'[edits]', deltsE)
+    # print(f'[conn]', conn_edges)
+    # print(f'[lgs]', '.'.join(lgs))
+
     reactants = get_reactants_from_edits(
         prod_smi=prod, edge_edits={k: v[1] for k, v in deltsE.items()},
         lgs='.'.join(lgs), conns=conn_edges
@@ -106,7 +111,7 @@ def qval_a_mole(reac, prod):
     if Chem.MolFromSmiles(reactants) is None:
         print(f'[rxn] {reac}>>{prod}')
         print(f'[edits]', deltsE)
-        print(f'[broken reac] {".".join(syns)}')
+        print(f'[lgs]', '.'.join(lgs))
         print(f'[result] {reactants}')
         exit()
 
@@ -175,16 +180,8 @@ if __name__ == '__main__':
     for idx, prod in enumerate(tqdm(train_prod)):
         qval_a_mole(train_rec[idx], prod)
 
-    # for idx , prod in enumerate(tqdm(train_prod)):
-    #     mol1 = Chem.MolFromSmiles(prod)
-    #     for atom in mol1.GetAtoms():
-    #         if atom.GetIsAromatic() and atom.GetSymbol() == 'N':
-    #             bv = sum(x.GetBondTypeAsDouble() for x in atom.GetBonds())
-    #             if bv == 4:
-    #                 print(prod, '   ', atom.GetAtomMapNum())
-    #     mol2 = Chem.MolFromSmiles(train_rec[idx])
-    #     for atom in mol2.GetAtoms():
-    #         if atom.GetIsAromatic() and atom.GetSymbol() == 'N':
-    #             bv = sum(x.GetBondTypeAsDouble() for x in atom.GetBonds())
-    #             if bv == 4:
-    #                 print(train_rec[idx], '   ', atom.GetAtomMapNum())
+    for idx, prod in enumerate(tqdm(val_prod)):
+        qval_a_mole(val_rec[idx], prod)
+
+    for idx, prod in enumerate(tqdm(test_prod)):
+        qval_a_mole(test_rec[idx], prod)
