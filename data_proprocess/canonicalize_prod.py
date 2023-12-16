@@ -11,88 +11,54 @@ import pandas as pd
 from rdkit import Chem
 
 
-def canonicalize_prod(p):
-    import copy
-    p = copy.deepcopy(p)
-    p = canonicalize(p)
+def add_all_amap(rxn_smi):
+    r, p = rxn.split('>>')
     p_mol = Chem.MolFromSmiles(p)
-    for atom in p_mol.GetAtoms():
-        atom.SetAtomMapNum(atom.GetIdx() + 1)
-    p = Chem.MolToSmiles(p_mol)
-    return p
+    r_mol = Chem.MolFromSmiles(r)
 
-
-def remove_amap_not_in_product(rxn_smi):
-    """
-    Corrects the atom map numbers of atoms only in reactants. 
-    This correction helps avoid the issue of duplicate atom mapping
-    after the canonicalization step.
-    """
-    r, p = rxn_smi.split(">>")
-
-    pmol = Chem.MolFromSmiles(p)
-    pmol_amaps = set([atom.GetAtomMapNum() for atom in pmol.GetAtoms()])
-    # Atoms only in reactants are labelled starting with max_amap
+    pmol_amaps = [x.GetAtomMapNum() for x in p_mol.GetAtoms()]
+    pre_len = len(pmol_amaps)
+    pmol_amaps = set(pmol_amaps)
+    assert len(pmol_amaps) == pre_len and 0 not in pmol_amaps, \
+        'Invalid atom mapping in the meta data'
     max_amap = max(pmol_amaps)
 
-    rmol = Chem.MolFromSmiles(r)
-
-    for atom in rmol.GetAtoms():
+    for atom in r_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
         if amap_num not in pmol_amaps:
             atom.SetAtomMapNum(max_amap + 1)
             max_amap += 1
-
-    r_updated = Chem.MolToSmiles(rmol)
-    rxn_smi_updated = r_updated + ">>" + p
-    return rxn_smi_updated
+    r_update = Chem.MolToSmiles(r_mol)
+    return f"{r_update}>>{p}"
 
 
-def canonicalize(smiles):
-    try:
-        tmp = Chem.MolFromSmiles(smiles)
-    except:
-        print('no mol', flush=True)
-        return smiles
-    if tmp is None:
-        return smiles
-    tmp = Chem.RemoveHs(tmp)
-    [a.ClearProp('molAtomMapNumber') for a in tmp.GetAtoms()]
-    return Chem.MolToSmiles(tmp)
-
-
-def infer_correspondence(p):
-    orig_mol = Chem.MolFromSmiles(p)
-    canon_mol = Chem.MolFromSmiles(canonicalize_prod(p))
-    matches = list(canon_mol.GetSubstructMatches(orig_mol))[0]
-    idx_amap = {
-        atom.GetIdx(): atom.GetAtomMapNum()
-        for atom in orig_mol.GetAtoms()
-    }
-
-    correspondence = {}
-    for idx, match_idx in enumerate(matches):
-        match_anum = canon_mol.GetAtomWithIdx(match_idx).GetAtomMapNum()
-        old_anum = idx_amap[idx]
-        correspondence[old_anum] = match_anum
-    return correspondence
-
-
-def remap_rxn_smi(rxn_smi):
-    r, p = rxn_smi.split(">>")
-    canon_mol = Chem.MolFromSmiles(canonicalize_prod(p))
-    correspondence = infer_correspondence(p)
-
+def remap_amap(rxn_smi):
+    r, p = rxn_smi.split('>>')
+    amap_remap = {}
+    pmol = Chem.MolFromSmiles(p)
     rmol = Chem.MolFromSmiles(r)
-    for atom in rmol.GetAtoms():
-        atomnum = atom.GetAtomMapNum()
-        if atomnum in correspondence:
-            newatomnum = correspondence[atomnum]
-            atom.SetAtomMapNum(newatomnum)
 
-    rmol = Chem.MolFromSmiles(Chem.MolToSmiles(rmol))
-    rxn_smi_new = Chem.MolToSmiles(rmol) + ">>" + Chem.MolToSmiles(canon_mol)
-    return rxn_smi_new, correspondence
+    for atom in pmol.GetAtoms():
+        xnum = atom.GetAtomMapNum()
+        if xnum not in amap_remap:
+            amap_remap[xnum] = len(amap_remap) + 1
+
+    for atom in rmol.GetAtoms():
+        xnum = atom.GetAtomMapNum()
+        if xnum not in amap_remap:
+            amap_remap[xnum] = len(amap_remap) + 1
+
+    for atom in pmol.GetAtoms():
+        xnum = atom.GetAtomMapNum()
+        atom.SetAtomMapNum(amap_remap[xnum])
+
+    for atom in rmol.GetAtoms():
+        xnum = atom.GetAtomMapNum()
+        atom.SetAtomMapNum(amap_remap[xnum])
+
+    r_update = Chem.MolToSmiles(rmol)
+    p_update = CHem.MolToSmiles(pmol)
+    return f"{r_update}>>{p_update}"
 
 
 def main():
@@ -116,11 +82,11 @@ def main():
         uspto_id, class_id = element['id'], element['class']
         rxn_smi = element['reactants>reagents>production']
 
-        rxn_smi_new = remove_amap_not_in_product(rxn_smi)
-        rxn_smi_new, _ = remap_rxn_smi(rxn_smi_new)
+        rxn_new = add_all_amap(rxn_smi)
+        rxn_new = remap_amap(rxn_new)
         new_dict['id'].append(uspto_id)
         new_dict['class'].append(class_id)
-        new_dict['reactants>reagents>production'].append(rxn_smi_new)
+        new_dict['reactants>reagents>production'].append(rxn_new)
 
     new_df = pd.DataFrame.from_dict(new_dict)
     new_df.to_csv(f"{file_dir}/{new_file}", index=False)

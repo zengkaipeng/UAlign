@@ -689,7 +689,7 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
         end_atom = tmol.GetAtomWithIdx(b_idx)
 
         tmol.AddBond(a_idx, b_idx, BOND_FLOAT_TO_TYPE[v])
-        modified_atoms.update((a, b))
+        modified_atoms.add(a)
 
     for ax in modified_atoms:
         atom = tmol.GetAtomWithIdx(broken_amap[ax])

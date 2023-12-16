@@ -6,8 +6,10 @@ from tqdm import tqdm
 from utils.chemistry_parse import (
     get_synthon_edits, get_leaving_group_synthon,
     break_fragements, edit_to_synthons, canonical_smiles,
-    eval_by_atom_bond, get_reactants_from_edits
+    eval_by_atom_bond, get_reactants_from_edits,
+    clear_map_number
 )
+import json
 
 
 def check_n_pos(smi):
@@ -75,7 +77,7 @@ def check_rules(smi):
                 f"Invalid O:{atom.GetAtomMapNum()} of smiles {smi}"
 
 
-def qval_a_mole(reac, prod):
+def qval_a_mole(reac, prod, all_res):
     lgs, syns, conn_edges = get_leaving_group_synthon(
         prod, reac, consider_inner_bonds=True
     )
@@ -87,13 +89,6 @@ def qval_a_mole(reac, prod):
     # print(f'{reac}>>{prod}')
 
     syn_str = edit_to_synthons(prod, {k: v[1] for k, v in deltsE.items()})
-
-    if Chem.MolFromSmiles(syn_str) is None:
-        print(f'[rxn] {reac}>>{prod}')
-        print(f'[edits]', deltsE)
-        print(f'[broken reac] {".".join(syns)}')
-        print(f'[result] {syn_str}')
-        exit()
 
     syn_str = canonical_smiles(syn_str)
     syns = canonical_smiles('.'.join(syns))
@@ -108,12 +103,19 @@ def qval_a_mole(reac, prod):
         lgs='.'.join(lgs), conns=conn_edges
     )
 
-    if Chem.MolFromSmiles(reactants) is None:
-        print(f'[rxn] {reac}>>{prod}')
-        print(f'[edits]', deltsE)
-        print(f'[lgs]', '.'.join(lgs))
-        print(f'[result] {reactants}')
-        exit()
+    answer1 = clear_map_number(reac)
+    answer2 = clear_map_number(reactants)
+
+    if answer1 != answer2:
+        all_res.append({
+            'rxn': f"{reac}>>{prod}",
+            'edit': {f'{a}_{b}': v for (a, b), v in deltsE.items()},
+            'syn_str': syn_str,
+            'syn_gt': syns,
+            'result': answer2,
+            'reactants': answer1,
+            'lg': '.'.join(lgs)
+        })
 
 
 if __name__ == '__main__':
@@ -177,11 +179,23 @@ if __name__ == '__main__':
 
     # print(all_atoms)
 
+    x_all_res = []
     for idx, prod in enumerate(tqdm(train_prod)):
-        qval_a_mole(train_rec[idx], prod)
+        qval_a_mole(train_rec[idx], prod, x_all_res)
+
+    print(len(x_all_res))
 
     for idx, prod in enumerate(tqdm(val_prod)):
-        qval_a_mole(val_rec[idx], prod)
+        qval_a_mole(val_rec[idx], prod, x_all_res)
+
+    print(len(x_all_res))
 
     for idx, prod in enumerate(tqdm(test_prod)):
-        qval_a_mole(test_rec[idx], prod)
+        qval_a_mole(test_rec[idx], prod, x_all_res)
+
+    print(len(x_all_res))
+
+    with open('unmatch.json', 'w') as Fout:
+        json.dump(x_all_res, Fout, indent=4)
+
+    print(len(x_all_res))
