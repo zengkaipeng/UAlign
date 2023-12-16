@@ -703,7 +703,6 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             curr_hs = int(atom.GetNumExplicitHs() + delta)
             atom.SetNumExplicitHs(curr_hs)
 
-
     for atom in tmol.GetAtoms():
         if atom.GetSymbol() == 'C':
             bond_vals = sum([x.GetBondTypeAsDouble() for x in atom.GetBonds()])
@@ -919,5 +918,37 @@ def eval_by_atom_bond(smi1, smi2):
         if v[0] != bond2[k][0] and ke_bond1[k][0] != ke_bond2[k][0]:
             # print('die', k, ke_bond1[k][0], ke_bond2[k][0])
             return False
+
+    return True
+
+
+def check_aron(smi):
+    mol = get_mol(smi)
+    aron_atoms = {
+        x.GetAtomMapNum() for x in mol.GetAtoms()
+        if x.GetIsAromatic()
+    }
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
+
+    old_bonds = get_bond_info(mol)
+    ke_vals = {}
+
+    Chem.Kekulize(mol, True)
+    new_bonds = get_bond_info(mol)
+
+    for (a, b), (c, d) in old_bonds.items():
+        if c == 1.5:
+            ke_vals[a] = new_bonds[(a, b)][0] + ke_vals.get(a, 0)
+            ke_vals[b] = new_bonds[(a, b)][0] + ke_vals.get(b, 0)
+
+    for x in aron_atoms:
+        if ke_vals[x] >= 3:
+            continue
+        atom = mol.GetAtomWithIdx(amap[x])
+        for y in atom.GetNeighbors():
+            key_pair = tuple(sorted((x, y.GetAtomMapNum())))
+            if old_bonds[key_pair][0] == 1.5 and ke_vals[y.GetAtomMapNum()] < 3:
+                print(x, y.GetAtomMapNum())
+                return False
 
     return True

@@ -9,10 +9,11 @@ import os
 import argparse
 import pandas as pd
 from rdkit import Chem
+from tqdm import tqdm
 
 
 def add_all_amap(rxn_smi):
-    r, p = rxn.split('>>')
+    r, p = rxn_smi.split('>>')
     p_mol = Chem.MolFromSmiles(p)
     r_mol = Chem.MolFromSmiles(r)
 
@@ -57,7 +58,7 @@ def remap_amap(rxn_smi):
         atom.SetAtomMapNum(amap_remap[xnum])
 
     r_update = Chem.MolToSmiles(rmol)
-    p_update = CHem.MolToSmiles(pmol)
+    p_update = Chem.MolToSmiles(pmol)
     return f"{r_update}>>{p_update}"
 
 
@@ -77,7 +78,7 @@ def main():
     print(f"Processing file of size: {len(df)}")
 
     new_dict = {'id': [], 'class': [], 'reactants>reagents>production': []}
-    for idx in range(len(df)):
+    for idx in tqdm(range(len(df))):
         element = df.loc[idx]
         uspto_id, class_id = element['id'], element['class']
         rxn_smi = element['reactants>reagents>production']

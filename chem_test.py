@@ -7,9 +7,29 @@ from utils.chemistry_parse import (
     get_synthon_edits, get_leaving_group_synthon,
     break_fragements, edit_to_synthons, canonical_smiles,
     eval_by_atom_bond, get_reactants_from_edits,
-    clear_map_number
+    clear_map_number, check_aron
 )
 import json
+from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
+
+
+def get_isomers(smi):
+    mol = Chem.MolFromSmiles(smi)
+    isomers = tuple(EnumerateStereoisomers(mol))
+    isomers_smi = [Chem.MolToSmiles(x, isomericSmiles=True) for x in isomers]
+    return isomers_smi
+
+
+def isomer_match(pred, true):
+    true_isomers = get_isomers(true)
+    pred_isomers = get_isomers(pred)
+    try:
+        if set(pred_isomers).issubset(set(true_isomers)) or \
+                set(true_isomers).issubset(set(pred_isomers)):
+            return True
+    except Exception as e:
+        pass
+    return False
 
 
 def check_n_pos(smi):
@@ -106,7 +126,17 @@ def qval_a_mole(reac, prod, all_res):
     answer1 = clear_map_number(reac)
     answer2 = clear_map_number(reactants)
 
-    if answer1 != answer2:
+    answer1_noiso = Chem.MolToSmiles(
+        Chem.MolFromSmiles(answer1),
+        isomericSmiles=False
+    )
+
+    answer2_noiso = Chem.MolToSmiles(
+        Chem.MolFromSmiles(answer2),
+        isomericSmiles=False
+    )
+
+    if answer1_noiso != answer2_noiso:
         all_res.append({
             'rxn': f"{reac}>>{prod}",
             'edit': {f'{a}_{b}': v for (a, b), v in deltsE.items()},
@@ -165,9 +195,13 @@ if __name__ == '__main__':
     #         charge_show_rxn.append(f'{test_rec[idx]}>>{prod}')
 
     # all_atoms = set()
-    # for idx, prod in enumerate(tqdm(train_prod)):
-    #     all_atoms.update(get_all_atoms(train_rec[idx]))
-    #     all_atoms.update(get_all_atoms(prod))
+    for idx, prod in enumerate(tqdm(train_prod)):
+        if not check_aron(prod):
+            print(prod)
+            exit()
+        if not check_aron(train_rec[idx]):
+            print(train_rec[idx])
+            exit()
 
     # for idx, prod in enumerate(tqdm(val_prod)):
     #     all_atoms.update(get_all_atoms(val_rec[idx]))
@@ -180,22 +214,22 @@ if __name__ == '__main__':
     # print(all_atoms)
 
     x_all_res = []
-    for idx, prod in enumerate(tqdm(train_prod)):
-        qval_a_mole(train_rec[idx], prod, x_all_res)
+    # for idx, prod in enumerate(tqdm(train_prod)):
+    #     qval_a_mole(train_rec[idx], prod, x_all_res)
 
-    print(len(x_all_res))
+    # print(len(x_all_res))
 
-    for idx, prod in enumerate(tqdm(val_prod)):
-        qval_a_mole(val_rec[idx], prod, x_all_res)
+    # for idx, prod in enumerate(tqdm(val_prod)):
+    #     qval_a_mole(val_rec[idx], prod, x_all_res)
 
-    print(len(x_all_res))
+    # print(len(x_all_res))
 
-    for idx, prod in enumerate(tqdm(test_prod)):
-        qval_a_mole(test_rec[idx], prod, x_all_res)
+    # for idx, prod in enumerate(tqdm(test_prod)):
+    #     qval_a_mole(test_rec[idx], prod, x_all_res)
 
-    print(len(x_all_res))
+    # print(len(x_all_res))
 
-    with open('unmatch.json', 'w') as Fout:
-        json.dump(x_all_res, Fout, indent=4)
+    # with open('unmatch.json', 'w') as Fout:
+    #     json.dump(x_all_res, Fout, indent=4)
 
-    print(len(x_all_res))
+    # print(len(x_all_res))
