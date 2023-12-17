@@ -406,55 +406,60 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
     return modified_atoms, deltaE
 
 
-# def save_N_aromatic(smi, old_types, edge_edits, modified_atoms):
+def require_rebuild(mol, updated_bond_types):
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
+    for (a, b), c in updated_bond_types.items():
+        bond = mol.GetBondBetweenAtoms(amap[a], amap[b])
+        if bond is None:
+            continue
+        if c == 1.5 and bond.GetBondTypeAsDouble() != c:
+            return True
+    return False
 
-#     def check_in(a, b, c, d):
-#         if (b, c) in a and a[(b, c)] != d:
-#             return True
-#         if (c, b) in a and a[(c, b)] != d:
-#             return True
-#         return False
 
+# def rebuild_aromatic(smi, updated_bond_types):
 #     mol = Chem.MolFromSmiles(smi)
-#     Chem.Kekulize(mol, True)
-#     ke_old_bond_vals = {
+#     if not require_rebuild(mol, updated_bond_types):
+#         return smi
+
+#     ar_atoms = set()
+#     for (a, b), c in updated_bond_types.items():
+#         if c == 1.5:
+#             ar_atoms.add(a)
+#             ar_atoms.add(b)
+
+#     Chem.Kekulize(mol)
+#     bond_vals = {
 #         x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
 #         for x in mol.GetAtoms()
 #     }
 
-#     tmol = Chem.RWMol(mol)
+#     new_mol = Chem.RWMol()
+#     amap = {}
 
-#     amap = {x.GetAtomMapNum(): x.GetIdx() for x in tmol.GetAtoms()}
+#     for atom in mol.GetAtoms():
+#         x_atom = Chem.Atom(atom.GetSymbol())
+#         x_atom.SetFormalCharge(atom.GetFormalCharge())
+#         map_num = atom.GetAtomMapNum()
+#         if map_num in ar_atoms:
+#             if atom.GetSymbol() == 'N' and bond_vals[map_num] == 2\
+#                     and atom.GetFormalCharge() == 0:
+#                 x_atom.SetNumExplicitHs(1)
+#             elif atom.GetSymbol() == 'C' and bond_vals[map_num] == 3\
+#                     and atom.GetFormalCharge() == 0:
+#                 x_atom.SetNumExplicitHs(1)
+#         x_atom.SetAtomMapNum(map_num)
+#         amap[map_num] = new_mol.AddAtom(x_atom)
 
-#     for ax in modified_atoms:
-#         atom = tmol.GetAtomWithIdx(amap[ax])
-#         if atom.GetSymbol() == 'N' and atom.GetFormalCharge() == 0:
-#             ke_nei = []
-#             for nei in atom.GetNeighbors():
-#                 if old_types.get((ax, nei.GetAtomMapNum()), 0) == 1.5 and \
-#                     not check_in(edge_edits, ax, nei.GetAtomMapNum(), 1.5):
-#                     ke_nei.append(nei)
+#     for (a, b), c in updated_bond_types.items():
+#         if c == 0:
+#             continue
+#         new_mol.AddBond(amap[a], amap[b], BOND_FLOAT_TO_TYPE[c])
 
+#     new_mol = new_mol.GetMol()
+#     answer = Chem.MolToSmiles(new_mol)
 
-#             if len(ke_nei) == 2 and ke_old_bond_vals[ax] == 2:
-#                 if ke_nei[0].GetSymbol() == 'C' and all(
-#                     y.GetBondTypeAsDouble() != 2 for y in ke_nei[0].GetBonds()
-#                 ):
-#                     nei = ke_nei[0]
-#                     bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
-#                     bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
-#                     atom.SetNumExplicitHs(0)
-#                     nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
-#                 elif ke_nei[1].GetSymbol() == 'C' and all(
-#                     y.GetBondTypeAsDouble() != 2 for y in ke_nei[1].GetBonds()
-#                 ):
-#                     nei = ke_nei[1]
-#                     bond = tmol.GetBondBetweenAtoms(nei.GetIdx(), amap[ax])
-#                     bond.SetBondType(BOND_FLOAT_TO_TYPE[2.0])
-#                     atom.SetNumExplicitHs(0)
-#                     nei.SetNumExplicitHs(max(0, nei.GetNumExplicitHs() - 1))
-#     mol = tmol.GetMol()
-#     return Chem.MolToSmiles(mol)
+#     return answer
 
 
 def edit_to_synthons(smi, edge_edits):
@@ -569,9 +574,17 @@ def edit_to_synthons(smi, edge_edits):
                 atom.SetNumExplicitHs(0)
 
     syn_mol = tmol.GetMol()
-    return Chem.MolToSmiles(syn_mol)
+    answer = Chem.MolToSmiles(syn_mol)
+    return answer
 
+    # updated_bond_types = {
+    #     (a, b): c for (a, b), c in old_types.items() if a < b
+    # }
+    # updated_bond_types.update(edge_edits)
 
+    # return rebuild_aromatic(answer, updated_bond_types)
+
+from copy import deepcopy
 def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     prod_mol = Chem.MolFromSmiles(prod_smi)
     lg_mol = Chem.MolFromSmiles(lgs)
@@ -579,6 +592,9 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
         raise ValueError(f'Invalid Smiles passed, {prod_smi}\n{lgs}')
 
     assert all(x.GetAtomMapNum() != 0 for x in prod_mol.GetAtoms()), \
+        'atom mapping are required for editing the mol'
+
+    assert all(x.GetAtomMapNum() != 0 for x in lg_mol.GetAtoms()), \
         'atom mapping are required for editing the mol'
 
     max_amap = max(x.GetAtomMapNum() for x in prod_mol.GetAtoms())

@@ -110,13 +110,19 @@ def qval_a_mole(reac, prod, all_res):
 
     syn_str = edit_to_synthons(prod, {k: v[1] for k, v in deltsE.items()})
 
+    # if Chem.MolFromSmiles(syn_str) is None:
+    #     print(f'[rxn] {reac}>>{prod}')
+    #     print(f'[edits]', deltsE)
+    #     print(f'[syn_str]', syn_str)
+    #     print(f'[syn_gtr]', '.'.join(syns))
+    #     # print(f'[conn]', conn_edges)
+    #     # print(f'[lgs]', '.'.join(lgs))
+    #     exit()
+
     syn_str = canonical_smiles(syn_str)
     syns = canonical_smiles('.'.join(syns))
 
-    # print(f'[rxn] {reac}>>{prod}')
-    # print(f'[edits]', deltsE)
-    # print(f'[conn]', conn_edges)
-    # print(f'[lgs]', '.'.join(lgs))
+
 
     reactants = get_reactants_from_edits(
         prod_smi=prod, edge_edits={k: v[1] for k, v in deltsE.items()},
@@ -146,6 +152,26 @@ def qval_a_mole(reac, prod, all_res):
             'reactants': answer1,
             'lg': '.'.join(lgs)
         })
+
+
+def update_aron_pattern(smi, patterns):
+    mol = Chem.MolFromSmiles(smi)
+    ar_atoms = {x.GetAtomMapNum() for x in mol.GetAtoms() if x.GetIsAromatic()}
+    Chem.Kekulize(mol)
+
+    bond_vals = {
+        x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
+        for x in mol.GetAtoms()
+    }
+    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
+
+    for t in ar_atoms:
+        atom = mol.GetAtomWithIdx(amap[t])
+        pattern = (
+            atom.GetSymbol(), atom.GetNumExplicitHs(),
+            atom.GetFormalCharge(), bond_vals[t]
+        )
+        patterns.add(pattern)
 
 
 if __name__ == '__main__':
@@ -195,13 +221,6 @@ if __name__ == '__main__':
     #         charge_show_rxn.append(f'{test_rec[idx]}>>{prod}')
 
     # all_atoms = set()
-    for idx, prod in enumerate(tqdm(train_prod)):
-        if not check_aron(prod):
-            print(prod)
-            exit()
-        if not check_aron(train_rec[idx]):
-            print(train_rec[idx])
-            exit()
 
     # for idx, prod in enumerate(tqdm(val_prod)):
     #     all_atoms.update(get_all_atoms(val_rec[idx]))
@@ -214,22 +233,37 @@ if __name__ == '__main__':
     # print(all_atoms)
 
     x_all_res = []
-    # for idx, prod in enumerate(tqdm(train_prod)):
-    #     qval_a_mole(train_rec[idx], prod, x_all_res)
+    for idx, prod in enumerate(tqdm(train_prod)):
+        qval_a_mole(train_rec[idx], prod, x_all_res)
 
-    # print(len(x_all_res))
+    print(len(x_all_res))
+
+    for idx, prod in enumerate(tqdm(val_prod)):
+        qval_a_mole(val_rec[idx], prod, x_all_res)
+
+    print(len(x_all_res))
+
+    for idx, prod in enumerate(tqdm(test_prod)):
+        qval_a_mole(test_rec[idx], prod, x_all_res)
+
+    print(len(x_all_res))
+
+    with open('unmatch.json', 'w') as Fout:
+        json.dump(x_all_res, Fout, indent=4)
+
+    print(len(x_all_res))
+
+    # all_pattern = set()
+    # for idx, prod in enumerate(tqdm(train_prod)):
+    #     update_aron_pattern(prod, all_pattern)
+    #     update_aron_pattern(train_rec[idx], all_pattern)
 
     # for idx, prod in enumerate(tqdm(val_prod)):
-    #     qval_a_mole(val_rec[idx], prod, x_all_res)
-
-    # print(len(x_all_res))
+    #     update_aron_pattern(prod, all_pattern)
+    #     update_aron_pattern(val_rec[idx], all_pattern)
 
     # for idx, prod in enumerate(tqdm(test_prod)):
-    #     qval_a_mole(test_rec[idx], prod, x_all_res)
+    #     update_aron_pattern(prod, all_pattern)
+    #     update_aron_pattern(test_rec[idx], all_pattern)
 
-    # print(len(x_all_res))
-
-    # with open('unmatch.json', 'w') as Fout:
-    #     json.dump(x_all_res, Fout, indent=4)
-
-    # print(len(x_all_res))
+    # print(all_pattern)
