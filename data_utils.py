@@ -2,7 +2,8 @@ import pandas
 import os
 from utils.chemistry_parse import (
     ACHANGE_TO_IDX, break_fragements, get_all_amap, get_mol_belong,
-    clear_map_number, BOND_FLOAT_TO_IDX, get_synthon_edits
+    clear_map_number, BOND_FLOAT_TO_IDX, get_synthon_edits,
+    get_leaving_group_synthon
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -78,42 +79,57 @@ def check_useful_synthons(synthons, belong):
 
 
 def create_overall_dataset(
-    reacts, prods, rxn_class=None, kekulize=False,
-    verbose=True, randomize=False, aug_prob=0
+    reacts, prods, rxn_class=None, verbose=True,
+    randomize=False, aug_prob=0, mode='train'
 ):
-    graphs, nodes, o_edges, n_edges, real_rxns = [], [], [], []
+    graphs, nodes, n_edges, real_rxns = [], [], [], []
     lg_graphs, conn_cands, conn_labels = [], [], []
     trans_input, trans_output, lg_act = [], [], []
+    Ea, Ha, Ca = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
+        graph, amap = smiles2graph(prod, with_amap=True)
+        graphs.append(graph)
 
-        deltaH, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+        Eatom, Hatom, Catom, deltaEs, org_type = get_synthon_edits(
+            reac=reacts[idx], prod=prod, consider_inner_bonds=False,
+            return_org_type=True
+        )
+        new_type = {
+            **{k: v[0] for k, v in org_type.items()},
+            **{k: v[1] for k, v in deltaEs.items()}
+        }
 
-        old_edge, new_edge = {}, {}
-        for (src, dst), (otype, ntype) in deltaE.items():
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
             src, dst = amap[src], amap[dst]
-            otype = BOND_FLOAT_TO_IDX[otype]
             ntype = BOND_FLOAT_TO_IDX[ntype]
-            old_edge[(src, dst)] = old_edge[(dst, src)] = otype
             new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
+
+        # n_edges.append(new_edge)
+        # Ea.append({amap[x] for x in Eatom})
+        # Ca.append({amap[x] for x in Catom})
+        # Ha.append({amap[x] for x in Hatom})
 
         this_reac, belong = reacts[idx].split('.'), {}
         for tdx, reac in enumerate(this_reac):
             belong.update({k: tdx for k in get_all_amap(reac)})
 
-        synthon_str = break_fragements(prod, deltaE, canonicalize=False)
+        synthon_str = edit_to_synthons(
+            prod, {k: v[1] for k, v in deltE.items()}
+        )
         synthon_str = synthon_str.split('.')
+
         if len(synthon_str) != len(this_reac) or \
                 not check_useful_synthons(synthon_str, belong):
             print('[INFO] synthons mismatch reactants')
             print(f'[SMI] {reacts[idx]}>>{prod}')
             continue
 
-        lgs, conn_edgs = get_leaving_group(prod, reacts[idx])
-
-        lg_graph, lg_amap = smiles2graph(
-            '.'.join(lgs), with_amap=True, kekulize=kekulize
+        lgs, _, conn_edgs = get_leaving_group_synthon(
+            prod=prod, reac=reacts[idx], consider_inner_bonds=False
         )
+
+        lg_graph, lg_amap = smiles2graph('.'.join(lgs), with_amap=True)
 
         syh_ips = [0] * len(this_reac)
         lg_ops = [[] for _ in range(len(this_reac))]
@@ -132,26 +148,36 @@ def create_overall_dataset(
             for a in syn_amap_set:
                 for b in lg_amap_set:
                     this_cog.append((amap[a], lg_amap[b]))
-                    this_clb.append(1 if (a, b) in conn_edgs else 0)
+                    this_etype = conn_edgs.get((a, b), 0)
+                    this_clb.append(BOND_FLOAT_TO_IDX[this_etype])
 
         act_lbs = [0] * len(lg_amap)
-        for a, b in conn_edgs:
+        for a, b in conn_edgs.keys():
             act_lbs[lg_amap[b]] = 1
 
         syh_ips = [clear_map_number(x) for x in syh_ips]
         lg_ops = [clear_map_number(x) for x in lg_ops]
-        for peru in permutations(range(len(this_reac))):
+
+        assert mode in ['train', 'eval'], f'Invalid mode {mode}'
+
+        if mode == 'train':
+            idx_iter = permutations(range(len(this_reac)))
+        else:
+            idx_iter = list(range(len(this_reac)))
+            idx_iter.sort(key=lambda x: len(syh_ips[x]))
+            idx_iter = [idx_iter]
+
+        for peru in idx_iter:
             t_input = '`'.join([syh_ips[x] for x in peru])
             t_output = '`'.join([lg_ops[x] for x in peru])
 
             # data adding encoder
 
-            nodes.append({
-                amap[k]: ACHANGE_TO_IDX[v]
-                for k, v in deltaH.items()
-            })
+            n_edges.append(new_edge)
+            Ea.append({amap[x] for x in Eatom})
+            Ca.append({amap[x] for x in Catom})
+            Ha.append({amap[x] for x in Hatom})
             graphs.append(graph)
-            edges.append(this_edge)
 
             # data adding lgs
             lg_graphs.append(lg_graph)
@@ -167,10 +193,11 @@ def create_overall_dataset(
                 real_rxns.append(rxn_class[idx])
 
     return OverallDataset(
-        graphs, nodes, edges, lg_graphs, lg_act,
-        conn_cands, conn_labels, trans_input, trans_output,
+        graphs=graphs, enc_edges=n_edges, lg_graphs=lg_graphs, Eatom=Ea,
+        Hatom=Ha, Catom=Ca, lg_labels=lg_act, conn_edges=conn_cands,
+        conn_labels=conn_labels, trans_input=trans_input,
+        trans_output=trans_output, randomize=randomize, aug_prob=aug_prob,
         rxn_class=None if len(real_rxns) == 0 else real_rxns,
-        randomize=randomize, aug_prob=aug_prob
     )
 
 
