@@ -20,7 +20,7 @@ def get_synthon_lg(reac, prod, consider_inner=False):
     _, _, _, deltE = get_synthon_edits(reac, prod, consider_inner)
 
     # print('[SYN]')
-    synthon_str = edit_to_synthons(prod, {k: v[1] for k, v in deltE})
+    synthon_str = edit_to_synthons(prod, {k: v[1] for k, v in deltE.items()})
     synthon_str = clear_map_number(synthon_str)
     synthon_str = '`'.join(synthon_str.split('.'))
     # print('[LG]')

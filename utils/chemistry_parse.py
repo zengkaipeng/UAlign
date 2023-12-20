@@ -401,7 +401,7 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
         if atom.GetFormalCharge() != reac_atom.GetFormalCharge():
             Catom.add(amap_num)
 
-    return modified_atoms, deltaE
+    return Eatom, Hatom, Catom, deltaE
 
 
 def require_rebuild(mol, updated_bond_types):
