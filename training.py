@@ -25,7 +25,6 @@ def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     model = model.train()
     losses, e_losses, AE_losses = [], [], []
     AH_losses, AC_losses = [], []
-    ignore_idx = tokenizer.token2idx[pad_token]
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
@@ -57,7 +56,7 @@ def train_sparse_edit(loader, model, optimizer, device, warmup=True):
 
 def eval_sparse_edit(loader, model, device):
     model = model.eval()
-    e_accs, AE_accs, AH_accs, AC_acc = [[] for i in range(4)]
+    e_accs, AE_accs, AH_accs, AC_accs = [[] for i in range(4)]
     for graph in tqdm(loader):
         graph = graph.to(device)
         with torch.no_grad():

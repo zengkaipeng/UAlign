@@ -410,16 +410,6 @@ def get_synthon_edits(
 
 
 
-def require_rebuild(mol, updated_bond_types):
-    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
-    for (a, b), c in updated_bond_types.items():
-        bond = mol.GetBondBetweenAtoms(amap[a], amap[b])
-        if bond is None:
-            continue
-        if c == 1.5 and bond.GetBondTypeAsDouble() != c:
-            return True
-    return False
-
 
 def edit_to_synthons(smi, edge_edits):
     mol = Chem.MolFromSmiles(smi)
@@ -750,6 +740,19 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
 
     reac_mol = tmol.GetMol()
     return Chem.MolToSmiles(reac_mol)
+
+
+def run_special_case(reactants):
+    azide_rule = AllChem.ReactionFromSmarts(
+        '[NH:2]=[N+:3]=[N-:4]>>[NH0-:2]=[N+:3]=[N-:4]')
+    reac_mols = [Chem.MolFromSmiles(x) for x in reactants.split('.')]
+    for idx, mol in enumerate(reac_mols):
+        out = azide_rule.RunReactants((mol, ))
+        if len(out) > 0:
+            reac_mols[idx] = out[0][0]
+
+    px = ".".join([Chem.MolToSmiles(x) for x in reac_mols])
+    return canonical_smiles(px)
 
 
 if __name__ == '__main__':

@@ -27,9 +27,7 @@ def make_memory_from_feat(node_feat, batch_mask):
 
 
 class SynthonPredictionModel(torch.nn.Module):
-    def __init__(
-        self, base_model, trans_dec, node_dim, edge_dim, dropout=0.1
-    ):
+    def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
         super(SynthonPredictionModel, self).__init__()
         self.base_model = base_model
         self.edge_predictor = torch.nn.Sequential(
@@ -55,8 +53,7 @@ class SynthonPredictionModel(torch.nn.Module):
 
     def calc_loss(
         self, edge_logits, edge_label, edge_batch, AE_log, AE_label,
-        AC_log, AC_label, AH_log, AH_label, batch, trans_op, trans_lb,
-        ignore_index
+        AC_log, AC_label, AH_log, AH_label, batch,
     ):
         edge_loss = self.scatter_loss_by_batch(
             edge_logits, edge_label, edge_batch, cross_entropy
@@ -90,13 +87,15 @@ class SynthonPredictionModel(torch.nn.Module):
         AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
         AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
 
-        e_loss, AE_loss, AH_loss, AC_loss, trans_loss = self.calc_loss(
+        e_loss, AE_loss, AH_loss, AC_loss = self.calc_loss(
             edge_logits=edge_logits, edge_label=graph.new_edge_types,
             edge_batch=graph.e_batch, AE_log=AE_logits,
             AE_label=graph.EdgeChange, AC_log=AC_logits,
             AC_label=graph.ChargeChange, AH_log=AH_logits,
             AH_label=graph.HChange, batch=graph.batch,
         )
+
+        return e_loss, AE_loss, AH_loss, AC_loss
 
     def eval_forward(self, graph, return_all=False):
         node_feat, edge_feat = self.base_model(graph)
