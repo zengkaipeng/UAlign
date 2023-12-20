@@ -55,7 +55,7 @@ def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     }
 
 
-def eval_sparse_edit(loader, model, tokenizer, pad_token, end_token, device):
+def eval_sparse_edit(loader, model, device):
     model = model.eval()
     e_accs, AE_accs, AH_accs, AC_acc = [[] for i in range(4)]
     for graph in tqdm(loader):
@@ -89,8 +89,8 @@ def eval_sparse_edit(loader, model, tokenizer, pad_token, end_token, device):
     AH_accs = torch.cat(AH_accs, dim=0).float()
     AC_accs = torch.cat(AC_accs, dim=0).float()
     return {
-        'edge': e_accs.mean().item(), 'EdgeChange': AE_accs.mean().item(),
-        'HChange': AH_accs.mean().item(), 'ChargeChange': AE_accs.mean().item(),
+        'edge': e_accs.mean().item(), 'ChargeChange': AE_accs.mean().item(),
+        'EdgeChange': AE_accs.mean().item(), 'HChange': AH_accs.mean().item()
     }
 
 

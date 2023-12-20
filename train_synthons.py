@@ -14,6 +14,7 @@ from data_utils import (
     create_edit_dataset, load_data, fix_seed,
     check_early_stop
 )
+from tokenlizer import DEFAULT_SP, Tokenizer
 
 
 def create_log_model(args):
@@ -35,10 +36,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
         '--n_layer', default=5, type=int,
@@ -108,6 +105,10 @@ if __name__ == '__main__':
         '--update_gate', choices=['cat', 'add'], default='add',
         help='the update method for mixformer', type=str,
     )
+    parser.add_argument(
+        '--checkpoint', type=str, default='',
+        help='the checkpoint for pretrained model'
+    )
 
     # training
 
@@ -128,16 +129,16 @@ if __name__ == '__main__':
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
     train_set = create_edit_dataset(
-        reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
+        reacts=train_rec, prods=train_prod, verbose=True,
         rxn_class=train_rxn if args.use_class else None,
     )
 
     valid_set = create_edit_dataset(
-        reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
+        reacts=val_rec, prods=val_prod, verbose=True,
         rxn_class=val_rxn if args.use_class else None,
     )
     test_set = create_edit_dataset(
-        reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
+        reacts=test_rec, prods=test_prod, verbose=True,
         rxn_class=test_rxn if args.use_class else None,
     )
 
@@ -194,9 +195,13 @@ if __name__ == '__main__':
             raise ValueError(f'Invalid GNN type {args.backbone}')
 
     model = SynthonPredictionModel(
-        base_model=GNN, node_dim=args.dim, edge_dim=args.dim,
-        dropout=args.dropout, kekulize=args.kekulize
+        base_model=GNN, node_dim=args.dim,
+        edge_dim=args.dim, dropout=args.dropout,
     ).to(device)
+
+    if args.checkpoint != '':
+        weight = torch.load(args.checkpoint, map_location=device)
+        model.load_state_dict(weight)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_cov, best_ep = None, None
@@ -212,17 +217,22 @@ if __name__ == '__main__':
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         loss = train_sparse_edit(
-            train_loader, model, optimizer, device, warmup=(ep == 0),
+            loader=train_loader, model=model, optimizer=optimizer,
+            device=device, warmup=(ep == 0),
         )
         log_info['train_loss'].append(loss)
 
         print('[TRAIN]', log_info['train_loss'][-1])
-        valid_results = eval_sparse_edit(valid_loader, model, device)
+        valid_results = eval_sparse_edit(
+            loader=valid_loader, model=model, device=device
+        )
         log_info['valid_metric'].append(valid_results)
 
         print('[VALID]', log_info['valid_metric'][-1])
 
-        test_results = eval_sparse_edit(test_loader, model, device)
+        test_results = eval_sparse_edit(
+            loader=test_loader, model=model, device=device
+        )
         log_info['test_metric'].append(test_results)
 
         print('[TEST]', log_info['test_metric'][-1])
@@ -230,10 +240,16 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_cov is None or valid_results > best_cov:
-            best_cov, best_ep = valid_results, ep
+        if best_cov is None or valid_results['edge'] > best_cov:
+            best_cov, best_ep = valid_results['edge'], ep
             torch.save(model.state_dict(), model_dir)
+
         if args.early_stop > 5 and ep > max(20, args.early_stop):
             val_his = log_info['valid_metric'][-args.early_stop:]
-            if check_early_stop(val_his):
+            e_his = [x['edge'] for x in val_his]
+            if check_early_stop(e_his):
                 break
+
+    print('[BEST EP]', best_ep)
+    print('[BEST VAL]', log_info['valid_metric'][best_ep])
+    print('[BEST TEST]', log_info['test_metric'][best_ep])

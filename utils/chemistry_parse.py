@@ -349,7 +349,10 @@ def get_leaving_group_synthon(
     return lgs, syns, conn_edges
 
 
-def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
+def get_synthon_edits(
+    reac: str, prod: str, consider_inner_bonds: bool = False,
+    return_org_type: bool = False
+):
     reac_mol, prod_mol = get_mol(reac), get_mol(prod)
     ke_reac_mol = get_mol(reac, kekulize=True)
     if reac_mol is None or prod_mol is None:
@@ -401,7 +404,10 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
         if atom.GetFormalCharge() != reac_atom.GetFormalCharge():
             Catom.add(amap_num)
 
-    return Eatom, Hatom, Catom, deltaE
+    if not return_org_type:
+        return Eatom, Hatom, Catom, deltaE
+    return Eatom, Hatom, Catom, deltaE, prod_bonds
+
 
 
 def require_rebuild(mol, updated_bond_types):
@@ -413,51 +419,6 @@ def require_rebuild(mol, updated_bond_types):
         if c == 1.5 and bond.GetBondTypeAsDouble() != c:
             return True
     return False
-
-
-# def rebuild_aromatic(smi, updated_bond_types):
-#     mol = Chem.MolFromSmiles(smi)
-#     if not require_rebuild(mol, updated_bond_types):
-#         return smi
-
-#     ar_atoms = set()
-#     for (a, b), c in updated_bond_types.items():
-#         if c == 1.5:
-#             ar_atoms.add(a)
-#             ar_atoms.add(b)
-
-#     Chem.Kekulize(mol)
-#     bond_vals = {
-#         x.GetAtomMapNum(): sum(y.GetBondTypeAsDouble() for y in x.GetBonds())
-#         for x in mol.GetAtoms()
-#     }
-
-#     new_mol = Chem.RWMol()
-#     amap = {}
-
-#     for atom in mol.GetAtoms():
-#         x_atom = Chem.Atom(atom.GetSymbol())
-#         x_atom.SetFormalCharge(atom.GetFormalCharge())
-#         map_num = atom.GetAtomMapNum()
-#         if map_num in ar_atoms:
-#             if atom.GetSymbol() == 'N' and bond_vals[map_num] == 2\
-#                     and atom.GetFormalCharge() == 0:
-#                 x_atom.SetNumExplicitHs(1)
-#             elif atom.GetSymbol() == 'C' and bond_vals[map_num] == 3\
-#                     and atom.GetFormalCharge() == 0:
-#                 x_atom.SetNumExplicitHs(1)
-#         x_atom.SetAtomMapNum(map_num)
-#         amap[map_num] = new_mol.AddAtom(x_atom)
-
-#     for (a, b), c in updated_bond_types.items():
-#         if c == 0:
-#             continue
-#         new_mol.AddBond(amap[a], amap[b], BOND_FLOAT_TO_TYPE[c])
-
-#     new_mol = new_mol.GetMol()
-#     answer = Chem.MolToSmiles(new_mol)
-
-#     return answer
 
 
 def edit_to_synthons(smi, edge_edits):

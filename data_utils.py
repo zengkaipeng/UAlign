@@ -33,7 +33,7 @@ def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
 
 def create_edit_dataset(
     reacts: List[str], prods: List[str], rxn_class: Optional[List[int]] = None,
-    verbose: bool = True, 
+    verbose: bool = True,
 ):
     graphs, n_edges = [], []
     Ea, Ha, Ca = [], [], []
@@ -61,8 +61,8 @@ def create_edit_dataset(
         Ha.append({amap[x] for x in Hatom})
 
     return SynthonDataset(
-        graphs=graphs, new_types=n_edges, Eatom=Ea, Hatom=Ha, 
-        Catom=Ca, rxn_class=rxn_class, 
+        graphs=graphs, new_types=n_edges, Eatom=Ea, Hatom=Ha,
+        Catom=Ca, rxn_class=rxn_class,
     )
 
 
