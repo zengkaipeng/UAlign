@@ -140,12 +140,22 @@ class OverallModel(torch.nn.Module):
         self.syn_e_pred = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 3)
+            torch.nn.Linear(edge_dim, 5)
         )
-        self.syn_n_pred = torch.nn.Sequential(
+        self.Echange = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 7)
+            torch.nn.Linear(node_dim, 1)
+        )
+        self.Hchange = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, 1)
+        )
+        self.Cchange = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, 1)
         )
         self.lg_activate = torch.nn.Sequential(
             torch.nn.Linear(node_dim, node_dim),
@@ -153,9 +163,9 @@ class OverallModel(torch.nn.Module):
             torch.nn.Linear(node_dim, 1)
         )
         self.conn_pred = torch.nn.Sequential(
-            torch.nn.Linear(edge_dim + edge_dim, edge_dim),
+            torch.nn.Linear(node_dim + node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 1)
+            torch.nn.Linear(node_dim, 5)
         )
         if rxn_num is None:
             self.tpp_embs = torch.nn.ParameterDict({
@@ -212,7 +222,7 @@ class OverallModel(torch.nn.Module):
         useful_src, useful_dst = conn_edges[useful_edges_mask].T
         conn_embs = [graph_emb[useful_src], lg_emb[useful_dst]]
         conn_embs = torch.cat(conn_embs, dim=-1)
-        conn_logits = self.conn_pred(conn_embs).squeeze(dim=-1)
+        conn_logits = self.conn_pred(conn_embs)
 
         return conn_logits, useful_edges_mask
 
@@ -233,7 +243,9 @@ class OverallModel(torch.nn.Module):
         prod_n_emb, prod_e_emb = self.GNN(prod_graph)
         lg_n_emb, lg_e_emb = self.GNN(lg_graph)
 
-        prod_n_logits = self.syn_n_pred(prod_n_emb)
+        AE_logits = self.Echange(node_feat).squeeze(dim=-1)
+        AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
+        AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
         prod_e_logits = self.syn_e_pred(prod_e_emb)
 
         trans_ip = self.token_embeddings(trans_ip)
@@ -253,10 +265,7 @@ class OverallModel(torch.nn.Module):
         ))
 
         lg_act_logits = self.lg_activate(lg_n_emb).squeeze(dim=-1)
-        if mode == 'train':
-            lg_useful = (lg_graph.node_label > 0) | (lg_act_logits > 0)
-        else:
-            lg_useful = lg_graph.node_label > 0
+        lg_useful = lg_graph.node_label > 0
 
         if self.use_sim:
             n_prod_emb, n_lg_emb = self.update_via_sim(
@@ -271,10 +280,14 @@ class OverallModel(torch.nn.Module):
 
         if mode == 'train' or return_loss:
             losses = self.loss_calc(
-                prod_n_log=prod_n_logits,
                 prod_e_log=prod_e_logits,
-                prod_n_label=prod_graph.node_label,
                 prod_e_label=prod_graph.edge_label,
+                AC_label=prod_graph.ChargeChange,
+                AC_log=AC_logits,
+                AH_label=prod_graph.HChange,
+                AH_log=AH_logits,
+                AE_label=prod_graph.EdgeChange,
+                AE_log=AE_logits,
                 prod_n_batch=prod_graph.batch,
                 prod_e_batch=prod_graph.e_batch,
                 lg_n_log=lg_act_logits,
@@ -297,52 +310,42 @@ class OverallModel(torch.nn.Module):
                 conn_logits, conn_mask, trans_pred
 
     def loss_calc(
-        self, prod_n_log, prod_e_log, prod_n_label, prod_e_label,
+        self, prod_e_log, prod_e_label, AC_log, AC_label,
+        AH_log, AH_label, AE_log, AE_label,
         prod_n_batch, prod_e_batch, lg_n_log, lg_n_label, lg_n_batch,
         conn_lg, conn_lb, conn_batch, trans_pred, trans_lb, pad_idx
     ):
-        # syn_node_loss = torch.tensor(0.)
-
-        syn_node_loss = self.scatter_loss_by_batch(
-            prod_n_log, prod_n_label, prod_n_batch, cross_entropy
+        AC_loss = self.scatter_loss_by_batch(
+            AC_log, AC_label, prod_n_batch,
+            binary_cross_entropy_with_logits
         )
-        # print('syn_node', prod_n_log.shape, prod_n_label.shape)
-        # print('syn_node', syn_node_loss.item())
 
-        # syn_edge_loss = torch.tensor(0.)
+        AH_loss = self.scatter_loss_by_batch(
+            AH_log, AH_label, prod_n_batch,
+            binary_cross_entropy_with_logits
+        )
+
+        AE_loss = self.scatter_loss_by_batch(
+            AE_log, AE_label, prod_n_batch,
+            binary_cross_entropy_with_logits
+        )
         syn_edge_loss = self.scatter_loss_by_batch(
             prod_e_log, prod_e_label, prod_e_batch, cross_entropy
         )
-
-        # print('syn_edge', prod_e_log.shape, prod_e_label.shape)
-        # print('syn_edge', syn_edge_loss.item())
-
-        # lg_act_loss = torch.tensor(0.)
 
         lg_act_loss = self.scatter_loss_by_batch(
             lg_n_log, lg_n_label, lg_n_batch,
             binary_cross_entropy_with_logits
         )
 
-        # print('lg_act', lg_n_log.shape, lg_n_label.shape)
-        # print('lg_act', lg_act_loss.item())
-
-        # conn_loss = torch.tensor(0.)
         conn_loss = self.scatter_loss_by_batch(
-            conn_lg, conn_lb, conn_batch,
-            binary_cross_entropy_with_logits
+            conn_lg, conn_lb, conn_batch, cross_entropy
         )
 
-        # print('conn', conn_lg.shape, conn_lb.shape)
-        # print('conn', conn_loss.item())
-
-        # trans_loss = torch.tensor(0.)
         trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
 
-        # print('trans', trans_pred.shape, trans_lb.shape)
-        # print('trans', trans_loss.item())
-
-        return syn_node_loss, syn_edge_loss, lg_act_loss, conn_loss, trans_loss
+        return AC_loss, AE_loss, AH_loss,  syn_edge_loss, \
+            lg_act_loss, conn_loss, trans_loss
 
     def scatter_loss_by_batch(self, logits, label, batch, lfn):
         max_batch = batch.max().item() + 1
