@@ -28,40 +28,85 @@ def make_memory_from_feat(node_feat, batch_mask):
 
 class SynthonPredictionModel(torch.nn.Module):
     def __init__(
-        self, base_model, node_dim, edge_dim,
-        kekulize=False, dropout=0.1
+        self, base_model, trans_dec, node_dim, edge_dim, dropout=0.1
     ):
         super(SynthonPredictionModel, self).__init__()
         self.base_model = base_model
         self.edge_predictor = torch.nn.Sequential(
             torch.nn.Linear(edge_dim, edge_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 4 if kekulize else 5)
+            torch.nn.Linear(edge_dim, 5)
+        )
+        self.Echange = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, 1)
+        )
+        self.Hchange = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, 1)
+        )
+        self.Cchange = torch.nn.Sequential(
+            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(node_dim, 1)
         )
 
-    def calc_loss(self, edge_logits, edge_label, edge_batch):
-
-        max_edge_batch = edge_batch.max().item() + 1
-        edge_loss = torch.zeros(max_edge_batch).to(edge_logits)
-        edge_loss_src = cross_entropy(
-            edge_logits, edge_label, reduction='none',
+    def calc_loss(
+        self, edge_logits, edge_label, edge_batch, AE_log, AE_label,
+        AC_log, AC_label, AH_log, AH_label, batch, trans_op, trans_lb,
+        ignore_index
+    ):
+        edge_loss = self.scatter_loss_by_batch(
+            edge_logits, edge_label, edge_batch, cross_entropy
         )
-        edge_loss.scatter_add_(0, edge_batch, edge_loss_src)
 
-        return edge_loss.mean()
+        AC_loss = self.scatter_loss_by_batch(
+            AC_log, AC_label, batch, binary_cross_entropy_with_logits
+        )
 
-    def forward(self, graph, ret_loss=True, ret_feat=False):
+        AH_loss = self.scatter_loss_by_batch(
+            AH_log, AH_label, batch, binary_cross_entropy_with_logits
+        )
+
+        AE_loss = self.scatter_loss_by_batch(
+            AE_log, AE_label, batch, binary_cross_entropy_with_logits
+        )
+        return edge_loss, AE_loss, AH_loss, AC_loss
+
+    def scatter_loss_by_batch(self, logits, label, batch, lfn):
+        max_batch = batch.max().item() + 1
+        losses = torch.zeros(max_batch).to(logits)
+        org_loss = lfn(logits, label, reduction='none')
+        losses.index_add_(0, batch, org_loss)
+        return losses.mean()
+
+    def forward(self, graph):
         node_feat, edge_feat = self.base_model(graph)
-
         edge_logits = self.edge_predictor(edge_feat)
-        edge_logits = edge_logits.squeeze(dim=-1)
 
-        if ret_loss:
-            e_loss = self.calc_loss(
-                edge_logits=edge_logits, edge_batch=graph.e_batch,
-                edge_label=graph.new_edge_types,
-            )
-            return edge_logits, e_loss
+        AE_logits = self.Echange(node_feat).squeeze(dim=-1)
+        AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
+        AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
+
+        e_loss, AE_loss, AH_loss, AC_loss, trans_loss = self.calc_loss(
+            edge_logits=edge_logits, edge_label=graph.new_edge_types,
+            edge_batch=graph.e_batch, AE_log=AE_logits,
+            AE_label=graph.EdgeChange, AC_log=AC_logits,
+            AC_label=graph.ChargeChange, AH_log=AH_logits,
+            AH_label=graph.HChange, batch=graph.batch,
+        )
+
+    def eval_forward(self, graph, return_all=False):
+        node_feat, edge_feat = self.base_model(graph)
+        edge_logits = self.edge_predictor(edge_feat)
+        if return_all:
+            AE_logits = self.Echange(node_feat).squeeze(dim=-1)
+            AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
+            AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
+
+            return edge_logits, AE_logits, AH_logits, AC_logits
         else:
             return edge_logits
 
