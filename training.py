@@ -23,42 +23,75 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def train_sparse_edit(loader, model, optimizer, device, warmup=True):
     model = model.train()
-    losses = []
+    losses, e_losses, AE_losses = [], [], []
+    AH_losses, AC_losses = [], []
+    ignore_idx = tokenizer.token2idx[pad_token]
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
     for graph in tqdm(loader):
         graph = graph.to(device)
-        _, loss = model(graph, ret_loss=True)
+
+        edge_loss, AE_loss, AH_loss, AC_loss = model(graph)
+
+        loss = edge_loss + AE_loss + AH_loss + AC_loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
         losses.append(loss.item())
+        e_losses.append(edge_loss.item())
+        AE_losses.append(AE_loss.item())
+        AC_losses.append(AC_loss.item())
+        AH_losses.append(AH_loss.item())
 
         if warmup:
             warmup_sher.step()
-    return np.mean(losses)
+    return {
+        'total': np.mean(losses), 'edge_loss': np.mean(e_losses),
+        'AE_loss': np.mean(AE_losses), 'AC_loss': np.mean(AC_losses),
+        'AH_loss': np.mean(AH_losses)
+    }
 
 
-def eval_sparse_edit(loader, model, device):
+def eval_sparse_edit(loader, model, tokenizer, pad_token, end_token, device):
     model = model.eval()
-    accs = []
+    e_accs, AE_accs, AH_accs, AC_acc = [[] for i in range(4)]
     for graph in tqdm(loader):
         graph = graph.to(device)
         with torch.no_grad():
-            edge_logs = model(graph, ret_loss=False)
+            edge_logs, AE_logs, AH_logs, AC_logs = \
+                model.eval_forward(graph, return_all=True)
             edge_pred = convert_edge_log_into_labels(
                 edge_logs, graph.edge_index,
                 mod='softmax', return_dict=False
             )
-        acc = eval_by_batch(
-            edge_pred, graph.new_edge_types, 
-            graph.e_batch, return_tensor=True
-        )
-        accs.append(acc)
 
-    return torch.cat(accs, dim=0).float().mean().item()
+            AE_pred = convert_log_into_label(AE_logs, mod='sigmoid')
+            AH_pred = convert_log_into_label(AH_logs, mod='sigmoid')
+            AC_pred = convert_log_into_label(AC_logs, mod='sigmoid')
+
+        edge_acc = eval_by_batch(
+            edge_pred, graph.new_edge_types, graph.e_batch, True
+        )
+        AE_acc = eval_by_batch(AE_pred, graph.EdgeChange, graph.batch, True)
+        AH_acc = eval_by_batch(AH_pred, graph.HChange, graph.batch, True)
+        AC_acc = eval_by_batch(AC_pred, graph.ChargeChange, graph.batch, True)
+
+        AE_accs.append(AE_acc)
+        AH_accs.append(AH_acc)
+        AC_accs.append(AC_acc)
+        e_accs.append(edge_acc)
+
+    e_accs = torch.cat(e_accs, dim=0).float()
+    AE_accs = torch.cat(AE_accs, dim=0).float()
+    AH_accs = torch.cat(AH_accs, dim=0).float()
+    AC_accs = torch.cat(AC_accs, dim=0).float()
+    return {
+        'edge': e_accs.mean().item(), 'EdgeChange': AE_accs.mean().item(),
+        'HChange': AH_accs.mean().item(), 'ChargeChange': AE_accs.mean().item(),
+    }
 
 
 def train_overall(

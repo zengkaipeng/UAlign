@@ -61,9 +61,8 @@ def create_edit_dataset(
         Ha.append({amap[x] for x in Hatom})
 
     return SynthonDataset(
-        graphs=graphs, new_types=n_edges, Eatom=Ea, Hatom=Ha, Catom=Ca,
-        rxn_class=rxn_class, Trans=trans_res, use_aug=use_aug,
-        aug_prob=aug_prob
+        graphs=graphs, new_types=n_edges, Eatom=Ea, Hatom=Ha, 
+        Catom=Ca, rxn_class=rxn_class, 
     )
 
 
