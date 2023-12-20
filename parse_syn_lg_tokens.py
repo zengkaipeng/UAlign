@@ -1,9 +1,9 @@
 import rdkit
 from rdkit import Chem
 from utils.chemistry_parse import (
-    clear_map_number, canonical_smiles, get_synthons,
-    break_fragements, get_leaving_group, get_all_amap,
-    get_mol_belong
+    clear_map_number, canonical_smiles, get_synthon_edits,
+    break_fragements, get_all_amap, get_leaving_group_synthon,
+    get_mol_belong, edit_to_synthons
 )
 from draws import mol2svg
 from utils.chemistry_parse import add_random_Amap
@@ -15,27 +15,56 @@ from data_utils import load_data
 import os
 
 
-def get_synthon_lg(reac, prod):
-    deltaH, deltaE = get_synthons(prod, reac)
-    print('[SYN]')
-    synthon_str = break_fragements(prod, deltaE, canonicalize=True)
+def get_synthon_lg(reac, prod, consider_inner=False):
+
+    _, _, _, deltE = get_synthon_edits(reac, prod, consider_inner)
+
+    # print('[SYN]')
+    synthon_str = edit_to_synthons(prod, {k: v[1] for k, v in deltE})
+    synthon_str = clear_map_number(synthon_str)
     synthon_str = '`'.join(synthon_str.split('.'))
-    print('[LG]')
-    lgs, conn_edgs = get_leaving_group(prod, reac)
+    # print('[LG]')
+    lgs, syns, conn_edges = get_leaving_group_synthon(
+        prod, reac, consider_inner_bonds=consider_inner
+    )
 
     this_reac, belong = reac.split('.'), {}
     for tdx, rx in enumerate(this_reac):
         belong.update({k: tdx for k in get_all_amap(rx)})
 
     lg_ops = [[] for _ in range(len(this_reac))]
+    syn_ops = [[] for _ in range(len(this_reac))]
 
     for x in lgs:
         lg_ops[get_mol_belong(x, belong)].append(x)
 
+    for x in syns:
+        syn_ops[get_mol_belong(x, belong)].append(x)
+
     lg_ops = [clear_map_number('.'.join(x)) for x in lg_ops]
     lg_ops = '`'.join(lg_ops)
 
-    return synthon_str, lg_ops
+    syn_ops = [clear_map_number('.'.join(x)) for x in syn_ops]
+    syn_ops = '`'.join(syn_ops)
+
+    return synthon_str, syn_ops, lg_ops
+
+
+def update_info(reac, prod, syns, lgs, syn_toks, lg_toks):
+    syn_str, syn_ops, lg_ops = get_synthon_lg(reac, prod, False)
+
+    syns.append(syn_str)
+    lgs.append(lg_ops)
+
+    syn_tokens.update(smi_tokenizer(syn_str))
+    syn_tokens.update(smi_tokenizer(syn_ops))
+    syn_tokens.update(smi_tokenizer(lg_ops))
+
+    syn_str, syn_ops, lg_ops = get_synthon_lg(reac, prod, True)
+
+    syn_tokens.update(smi_tokenizer(syn_str))
+    syn_tokens.update(smi_tokenizer(syn_ops))
+    syn_tokens.update(smi_tokenizer(lg_ops))
 
 
 if __name__ == '__main__':
@@ -59,13 +88,10 @@ if __name__ == '__main__':
     syn_tokens, lg_tokens = set(), set()
     train_syns, train_lg = [], []
     for idx, prod in enumerate(tqdm(train_prod)):
-        print('REAC', train_rec[idx])
-        print('PROD', prod)
-        syn, lg = get_synthon_lg(train_rec[idx], prod)
-        train_syns.append(syn)
-        train_lg.append(lg)
-        syn_tokens.update(smi_tokenizer(syn))
-        lg_tokens.update(smi_tokenizer(lg))
+        update_info(
+            reac=train_rec[idx], prod=prod, syns=train_syns,
+            lgs=train_lg, syn_toks=syn_tokens, lg_toks=lg_tokens
+        )
 
     with open(os.path.join(args.output, 'train_synthons.txt'), 'w') as Fout:
         json.dump(train_syns, Fout, indent=4)
@@ -75,11 +101,10 @@ if __name__ == '__main__':
 
     val_syns, val_lg = [], []
     for idx, prod in enumerate(tqdm(val_prod)):
-        syn, lg = get_synthon_lg(val_rec[idx], prod)
-        val_syns.append(syn)
-        val_lg.append(lg)
-        syn_tokens.update(smi_tokenizer(syn))
-        lg_tokens.update(smi_tokenizer(lg))
+        update_info(
+            reac=val_rec[idx], prod=prod, syns=val_syns,
+            lgs=val_lg, syn_toks=syn_tokens, lg_toks=lg_tokens
+        )
 
     with open(os.path.join(args.output, 'val_synthons.txt'), 'w') as Fout:
         json.dump(val_syns, Fout, indent=4)
@@ -89,11 +114,10 @@ if __name__ == '__main__':
 
     test_syns, test_lg = [], []
     for idx, prod in enumerate(tqdm(test_prod)):
-        syn, lg = get_synthon_lg(test_rec[idx], prod)
-        test_syns.append(syn)
-        test_lg.append(lg)
-        syn_tokens.update(smi_tokenizer(syn))
-        lg_tokens.update(smi_tokenizer(lg))
+        update_info(
+            reac=test_rec[idx], prod=prod, syns=test_syns,
+            lgs=test_lg, syn_toks=syn_tokens, lg_toks=lg_tokens
+        )
 
     with open(os.path.join(args.output, 'test_synthons.txt'), 'w') as Fout:
         json.dump(test_syns, Fout, indent=4)

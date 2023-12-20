@@ -260,7 +260,7 @@ def get_reaction_core(
     return rxn_core, core_edits
 
 
-def break_fragements(smiles, break_edges, canonicalize=False):
+def break_fragements(smiles, break_edges):
     """ 
 
     break a smilse into synthons according to the given break edges
@@ -287,8 +287,6 @@ def break_fragements(smiles, break_edges, canonicalize=False):
     answer = Chem.MolToSmiles(tmol.GetMol())
     if Chem.MolFromSmiles(answer) is None:
         print('\n[smi]', smiles)
-    if canonicalize:
-        answer = clear_map_number(answer)
     return answer
 
 
@@ -371,7 +369,7 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
     }
     ke_reac_bonds = get_bond_info(ke_reac_mol)
 
-    modified_atoms, deltaE = set(), {}
+    Eatom, Hatom, Catom, deltaE = set(), set(), set(), {}
     for bond, (ftype, bidx) in prod_bonds.items():
         if bond not in reac_bonds:
             target = 0
@@ -385,7 +383,7 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
         assert target != 1.5, 'Building aromatic bonds!'
         if ftype != target:
             deltaE[bond] = (ftype, target)
-            modified_atoms.update(bond)
+            Eatom.update(bond)
 
     if consider_inner_bonds:
         for bond in reac_bonds:
@@ -393,15 +391,15 @@ def get_synthon_edits(reac: str, prod: str, consider_inner_bonds: bool = False):
                 continue
             if bond not in prod_bonds:
                 deltaE[bond] = (0, ke_reac_bonds[bond][0])
-                modified_atoms.update(bond)
+                Eatom.update(bond)
 
     for atom in prod_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
         reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
         if atom.GetTotalNumHs() != reac_atom.GetTotalNumHs():
-            modified_atoms.add(amap_num)
+            Hatom.add(amap_num)
         if atom.GetFormalCharge() != reac_atom.GetFormalCharge():
-            modified_atoms.add(amap_num)
+            Catom.add(amap_num)
 
     return modified_atoms, deltaE
 
@@ -584,7 +582,7 @@ def edit_to_synthons(smi, edge_edits):
 
     # return rebuild_aromatic(answer, updated_bond_types)
 
-from copy import deepcopy
+
 def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     prod_mol = Chem.MolFromSmiles(prod_smi)
     lg_mol = Chem.MolFromSmiles(lgs)
@@ -934,37 +932,5 @@ def eval_by_atom_bond(smi1, smi2):
         if v[0] != bond2[k][0] and ke_bond1[k][0] != ke_bond2[k][0]:
             # print('die', k, ke_bond1[k][0], ke_bond2[k][0])
             return False
-
-    return True
-
-
-def check_aron(smi):
-    mol = get_mol(smi)
-    aron_atoms = {
-        x.GetAtomMapNum() for x in mol.GetAtoms()
-        if x.GetIsAromatic()
-    }
-    amap = {x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()}
-
-    old_bonds = get_bond_info(mol)
-    ke_vals = {}
-
-    Chem.Kekulize(mol, True)
-    new_bonds = get_bond_info(mol)
-
-    for (a, b), (c, d) in old_bonds.items():
-        if c == 1.5:
-            ke_vals[a] = new_bonds[(a, b)][0] + ke_vals.get(a, 0)
-            ke_vals[b] = new_bonds[(a, b)][0] + ke_vals.get(b, 0)
-
-    for x in aron_atoms:
-        if ke_vals[x] >= 3:
-            continue
-        atom = mol.GetAtomWithIdx(amap[x])
-        for y in atom.GetNeighbors():
-            key_pair = tuple(sorted((x, y.GetAtomMapNum())))
-            if old_bonds[key_pair][0] == 1.5 and ke_vals[y.GetAtomMapNum()] < 3:
-                print(x, y.GetAtomMapNum())
-                return False
 
     return True
