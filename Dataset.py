@@ -122,7 +122,8 @@ def randomize_smiles(smi):
 
 class OverallDataset(torch.utils.data.Dataset):
     def __init__(
-        self, graphs: List[Dict], enc_nodes: List[List[int]],
+        self, graphs: List[Dict], Eatom: List[Set[int]],
+        Hatom: List[Set[int]], Catom: List[Set[int]],
         enc_edges: List[Dict[Tuple[int, int], int]],
         lg_graphs: List[Dict], lg_labels: List[List[int]],
         conn_edges: List[List[List[int]]], conn_labels: List[List[int]],
@@ -132,7 +133,6 @@ class OverallDataset(torch.utils.data.Dataset):
     ):
         super(OverallDataset, self).__init__()
         self.graphs = graphs
-        self.node_labels = enc_nodes
         self.edge_labels = enc_edges
         self.rxn_class = rxn_class
         self.lg_graphs = lg_graphs
@@ -143,6 +143,9 @@ class OverallDataset(torch.utils.data.Dataset):
         self.trans_output = trans_output
         self.randomize = randomize
         self.aug_prob = aug_prob
+        self.Eatom = Eatom
+        self.Catom = Catom
+        self.Hatom = Hatom
 
         assert not self.randomize or 0 <= self.aug_prob <= 1,\
             'The aug_prob should be a float between 0 and 1'
@@ -157,16 +160,24 @@ class OverallDataset(torch.utils.data.Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        num_nodes = self.graphs[index]['node_feat'].shape[0]
         num_edges = self.graphs[index]['edge_index'].shape[1]
-        node_labels = torch.zeros(num_nodes).long()
-        edge_labels = torch.zeros(num_edges).long()
+        new_labels = torch.zeros(num_edges).long()
+        num_nodes = self.graphs[index]['num_nodes']
 
-        for k, v in self.node_labels[index].items():
-            node_labels[k] = v
+        Ea = torch.zeros(num_nodes)
+        Ha = torch.zeros(num_nodes)
+        Ca = torch.zeros(num_nodes)
+
+        for x in self.Eatom[index]:
+            Ea[x] = 1
+        for x in self.Hatom[index]:
+            Ha[x] = 1
+        for x in self.Catom[index]:
+            Ca[x] = 1
+
         for idx in range(num_edges):
             row, col = self.graphs[index]['edge_index'][:, idx].tolist()
-            edge_labels[idx] = self.edge_labels[index][(row, col)]
+            new_labels[idx] = self.edge_labels[index][(row, col)]
 
         if self.rxn_class is not None:
             trans_output = [f'<RXN_{rxn_class}>']
@@ -178,25 +189,21 @@ class OverallDataset(torch.utils.data.Dataset):
         trans_output.extend(smi_tokenizer(self.trans_output[index]))
         trans_output.append('<END>')
 
-        if self.rxn_class is None:
-            return self.graphs[index], node_labels, edge_labels, \
-                self.lg_graphs[index], self.lg_labels[index],\
-                self.conn_edges[index], self.conn_labels[index],\
-                trans_input, trans_output
-        else:
-            return self.graphs[index], node_labels, edge_labels, \
-                self.lg_graphs[index], self.lg_labels[index],\
-                self.conn_edges[index], self.conn_labels[index],\
-                trans_input, trans_output, self.rxn_class[index]
+        rxn_cls = self.rxn_class[index] if self.rxn_class is not None else None
+
+        return self.graphs[index], Ea, Ha, Ca, new_labels, \
+            self.lg_graphs[index], self.lg_labels[index],\
+            self.conn_edges[index], self.conn_labels[index],\
+            trans_input, trans_output, rxn_cls
 
 
 def overall_col_fn(batch):
     encoder = {
-        'node_feat': [], 'edge_feat': [], 'node_label': [],
-        'edge_label': [], 'edge_index': [], 'node_batch': [],
-        'edge_batch': [], 'lstnode': 0, 'lstedge': 0,
-        'node_ptr': [0], 'edge_ptr': [0], 'node_rxn': [],
-        'edge_rxn': []
+        'node_feat': [], 'edge_feat': [], 'edge_label': [],
+        'edge_index': [], 'node_batch': [], 'edge_batch': [],
+        'lstnode': 0, 'lstedge': 0, 'node_ptr': [0], 'edge_ptr': [0],
+        'node_rxn': [], 'edge_rxn': [], 'Eatom': [], 'Hatom': [],
+        'Catom': []
     }
 
     LG = {
@@ -218,10 +225,7 @@ def overall_col_fn(batch):
     LG['batch_mask'] = torch.zeros(batch_size, LG['max_node']).bool()
 
     for idx, data in enumerate(batch):
-        if len(data) == 10:
-            gp, nlb, elb, lgg, lgb, coe, col, tin, tou, rxn = data
-        else:
-            (gp, nlb, elb, lgg, lgb, coe, col, tin, tou), rxn = data, None
+        gp, ea, ha, ca, elb, lgg, lgb, coe, col, tin, tou, rxn = data
 
         # encoder
         enc_node_cnt = gp['num_nodes']
@@ -229,7 +233,9 @@ def overall_col_fn(batch):
         encoder['node_feat'].append(gp['node_feat'])
         encoder['edge_feat'].append(gp['edge_feat'])
         encoder['edge_index'].append(gp['edge_index'] + encoder['lstnode'])
-        encoder['node_label'].append(nlb)
+        encoder['Hatom'].append(ha)
+        encoder['Eatom'].append(ea)
+        encoder['Catom'].append(ca)
         encoder['edge_label'].append(elb)
         encoder['batch_mask'][idx, :enc_node_cnt] = True
         encoder['node_batch'].append(
@@ -293,8 +299,10 @@ def overall_col_fn(batch):
         'batch': torch.from_numpy(npcat(encoder['node_batch'], axis=0)),
         'e_batch': torch.from_numpy(npcat(encoder['edge_batch'], axis=0)),
         'edge_index': torch.from_numpy(npcat(encoder['edge_index'], axis=1)),
-        'node_label': torch.cat(encoder['node_label'], dim=0),
         'edge_label': torch.cat(encoder['edge_label'], dim=0),
+        'HChange': torch.cat(encoder['Hatom'], dim=0),
+        'EdgeChange': torch.cat(encoder['Eatom'], dim=0),
+        'ChargeChange': torch.cat(encoder['Catom'], dim=0),
         'num_nodes': encoder['lstnode'],
         'num_edges': encoder['lstedge'],
         "batch_mask": encoder['batch_mask']
