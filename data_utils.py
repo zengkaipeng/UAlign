@@ -33,26 +33,38 @@ def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
 
 def create_edit_dataset(
     reacts: List[str], prods: List[str], rxn_class: Optional[List[int]] = None,
-    kekulize: bool = False, verbose: bool = True,
+    verbose: bool = True, 
 ):
-    graphs, o_edges, n_edges = [], [], []
+    graphs, n_edges = [], []
+    Ea, Ha, Ca = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
-        graph, amap = smiles2graph(prod, with_amap=True, kekulize=kekulize)
+        graph, amap = smiles2graph(prod, with_amap=True)
         graphs.append(graph)
 
-        _, deltaE = get_synthons(prod, reacts[idx], kekulize=kekulize)
+        Eatom, Hatom, Catom, deltaEs, org_type = get_synthon_edits(
+            reac=reacts[idx], prod=prod, consider_inner_bonds=True,
+            return_org_type=True
+        )
+        new_type = {
+            **{k: v[0] for k, v in org_type.items()},
+            **{k: v[1] for k, v in deltaEs.items()}
+        }
 
-        old_edge, new_edge = {}, {}
-        for (src, dst), (otype, ntype) in deltaE.items():
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
             src, dst = amap[src], amap[dst]
-            otype = BOND_FLOAT_TO_IDX[otype]
             ntype = BOND_FLOAT_TO_IDX[ntype]
-            old_edge[(src, dst)] = old_edge[(dst, src)] = otype
             new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
-        o_edges.append(old_edge)
         n_edges.append(new_edge)
+        Ea.append({amap[x] for x in Eatom})
+        Ca.append({amap[x] for x in Catom})
+        Ha.append({amap[x] for x in Hatom})
 
-    return SynthonDataset(graphs, o_edges, n_edges, rxn_class=rxn_class)
+    return SynthonDataset(
+        graphs=graphs, new_types=n_edges, Eatom=Ea, Hatom=Ha, Catom=Ca,
+        rxn_class=rxn_class, Trans=trans_res, use_aug=use_aug,
+        aug_prob=aug_prob
+    )
 
 
 def check_useful_synthons(synthons, belong):

@@ -64,7 +64,7 @@ def update_info(reac, prod, syns, lgs, syn_toks, lg_toks):
 
     syn_tokens.update(smi_tokenizer(syn_str))
     syn_tokens.update(smi_tokenizer(syn_ops))
-    syn_tokens.update(smi_tokenizer(lg_ops))
+    lg_tokens.update(smi_tokenizer(lg_ops))
 
 
 if __name__ == '__main__':

@@ -11,14 +11,16 @@ from rdkit import Chem
 class SynthonDataset(torch.utils.data.Dataset):
     def __init__(
         self, graphs: List[Dict],
-        old_types: List[Dict[Tuple[int, int], int]],
-        new_types: List[Dict[Tuple[int, int], int]],
-        rxn_class: Optional[List[int]] = None
+        new_types: List[Dict[Tuple[int, int], int]], Eatom: List[Set[int]],
+        Hatom: List[Set[int]], Catom: List[Set[int]],
+        rxn_class: Optional[List[int]] = None,
     ):
         super(SynthonDataset, self).__init__()
         self.graphs = graphs
-        self.old_types = old_types
         self.new_types = new_types
+        self.Eatom = Eatom
+        self.Catom = Catom
+        self.Hatom = Hatom
         self.rxn_class = rxn_class
 
     def __len__(self):
@@ -26,22 +28,35 @@ class SynthonDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         num_edges = self.graphs[index]['edge_index'].shape[1]
-        old_labels = torch.zeros(num_edges).long()
         new_labels = torch.zeros(num_edges).long()
+        num_nodes = self.graphs[index]['num_nodes']
+
+        Ea = torch.zeros(num_nodes)
+        Ha = torch.zeros(num_nodes)
+        Ca = torch.zeros(num_nodes)
+
+        for x in self.Eatom[index]:
+            Ea[x] = 1
+        for x in self.Hatom[index]:
+            Ha[x] = 1
+        for x in self.Catom[index]:
+            Ca[x] = 1
 
         for idx in range(num_edges):
             row, col = self.graphs[index]['edge_index'][:, idx].tolist()
-            old_labels[idx] = self.old_types[index][(row, col)]
             new_labels[idx] = self.new_types[index][(row, col)]
 
-        answer = (self.graphs[index], old_labels, new_labels)
-        if self.rxn_class is not None:
-            answer += (self.rxn_class[index], )
-        return answer
+        if self.rxn_class is None:
+            this_rxn = None
+        else:
+            this_rxn = self.rxn_class[index]
+
+        return self.graphs[index], Ea, Ha, Ca, new_labels, this_rxn
 
 
 def edit_col_fn(batch):
-    batch_size, all_old, all_new = len(batch), [], []
+    Eatom, Hatom, Catom = [], [], []
+    batch_size, all_new = len(batch), []
     edge_idx, node_feat, edge_feat = [], [], []
     node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
     node_rxn, edge_rxn, lstnode, lstedge = [], [], 0, 0
@@ -49,18 +64,16 @@ def edit_col_fn(batch):
     batch_mask = torch.zeros(batch_size, max_node).bool()
 
     for idx, data in enumerate(batch):
-        if len(data) == 4:
-            gp, nlb, elb, rxn = data
-        else:
-            (gp, nlb, elb), rxn = data, None
-
+        gp, Ea, Ha, Ca, elb, rxn = data
         node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
 
         node_feat.append(gp['node_feat'])
         edge_feat.append(gp['edge_feat'])
         edge_idx.append(gp['edge_index'] + lstnode)
-        all_old.append(nlb)
         all_new.append(elb)
+        Eatom.append(Ea)
+        Hatom.append(Ha)
+        Catom.append(Ca)
 
         batch_mask[idx, :node_cnt] = True
 
@@ -83,8 +96,10 @@ def edit_col_fn(batch):
         'batch': torch.from_numpy(npcat(node_batch, axis=0)),
         'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
         'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
-        'old_edge_types': torch.cat(all_old, dim=0),
         'new_edge_types': torch.cat(all_new, dim=0),
+        'EdgeChange': torch.cat(Eatom, dim=0),
+        "ChargeChange": torch.cat(Catom, dim=0),
+        "HChange": torch.cat(Hatom, dim=0),
         'num_nodes': lstnode,
         'num_edges': lstedge,
         'batch_mask': batch_mask
