@@ -230,10 +230,11 @@ def eval_overall(
         loss_cur['AE_loss'].append(AE_loss.item())
         loss_cur['AH_loss'].append(AH_loss.item())
         loss_cur['AC_loss'].append(AC_loss.item())
-        loss_cur['syn_edge_loss'].append(syn_edge_loss.item())
-        loss_cur['lg_act_loss'].append(lg_act_acc.item())
+        loss_cur['enc_edge_loss'].append(syn_edge_loss.item())
+        loss_cur['lg_act_loss'].append(lg_act_loss.item())
         loss_cur['conn_loss'].append(conn_loss.item())
         loss_cur['trans_loss'].append(trans_loss.item())
+        loss_cur['all'].append(loss.item())
 
         # pred process
 
@@ -241,8 +242,8 @@ def eval_overall(
             conn_logits, conn_mask, trans_logits = preds
 
         AE_pred = convert_log_into_label(AE_logits, mod='sigmoid')
-        AH_pred = convert_log_into_label(AH_logs, mod='sigmoid')
-        AC_pred = convert_log_into_label(AC_logs, mod='sigmoid')
+        AH_pred = convert_log_into_label(AH_logits, mod='sigmoid')
+        AC_pred = convert_log_into_label(AC_logits, mod='sigmoid')
 
         edge_pred = convert_edge_log_into_labels(
             prod_e_logits, prod_graph.edge_index,
@@ -250,16 +251,26 @@ def eval_overall(
         )
 
         lg_act_pred = convert_log_into_label(lg_act_logits, mod='sigmoid')
-        conn_pred = convert_log_into_label(conn_logits, mod='sigmoid')
+        conn_pred = convert_log_into_label(conn_logits, mod='softmax')
         trans_pred = convert_log_into_label(trans_logits, mod='softmax')
         trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
         edge_acc = eval_by_batch(
-            edge_pred, graph.new_edge_types, graph.e_batch, True
+            edge_pred, prod_graph.edge_label,
+            prod_graph.e_batch, return_tensor=True
         )
-        AE_acc = eval_by_batch(AE_pred, graph.EdgeChange, graph.batch, True)
-        AH_acc = eval_by_batch(AH_pred, graph.HChange, graph.batch, True)
-        AC_acc = eval_by_batch(AC_pred, graph.ChargeChange, graph.batch, True)
+        AE_acc = eval_by_batch(
+            AE_pred, prod_graph.EdgeChange,
+            prod_graph.batch, return_tensor=True
+        )
+        AH_acc = eval_by_batch(
+            AH_pred, prod_graph.HChange,
+            prod_graph.batch, return_tensor=True
+        )
+        AC_acc = eval_by_batch(
+            AC_pred, prod_graph.ChargeChange,
+            prod_graph.batch,  return_tensor=True
+        )
 
         lg_act_acc = eval_by_batch(
             lg_act_pred, lg_graph.node_label, lg_graph.batch,

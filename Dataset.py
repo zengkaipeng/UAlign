@@ -336,7 +336,7 @@ def overall_col_fn(batch):
         graph_rxn = None
 
     conn_edges = torch.LongTensor(conn_edges)
-    conn_labels = torch.FloatTensor(conn_labels)
+    conn_labels = torch.LongTensor(conn_labels)
     conn_batch = torch.LongTensor(conn_batch)
 
     return torch_geometric.data.Data(**enc_graph), \

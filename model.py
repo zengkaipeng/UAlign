@@ -165,7 +165,7 @@ class OverallModel(torch.nn.Module):
         self.conn_pred = torch.nn.Sequential(
             torch.nn.Linear(node_dim + node_dim, node_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 5)
+            torch.nn.Linear(node_dim, 4)
         )
         if rxn_num is None:
             self.tpp_embs = torch.nn.ParameterDict({
