@@ -265,9 +265,9 @@ def eval_by_batch(pred, label, batch, return_tensor=False, batch_size=None):
     for i in range(batch_size):
         this_mask = batch == i
 
-        this_lb = label[this_mask]
-        this_pd = pred[this_mask]
         if torch.any(this_mask):
+            this_lb = label[this_mask]
+            this_pd = pred[this_mask]
             accs[i] = torch.all(this_lb == this_pd).item()
         else:
             accs[i] = True
