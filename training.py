@@ -160,7 +160,8 @@ def train_overall(
             warmup_sher.step()
 
     return {
-        'enc_node_loss': np.mean(enc_nl), 'enc_edge_loss': np.mean(enc_el),
+        'AH_loss': np.mean(Ahl), 'AC_loss': np.mean(Acl),
+        'AE_loss': np.mean(Ael), 'enc_edge_loss': np.mean(enc_el),
         'lg_act_loss': np.mean(lg_act), 'conn_loss': np.mean(conn),
         'trans_loss': np.mean(tras), 'all': np.mean(al)
     }
@@ -171,6 +172,11 @@ def eval_overall(
     end_token,
 ):
     model = model.eval()
+    loss_cur = {
+        'AE_loss': [], 'AH_loss': [], 'AC_loss': [],
+        'lg_act_loss': [], 'enc_edge_loss': [],
+        'trans_loss': [], 'conn_loss': [], 'all': []
+    }
     metrics = {
         'synthon': {
             'edge_acc': [], 'HChange': [], 'ChargeChange': [],
@@ -204,14 +210,30 @@ def eval_overall(
             grxn = grxn.to(device)
 
         with torch.no_grad():
-            preds = model(
+            preds, losses = model(
                 prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
                 conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
                 graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
                 trans_ip_key_padding=trans_ip_mask,
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
-                conn_label=conn_ls, mode='valid', return_loss=False
+                conn_label=conn_ls, mode='valid', return_loss=True
             )
+
+        # loss process
+
+        AE_loss, AH_loss, AC_loss, syn_edge_loss, lg_act_loss, \
+            conn_loss, trans_loss = losses
+
+        loss = (AE_loss + AH_loss + AC_loss) + syn_edge_loss + \
+            lg_act_loss + conn_loss + trans_loss
+
+        loss_cur['AE_loss'].append(AE_loss.item())
+        loss_cur['AH_loss'].append(AH_loss.item())
+        loss_cur['AC_loss'].append(AC_loss.item())
+        loss_cur['syn_edge_loss'].append(syn_edge_loss.item())
+        loss_cur['lg_act_loss'].append(lg_act_acc.item())
+        loss_cur['conn_loss'].append(conn_loss.item())
+        loss_cur['trans_loss'].append(trans_loss.item())
 
         # pred process
 
@@ -258,7 +280,7 @@ def eval_overall(
         metrics['lg'].append(trans_acc)
         metrics['conn']['lg_acc'].append(lg_act_acc)
         metrics['conn']['conn_acc'].append(conn_acc)
-        metrics['all'].append(conn_acc & edge_acc & trans_acc)
+        metrics['all'].append(lg_act_acc & conn_acc & edge_acc & trans_acc)
 
     loss_cur = {k: np.mean(v) for k, v in loss_cur.items()}
 

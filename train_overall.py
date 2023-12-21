@@ -29,10 +29,9 @@ def create_log_model(args):
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    model_dir = os.path.join(detail_log_folder, f'loss-{timestamp}.pth')
     acc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
     token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
-    return detail_log_dir, model_dir, acc_dir, token_path
+    return detail_log_dir, acc_dir, token_path
 
 
 if __name__ == '__main__':
@@ -41,10 +40,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--kekulize', action='store_true',
-        help='kekulize molecules if it\'s added'
     )
     parser.add_argument(
         '--n_layer', default=5, type=int,
@@ -158,7 +153,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, acc_dir, token_path = create_log_model(args)
+    log_dir, acc_dir, token_path = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -187,19 +182,19 @@ if __name__ == '__main__':
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
     train_set = create_overall_dataset(
-        reacts=train_rec, prods=train_prod, kekulize=args.kekulize,
-        rxn_class=train_rxn if args.use_class else None, verbose=True,
-        randomize=args.use_aug, aug_prob=args.aug_prob
+        reacts=train_rec, prods=train_prod, verbose=True,
+        rxn_class=train_rxn if args.use_class else None,
+        randomize=args.use_aug, aug_prob=args.aug_prob, mode='train'
     )
     valid_set = create_overall_dataset(
-        reacts=val_rec, prods=val_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None, verbose=True,
-        randomize=False, aug_prob=0
+        reacts=val_rec, prods=val_prod, verbose=True,
+        rxn_class=val_rxn if args.use_class else None,
+        randomize=False, aug_prob=0, mode='eval'
     )
     test_set = create_overall_dataset(
-        reacts=test_rec, prods=test_prod, kekulize=args.kekulize,
-        rxn_class=val_rxn if args.use_class else None, verbose=True,
-        randomize=False, aug_prob=0
+        reacts=test_rec, prods=test_prod, verbose=True,
+        rxn_class=val_rxn if args.use_class else None,
+        randomize=False, aug_prob=0, mode='eval'
     )
 
     train_loader = DataLoader(
@@ -280,7 +275,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
-    best_loss, loss_epoch, best_acc, acc_epoch = [None] * 4
+    best_acc, acc_epoch = [None] * 2
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': [],
@@ -319,25 +314,20 @@ if __name__ == '__main__':
         log_info['test_metric'].append(test_metric)
         log_info['valid_loss'].append(valid_loss)
         log_info['test_loss'].append(test_loss)
+
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
         if best_acc is None or valid_metric['all'] > best_acc:
             best_acc, acc_epoch = valid_metric['all'], ep
             torch.save(model.state_dict(), acc_dir)
-        if best_loss is None or valid_loss['all'] < best_loss:
-            best_loss, loss_epoch = valid_loss['all'], ep
-            torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 4 and ep > max(10, args.early_stop):
             metr_his = log_info['valid_metric'][-args.early_stop:]
-            loss_his = log_info['valid_loss'][-args.early_stop:]
-
-            loss_his = [-x['all'] for x in loss_his]
-            syn_his = [x['synthon']['break_cover'] for x in metr_his]
+            syn_his = [x['synthon']['edge_acc'] for x in metr_his]
             lg_his = [x['lg'] for x in metr_his]
-            conn_his = [x['conn']['conn_cov'] for x in metr_his]
-            if check_early_stop(syn_his, conn_his, lg_his, loss_his):
+            conn_his = [x['conn']['conn_acc'] for x in metr_his]
+            if check_early_stop(syn_his, conn_his, lg_his):
                 break
 
         if ep >= args.warmup:
@@ -355,19 +345,5 @@ if __name__ == '__main__':
         '[best acc test]\n{}\n{}'.format(
             log_info['test_metric'][acc_epoch],
             log_info['test_loss'][acc_epoch]
-        )
-    )
-
-    print('[best loss ep]', loss_epoch)
-    print(
-        '[best loss valid]\n{}\n{}'.format(
-            log_info['valid_metric'][loss_epoch],
-            log_info['valid_loss'][loss_epoch]
-        )
-    )
-    print(
-        '[best loss test]\n{}\n{}'.format(
-            log_info['test_metric'][loss_epoch],
-            log_info['test_loss'][loss_epoch]
         )
     )
