@@ -274,12 +274,12 @@ def eval_overall(
 
         lg_act_acc = eval_by_batch(
             lg_act_pred, lg_graph.node_label, lg_graph.batch,
-            return_tensor=True
+            return_tensor=True, batch_size=batch_size
         )
 
         conn_acc = eval_by_batch(
             conn_pred, conn_ls[conn_mask], conn_b[conn_mask],
-            return_tensor=True
+            return_tensor=True, batch_size=batch_size
         )
 
         trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)

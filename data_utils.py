@@ -191,7 +191,6 @@ def create_overall_dataset(
             if rxn_class is not None:
                 real_rxns.append(rxn_class[idx])
 
-
     return OverallDataset(
         graphs=graphs, enc_edges=n_edges, lg_graphs=lg_graphs, Eatom=Ea,
         Hatom=Ha, Catom=Ca, lg_labels=lg_act, conn_edges=conn_cands,
@@ -257,8 +256,10 @@ def check_early_stop(*args):
     return answer
 
 
-def eval_by_batch(pred, label, batch, return_tensor=False):
-    batch_size = batch.max().item() + 1
+def eval_by_batch(pred, label, batch, return_tensor=False, batch_size=None):
+    if batch_size is None:
+        batch_size = batch.max().item() + 1
+
     accs = torch.zeros(batch_size).bool()
 
     for i in range(batch_size):
@@ -266,7 +267,10 @@ def eval_by_batch(pred, label, batch, return_tensor=False):
 
         this_lb = label[this_mask]
         this_pd = pred[this_mask]
-        accs[i] = torch.all(this_lb == this_pd).item()
+        if torch.any(this_mask):
+            accs[i] = torch.all(this_lb == this_pd).item()
+        else:
+            accs[i] = True
 
     if not return_tensor:
         return accs.sum().item(), batch_size
