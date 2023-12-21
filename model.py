@@ -367,6 +367,13 @@ class OverallModel(torch.nn.Module):
         loss = torch.mean(torch.sum(losses, dim=-1))
         return loss
 
+    def synthon_forward(self, prod_graph):
+        prod_n_emb, prod_e_emb = self.GNN(prod_graph)
+        AC_logits = self.Cchange(prod_n_emb).squeeze(dim=-1)
+        prod_e_logits = self.syn_e_pred(prod_e_emb)
+
+        return AC_logits, prod_e_logits, prod_n_emb, prod_e_emb
+
 
 class SIM(torch.nn.Module):
     def __init__(self, q_dim, kv_dim, heads, dropout):

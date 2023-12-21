@@ -372,6 +372,29 @@ def convert_edge_log_into_labels(
     return edge_pred
 
 
+def avg_edge_logs(logits, edge_index, mod='sigmoid'):
+    edge_logs = {}
+    assert mod in ['softmax', 'sigmoid'], f'Invalid Mode {mod}'
+    if mod == 'softmax':
+        logits = torch.softmax(logits, dim=-1)
+    else:
+        logits = logits.sigmoid().tolist()
+
+    for idx, p in enumerate(logits):
+        row, col = edge_index[:, idx]
+        row, col = row.item(), col.item()
+        if (row, col) not in edge_logs:
+            edge_logs[(row, col)] = edge_logs[(col, row)] = p
+        else:
+            real_log = (edge_logs[(row, col)] + p) / 2
+            edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
+
+    if mod == 'softmax':
+        edge_logs = {k: v.tolist() for k, v in edge_logs.items()}
+
+    return {(a, b): v for (a, b), v in edge_logs.items() if a < b}
+
+
 def seperate_encoder_graphs(G):
     batch_size = G.batch.max().item() + 1
     graphs, rxns = [], []
