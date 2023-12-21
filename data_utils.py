@@ -3,7 +3,7 @@ import os
 from utils.chemistry_parse import (
     ACHANGE_TO_IDX, break_fragements, get_all_amap, get_mol_belong,
     clear_map_number, BOND_FLOAT_TO_IDX, get_synthon_edits,
-    get_leaving_group_synthon
+    get_leaving_group_synthon, edit_to_synthons
 )
 from utils.graph_utils import smiles2graph
 from Dataset import OverallDataset, InferenceDataset
@@ -88,7 +88,6 @@ def create_overall_dataset(
     Ea, Ha, Ca = [], [], []
     for idx, prod in enumerate(tqdm(prods) if verbose else prods):
         graph, amap = smiles2graph(prod, with_amap=True)
-        graphs.append(graph)
 
         Eatom, Hatom, Catom, deltaEs, org_type = get_synthon_edits(
             reac=reacts[idx], prod=prod, consider_inner_bonds=False,
@@ -115,7 +114,7 @@ def create_overall_dataset(
             belong.update({k: tdx for k in get_all_amap(reac)})
 
         synthon_str = edit_to_synthons(
-            prod, {k: v[1] for k, v in deltE.items()}
+            prod, {k: v[1] for k, v in deltaEs.items()}
         )
         synthon_str = synthon_str.split('.')
 
@@ -191,6 +190,7 @@ def create_overall_dataset(
 
             if rxn_class is not None:
                 real_rxns.append(rxn_class[idx])
+
 
     return OverallDataset(
         graphs=graphs, enc_edges=n_edges, lg_graphs=lg_graphs, Eatom=Ea,

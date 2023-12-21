@@ -221,7 +221,7 @@ def overall_col_fn(batch):
     encoder['max_node'] = max(x[0]['num_nodes'] for x in batch)
     encoder['batch_mask'] = torch.zeros(batch_size, encoder['max_node']).bool()
 
-    LG['max_node'] = max(x[3]['num_nodes'] for x in batch)
+    LG['max_node'] = max(x[5]['num_nodes'] for x in batch)
     LG['batch_mask'] = torch.zeros(batch_size, LG['max_node']).bool()
 
     for idx, data in enumerate(batch):

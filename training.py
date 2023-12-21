@@ -6,7 +6,7 @@ from utils.chemistry_parse import convert_res_into_smiles
 from data_utils import (
     eval_by_batch, correct_trans_output,
     convert_log_into_label, eval_trans,
-    convert_edge_log_into_labels, eval_conn
+    convert_edge_log_into_labels
 )
 from data_utils import predict_synthon, generate_tgt_mask
 

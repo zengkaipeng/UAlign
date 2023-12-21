@@ -243,9 +243,9 @@ class OverallModel(torch.nn.Module):
         prod_n_emb, prod_e_emb = self.GNN(prod_graph)
         lg_n_emb, lg_e_emb = self.GNN(lg_graph)
 
-        AE_logits = self.Echange(node_feat).squeeze(dim=-1)
-        AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
-        AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
+        AE_logits = self.Echange(prod_n_emb).squeeze(dim=-1)
+        AH_logits = self.Hchange(prod_n_emb).squeeze(dim=-1)
+        AC_logits = self.Cchange(prod_n_emb).squeeze(dim=-1)
         prod_e_logits = self.syn_e_pred(prod_e_emb)
 
         trans_ip = self.token_embeddings(trans_ip)
