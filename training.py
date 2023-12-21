@@ -97,7 +97,8 @@ def train_overall(
     model, loader, optimizer, device, tokenizer,
     pad_token, warmup=True,
 ):
-    enc_nl, enc_el, lg_act, conn, tras, al = [[] for _ in range(6)]
+    Ael, Ahl, Acl = [], [], []
+    enc_el, lg_act, conn, tras, al = [[] for _ in range(5)]
     model = model.train()
     if warmup:
         warmup_iters = len(loader) - 1
@@ -135,20 +136,20 @@ def train_overall(
             conn_label=conn_ls, mode='train'
         )
 
-        syn_node_loss, syn_edge_loss, lg_act_loss, \
+        AE_loss, AH_loss, AC_loss, syn_edge_loss, lg_act_loss, \
             conn_loss, trans_loss = losses
 
-        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
-            + conn_loss + trans_loss
+        loss = (AE_loss + AH_loss + AC_loss) + syn_edge_loss + \
+            lg_act_loss + conn_loss + trans_loss
 
         optimizer.zero_grad()
         loss.backward()
-        # for x, y in model.named_parameters():
-        #     print(x, y.grad)
-        # exit()
         optimizer.step()
 
-        enc_nl.append(syn_node_loss.item())
+        Ael.append(AE_loss.item())
+        Ahl.append(AH_loss.item())
+        Acl.append(AC_loss.item())
+
         enc_el.append(syn_edge_loss.item())
         lg_act.append(lg_act_loss.item())
         conn.append(conn_loss.item())
@@ -170,12 +171,11 @@ def eval_overall(
     end_token,
 ):
     model = model.eval()
-    loss_cur = {
-        'syn_node_loss': [], 'syn_edge_loss': [], 'all': [],
-        'lg_act_loss': [], 'conn_loss': [], 'trans_loss': []
-    }
     metrics = {
-        'synthon': {'node_acc': [], 'break_acc': [], 'break_cover': []},
+        'synthon': {
+            'edge_acc': [], 'HChange': [], 'ChargeChange': [],
+            "EdgeChange": [],
+        },
         'conn': {'lg_cov': [], 'lg_acc': [], 'conn_cov': [], 'conn_acc': []},
         'all': [], 'lg': [],
     }
@@ -204,35 +204,24 @@ def eval_overall(
             grxn = grxn.to(device)
 
         with torch.no_grad():
-            preds, losses = model(
+            preds = model(
                 prod_graph=prod_graph, lg_graph=lg_graph, trans_ip=tips,
                 conn_edges=conn_es, conn_batch=conn_b, trans_op=trans_dec_ip,
                 graph_rxn=grxn, pad_idx=pad_idx,  trans_op_mask=diag_mask,
                 trans_ip_key_padding=trans_ip_mask,
                 trans_op_key_padding=trans_op_mask, trans_label=trans_dec_op,
-                conn_label=conn_ls, mode='valid', return_loss=True
+                conn_label=conn_ls, mode='valid', return_loss=False
             )
-
-        # losses process
-        syn_node_loss, syn_edge_loss, lg_act_loss, \
-            conn_loss, trans_loss = losses
-
-        loss = syn_node_loss + syn_edge_loss + lg_act_loss \
-            + conn_loss + trans_loss
-
-        loss_cur['syn_node_loss'].append(syn_edge_loss.item())
-        loss_cur['syn_edge_loss'].append(syn_edge_loss.item())
-        loss_cur['lg_act_loss'].append(lg_act_loss.item())
-        loss_cur['conn_loss'].append(conn_loss.item())
-        loss_cur['trans_loss'].append(trans_loss.item())
-        loss_cur['all'].append(loss.item())
 
         # pred process
 
-        prod_n_logits, prod_e_logits, lg_act_logits, \
+        AE_logits, AH_logits, AC_logits, prod_e_logits, lg_act_logits, \
             conn_logits, conn_mask, trans_logits = preds
 
-        node_pred = convert_log_into_label(prod_n_logits, mod='softmax')
+        AE_pred = convert_log_into_label(AE_logits, mod='sigmoid')
+        AH_pred = convert_log_into_label(AH_logs, mod='sigmoid')
+        AC_pred = convert_log_into_label(AC_logs, mod='sigmoid')
+
         edge_pred = convert_edge_log_into_labels(
             prod_e_logits, prod_graph.edge_index,
             mod='softmax', return_dict=False
@@ -243,26 +232,33 @@ def eval_overall(
         trans_pred = convert_log_into_label(trans_logits, mod='softmax')
         trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
-        node_acc, break_acc, break_cover = eval_by_graph(
-            node_pred, edge_pred, prod_graph.node_label, prod_graph.edge_label,
-            prod_graph.batch, prod_graph.e_batch, return_tensor=True
+        edge_acc = eval_by_batch(
+            edge_pred, graph.new_edge_types, graph.e_batch, True
         )
-        lg_acc, lg_cover, conn_acc, conn_cover = eval_conn(
-            lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
-            lg_batch=lg_graph.batch, conn_pred=conn_pred,
-            conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
-            return_tensor=True, batch_size=batch_size
-        )
+        AE_acc = eval_by_batch(AE_pred, graph.EdgeChange, graph.batch, True)
+        AH_acc = eval_by_batch(AH_pred, graph.HChange, graph.batch, True)
+        AC_acc = eval_by_batch(AC_pred, graph.ChargeChange, graph.batch, True)
+
+        # lg_acc, lg_cover, conn_acc, conn_cover = eval_conn(
+        #     lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
+        #     lg_batch=lg_graph.batch, conn_pred=conn_pred,
+        #     conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
+        #     return_tensor=True, batch_size=batch_size
+        # )
+        
+        raise NotImplementedError("eval_conn should be rewrite")
         trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
-        metrics['synthon']['node_acc'].append(node_acc)
-        metrics['synthon']['break_cover'].append(break_cover)
-        metrics['synthon']['break_acc'].append(break_acc)
+        metrics['synthon']['edge_acc'].append(edge_acc)
+        metrics['synthon']['HChange'].append(AH_acc)
+        metrics['synthon']['EdgeChange'].append(AE_acc)
+        metrics['synthon']['ChargeChange'].append(AC_acc)
+
         metrics['lg'].append(trans_acc)
         metrics['conn']['lg_acc'].append(lg_acc)
         metrics['conn']['lg_cov'].append(lg_cover)
         metrics['conn']['conn_acc'].append(conn_acc)
         metrics['conn']['conn_cov'].append(conn_cover)
-        metrics['all'].append(conn_cover & break_cover & trans_acc)
+        metrics['all'].append(conn_acc & edge_acc & trans_acc)
 
     loss_cur = {k: np.mean(v) for k, v in loss_cur.items()}
 

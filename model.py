@@ -302,12 +302,12 @@ class OverallModel(torch.nn.Module):
             )
         if mode == 'train':
             return losses
-        elif return_loss:
-            return (prod_n_logits, prod_e_logits, lg_act_logits,
-                    conn_logits, conn_mask, trans_pred), losses
         else:
-            return prod_n_logits, prod_e_logits, lg_act_logits,\
-                conn_logits, conn_mask, trans_pred
+            answer = (
+                AE_logits, AH_logits, AC_logits, prod_e_logits,
+                lg_act_logits, conn_logits, conn_mask, trans_pred
+            )
+            return (answer, losses) if return_loss else answer
 
     def loss_calc(
         self, prod_e_log, prod_e_label, AC_log, AC_label,
