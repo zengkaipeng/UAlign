@@ -176,7 +176,7 @@ def eval_overall(
             'edge_acc': [], 'HChange': [], 'ChargeChange': [],
             "EdgeChange": [],
         },
-        'conn': {'lg_cov': [], 'lg_acc': [], 'conn_cov': [], 'conn_acc': []},
+        'conn': {'lg_acc': [], 'conn_acc': []},
         'all': [], 'lg': [],
     }
     pad_idx = tokenizer.token2idx[pad_token]
@@ -239,14 +239,16 @@ def eval_overall(
         AH_acc = eval_by_batch(AH_pred, graph.HChange, graph.batch, True)
         AC_acc = eval_by_batch(AC_pred, graph.ChargeChange, graph.batch, True)
 
-        # lg_acc, lg_cover, conn_acc, conn_cover = eval_conn(
-        #     lg_pred=lg_act_pred, lg_label=lg_graph.node_label,
-        #     lg_batch=lg_graph.batch, conn_pred=conn_pred,
-        #     conn_lable=conn_ls[conn_mask], conn_batch=conn_b[conn_mask],
-        #     return_tensor=True, batch_size=batch_size
-        # )
-        
-        raise NotImplementedError("eval_conn should be rewrite")
+        lg_act_acc = eval_by_batch(
+            lg_act_pred, lg_graph.node_label, lg_graph.batch,
+            return_tensor=True
+        )
+
+        conn_acc = eval_by_batch(
+            conn_pred, conn_ls[conn_mask], conn_b[conn_mask],
+            return_tensor=True
+        )
+
         trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
         metrics['synthon']['edge_acc'].append(edge_acc)
         metrics['synthon']['HChange'].append(AH_acc)
@@ -254,10 +256,8 @@ def eval_overall(
         metrics['synthon']['ChargeChange'].append(AC_acc)
 
         metrics['lg'].append(trans_acc)
-        metrics['conn']['lg_acc'].append(lg_acc)
-        metrics['conn']['lg_cov'].append(lg_cover)
+        metrics['conn']['lg_acc'].append(lg_act_acc)
         metrics['conn']['conn_acc'].append(conn_acc)
-        metrics['conn']['conn_cov'].append(conn_cover)
         metrics['all'].append(conn_acc & edge_acc & trans_acc)
 
     loss_cur = {k: np.mean(v) for k, v in loss_cur.items()}

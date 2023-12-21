@@ -274,51 +274,6 @@ def eval_by_batch(pred, label, batch, return_tensor=False):
         return accs
 
 
-def eval_conn(
-    batch_size, lg_pred, lg_label, lg_batch, conn_pred,
-    conn_lable, conn_batch, return_tensor=False
-):
-    lg_cover = torch.zeros(batch_size).bool()
-    lg_acc = torch.zeros(batch_size).bool()
-    conn_acc = torch.zeros(batch_size).bool()
-    conn_cover = torch.zeros(batch_size).bool()
-
-    for i in range(batch_size):
-        this_lg_mask = lg_batch == i
-        this_conn_mask = conn_batch == i
-
-        if torch.any(this_lg_mask):
-            this_lg_pred = lg_pred[this_lg_mask] > 0
-            this_lg_label = lg_label[this_lg_mask] > 0
-            inters = this_lg_label & this_lg_label
-
-            lg_f = torch.all(this_lg_label == this_lg_pred).item()
-            lg_c = torch.all(this_lg_label == inters).item()
-        else:
-            lg_f = lg_c = True
-        lg_cover[i] = lg_c
-        lg_acc[i] = lg_c
-
-        if torch.any(this_conn_mask):
-            this_conn_pred = conn_pred[this_conn_mask] > 0
-            this_conn_label = conn_lable[this_conn_mask] > 0
-            e_inters = this_conn_pred & this_conn_label
-
-            con_f = torch.all(this_conn_label == this_conn_pred).item()
-            con_c = torch.all(this_conn_label == e_inters).item()
-        else:
-            con_f = con_c = True
-
-        conn_acc[i] = lg_c & con_f
-        conn_cover[i] = lg_c & con_c
-
-    if not return_tensor:
-        return lg_acc.sum().item(), lg_cover.sum().item(), \
-            conn_acc.sum().item(), conn_cover.sum().item(), batch_size
-    else:
-        return lg_acc, lg_cover, conn_acc, conn_cover
-
-
 def correct_trans_output(trans_pred, end_idx, pad_idx):
     batch_size, max_len = trans_pred.shape
     device = trans_pred.device
