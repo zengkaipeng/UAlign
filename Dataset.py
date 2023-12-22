@@ -197,6 +197,28 @@ class OverallDataset(torch.utils.data.Dataset):
             trans_input, trans_output, rxn_cls
 
 
+def make_batch_from_graph(graph, rxn=None):
+    num_nodes = graph['node_feat'].shape[0]
+    num_edges = graph['edge_index'].shape[1]
+
+    data = {
+        'x': torch.from_numpy(graph['node_feat']),
+        'num_nodes': num_nodes,
+        'edge_attr': torch.from_numpy(graph['edge_feat']),
+        'edge_index': torch.from_numpy(graph['edge_index']),
+        'ptr': torch.LongTensor([0, num_nodes]),
+        'e_ptr': torch.LongTensor([0, num_edges]),
+        'batch': torch.zeros(num_nodes).long(),
+        'e_batch': torch.zeros(num_edges).long(),
+        'batch_mask': torch.ones(1, num_nodes).bool()
+    }
+
+    if rxn is not None:
+        data['node_rxn'] = torch.ones(num_nodes).long() * rxn
+        data['edge_rxn'] = torch.ones(num_edges).long() * rxn
+    return torch_geometric.data.Data(**data)
+
+
 def overall_col_fn(batch):
     encoder = {
         'node_feat': [], 'edge_feat': [], 'edge_label': [],
