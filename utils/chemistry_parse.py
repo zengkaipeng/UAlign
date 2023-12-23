@@ -409,8 +409,6 @@ def get_synthon_edits(
     return Eatom, Hatom, Catom, deltaE, prod_bonds
 
 
-
-
 def edit_to_synthons(smi, edge_edits):
     mol = Chem.MolFromSmiles(smi)
     if mol is None:
@@ -726,6 +724,13 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
             elif bond_vals < MAX_VALENCE['O'] and atom.GetFormalCharge() != -1:
                 atom.SetNumExplicitHs(int(MAX_VALENCE['O'] - bond_vals))
                 atom.SetFormalCharge(0)
+        elif atom.GetSymbol() == 'P':
+            bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]
+            if sum(bond_vals) == 4 and len(bond_vals) == 4:
+                atom.SetFormalCharge(1)
+                atom.SetNumExplicitHs(0)
+            elif sum(bond_vals) in [3, 5] and not atom.GetIsAromatic():
+                atom.SetNumExplicitHs(0)
         elif atom.GetSymbol() == 'B':
             bond_vals = [x.GetBondTypeAsDouble() for x in atom.GetBonds()]
             if len(bond_vals) == 4 and sum(bond_vals) == 4:
@@ -742,10 +747,68 @@ def get_reactants_from_edits(prod_smi, edge_edits, lgs, conns):
     return Chem.MolToSmiles(reac_mol)
 
 
-def run_special_case(reactants):
+def run_special_case(reactants, charge_atoms=None):
     azide_rule = AllChem.ReactionFromSmarts(
-        '[NH:2]=[N+:3]=[N-:4]>>[NH0-:2]=[N+:3]=[N-:4]')
+        '[NH:2]=[N+:3]=[N-:4]>>[NH0-:2]=[N+:3]=[N-:4]'
+    )
     reac_mols = [Chem.MolFromSmiles(x) for x in reactants.split('.')]
+    reac_wo_amap = [clear_map_number(x) for x in reactants.split('.')]
+
+    if charge_atoms is not None:
+        for idx, x in enumerate(reac_mols):
+            if reac_wo_amap[idx] == 'CS':
+                for at in x.GetAtoms():
+                    sym = at.GetSymbol()
+                    amp = at.GetAtomMapNum()
+                    Hs = at.GetNumExplicitHs()
+                    if sym == 'S' and amp in charge_atoms:
+                        at.SetNumExplicitHs(Hs - 1)
+                        at.SetFormalCharge(-1)
+            elif reac_wo_amap[idx] in ['CO']:
+                for at in x.GetAtoms():
+                    sym = at.GetSymbol()
+                    amp = at.GetAtomMapNum()
+                    Hs = at.GetNumExplicitHs()
+                    if sym == 'O' and amp in charge_atoms:
+                        at.SetNumExplicitHs(Hs - 1)
+                        at.SetFormalCharge(-1)
+
+            elif reac_wo_amap[idx] == 'C#N':
+                for at in x.GetAtoms():
+                    sym = at.GetSymbol()
+                    amp = at.GetAtomMapNum()
+                    Hs = at.GetNumExplicitHs()
+                    if sym == 'C' and amp in charge_atoms:
+                        at.SetNumExplicitHs(Hs - 1)
+                        at.SetFormalCharge(-1)
+            elif reac_wo_amap[idx] == 'N#CS':
+                for at in x.GetAtoms():
+                    sym = at.GetSymbol()
+                    amp = at.GetAtomMapNum()
+                    Hs = at.GetNumExplicitHs()
+                    if sym == 'S' and amp in charge_atoms:
+                        at.SetNumExplicitHs(Hs - 1)
+                        at.SetFormalCharge(-1)
+            elif reac_wo_amap[idx] == 'N':
+                for at in x.GetAtoms():
+                    sym = at.GetSymbol()
+                    amp = at.GetAtomMapNum()
+                    if sym == 'N' and amp in charge_atoms:
+                        at.SetNumExplicitHs(4)
+                        at.SetFormalCharge(1)
+            elif reac_wo_amap[idx] == 'N=[N+]=N':
+                xflag = False
+                for at in x.GetAtoms():
+                    xcg = at.GetFormalCharge()
+                    amp = at.GetAtomMapNum()
+                    if amp in charge_atoms and xcg == 0:
+                        xflag = True
+                if xflag:
+                    for at in x.GetAtoms():
+                        if at.GetFormalCharge() == 0:
+                            at.SetFormalCharge(-1)
+                            at.SetNumExplicitHs(0)
+
     for idx, mol in enumerate(reac_mols):
         out = azide_rule.RunReactants((mol, ))
         if len(out) > 0:

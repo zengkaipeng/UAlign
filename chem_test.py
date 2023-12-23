@@ -7,7 +7,7 @@ from utils.chemistry_parse import (
     get_synthon_edits, get_leaving_group_synthon,
     break_fragements, edit_to_synthons, canonical_smiles,
     eval_by_atom_bond, get_reactants_from_edits,
-    clear_map_number, check_aron
+    clear_map_number, run_special_case
 )
 import json
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
@@ -102,7 +102,7 @@ def qval_a_mole(reac, prod, all_res):
         prod, reac, consider_inner_bonds=True
     )
 
-    modified_atoms, deltsE = get_synthon_edits(
+    _, _, Catom, deltsE = get_synthon_edits(
         reac, prod, consider_inner_bonds=True
     )
 
@@ -122,12 +122,12 @@ def qval_a_mole(reac, prod, all_res):
     syn_str = canonical_smiles(syn_str)
     syns = canonical_smiles('.'.join(syns))
 
-
-
     reactants = get_reactants_from_edits(
         prod_smi=prod, edge_edits={k: v[1] for k, v in deltsE.items()},
         lgs='.'.join(lgs), conns=conn_edges
     )
+
+    reactants = run_special_case(reactants, Catom)
 
     answer1 = clear_map_number(reac)
     answer2 = clear_map_number(reactants)
@@ -143,6 +143,7 @@ def qval_a_mole(reac, prod, all_res):
     )
 
     if answer1_noiso != answer2_noiso:
+    # if answer1 != answer2:
         all_res.append({
             'rxn': f"{reac}>>{prod}",
             'edit': {f'{a}_{b}': v for (a, b), v in deltsE.items()},
