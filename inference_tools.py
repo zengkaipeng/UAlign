@@ -1,70 +1,119 @@
 import torch
-from data_utils import generate_square_subsequent_mask
-from utils.chemistry_parse import canonical_smiles
+from data_utils import (
+    generate_square_subsequent_mask,
+    convert_log_into_label, avg_edge_logs
+)
+from utils.chemistry_parse import (
+    canonical_smiles, add_random_Amap, edit_to_synthons,
+    get_mol, get_bond_info, BOND_FLOAT_TYPES
+)
+
+from utils.graph_utils import smiles2graph
+
+from Dataset import make_prod_graph
+from copy import deepcopy
+from queue import PriorityQueue as PQ
+import math
 
 
-def greedy_inference_one(
-    model, tokenizer, graph, device, max_len,
-    begin_token='<CLS>', end_token='<END>'
-):
+class SynthonState:
+    def __init__(self, state, score):
+        self.state = state
+        self.score = score
+
+    def __lt__(self, other):
+        return self.score > other.score
+
+
+def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
+    next_state = {}
+    init_state, init_score = {}, 0
+
+    for k, v in edge_logs.items():
+        idx = [0, 1, 2, 3, 4]
+        idx.sort(key=lambda x: -v[x])
+        last_state = None
+        for p in idx:
+            this_state = (k, p, math.log(v[p] + 1e-9))
+            if p == 4 and bond_types[k][0] != 1.5:
+                # can not build a aron bond
+                continue
+
+            if last_state is not None:
+                next_state[last_state[: 2]] = this_state
+            else:
+                init_state[k] = (p, math.log([p] + 1e-9))
+                init_score += math.log(v[p] + 1e-9)
+
+            last_state = this_state
+
+    Q = PQ()
+
+    Q.put(SynthonState(init_state, init_score))
+
+    valid_synthons = []
+
+    while not Q.empty():
+        curr_state, curr_score = Q.get()
+        delta = {}
+        for k, v in curr_state.items():
+            old_type = bond_types[k][0]
+            new_type = BOND_FLOAT_TYPES[v[0]]
+            if old_type != new_type:
+                delta[k] = new_type
+        try:
+            this_syn = edit_to_synthons(smiles, edge_edits)
+        except Exception as e:
+            this_syn = None
+
+        if this_syn is not None and get_mol(this_syn) is not None:
+            valid_synthons.append((this_syn, curr_score))
+
+        if len(valid_synthons) == beam_size:
+            break
+
+        for k, v in curr_state.items():
+            nx_state = next_state.get((k, v[0]), None)
+            if nx_state is not None:
+                _, nx_idx, nx_score = nx_state
+                cur_idx, cur_score = v
+                sub_state = deepcopy(curr_state)
+                sub_state[k] = (nx_idx, nx_score)
+                sub_score = curr_score - cur_score + nx_score
+                Q.put(SynthonState(sub_state, sub_score))
+
+    return valid_synthons
+
+
+def beam_seach(smiles, model, beam_size=10, rxn=None):
     model = model.eval()
-    tgt = torch.LongTensor([tokenizer.encode1d([begin_token])])
-    tgt = tgt.to(device)
+    mol = get_mol(smiles, kekulize=False)
+    assert mol is not None, "Invalid smiles passed"
 
-    end_id = tokenizer.token2idx[end_token]
-    with torch.no_grad():
-        memory, mem_pad_mask = model.encode(graph)
-        for idx in range(max_len):
-            tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
-            tgt_mask = tgt_mask.to(device)
-            result = model.decode(
-                tgt=tgt, memory=memory, tgt_mask=tgt_mask,
-                memory_padding_mask=mem_pad_mask
-            )
-            result = result[:, -1].argmax(dim=-1)
-            # [1, 1]
-            if result.item() == end_id:
-                break
-            tgt = torch.cat([tgt, result.unsqueeze(-1)], dim=-1)
+    if any(x.GetAtomMapNum() == 0 for x in mol.GetAtoms()):
+        smiles = add_random_Amap(smiles)
+        mol = get_mol(smiles)
 
-    tgt_list = tgt.tolist()[0]
-    answer = tokenizer.decode1d(tgt_list)
-    answer = answer.replace(end_token, "").replace(begin_token, "")
-    return canonical_smiles(answer)
+    bond_types = get_bond_info(mol)
 
-
-def greedy_inference_batch(
-    model, tokenizer, graph, device, max_len,
-    begin_token='<CLS>', end_token='<END>'
-):
-    batch_size, model = graph.ptr.shape[0] - 1, model.eval()
-    tgt = torch.LongTensor([
-        tokenizer.encode1d([begin_token])
-    ] * batch_size).to(device)
-
-    end_id = tokenizer.token2idx[end_token]
-    alive = torch.ones(batch_size).bool()
+    graph, amap = smiles2graph(smiles, with_amap=True, kekulize=False)
+    prod_graph = make_prod_graph(graph, rxn=rxn)
+    reidx_amap = {v: k for k, v in amap.items()}
 
     with torch.no_grad():
-        memory, mem_pad_mask = model.encode(graph)
-        for idx in range(max_len):
-            tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
-            tgt_mask = tgt_mask.to(device)
-            result = model.decode(
-                tgt=tgt[alive], memory=memory[alive], tgt_mask=tgt_mask,
-                memory_padding_mask=mem_pad_mask[alive]
-            )
-            result = result[:, -1].argmax(dim=-1)
-            padding_result = torch.ones(batch_size, 1) * end_id
-            padding_result = padding_result.long().to(device)
-            padding_result[alive] = result.unsqueeze(-1)
-            tgt = torch.cat([tgt, padding_result], dim=-1)
-            alive[alive][result == end_id] = False
-            if not torch.any(alive):
-                break
-    tgt_list = tgt.tolist()
-    answer = tokenizer.decode2d(tgt_list)
-    return [
-        x.replace(end_token, "").replace(begin_token, "")
-        for x in answer
-    ]
+        AC_logs, edge_logs, node_emb, edge_emb = \
+            model.synthon_forward(prod_graph)
+
+    AC_label = convert_log_into_label(AC_logs, mod='sigmoid')
+    edge_logs = avg_edge_logs(edge_logs, prod_graph.edge_index)
+    amap_edge_logs = {}
+    for (a, b), c in t_edge_logs.items():
+        amap_a = reidx_amap[a]
+        amap_b = reidx_amap[b]
+        key_pair = (min(amap_a, amap_b), max(amap_a, amap_b))
+        amap_edge_logs[key_pair] = c
+
+    topk_synthons = get_topk_synthons(
+        smiles=smiles, bond_types=bond_types,
+        edge_logs=amap_edge_logs, beam_size=beam_size
+    )

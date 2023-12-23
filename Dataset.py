@@ -197,7 +197,7 @@ class OverallDataset(torch.utils.data.Dataset):
             trans_input, trans_output, rxn_cls
 
 
-def make_batch_from_graph(graph, rxn=None):
+def make_prod_graph(graph, rxn=None):
     num_nodes = graph['node_feat'].shape[0]
     num_edges = graph['edge_index'].shape[1]
 
