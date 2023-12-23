@@ -67,7 +67,7 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
             this_syn = None
 
         if this_syn is not None and get_mol(this_syn) is not None:
-            valid_synthons.append((this_syn, curr_score))
+            valid_synthons.append((curr_state, this_syn, curr_score))
 
         if len(valid_synthons) == beam_size:
             break
