@@ -8,6 +8,8 @@ from utils.chemistry_parse import (
     get_mol, get_bond_info, BOND_FLOAT_TYPES
 )
 
+from tokenlizer import smi_tokenizer
+
 from utils.graph_utils import smiles2graph
 
 from Dataset import make_prod_graph
@@ -85,7 +87,10 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
     return valid_synthons
 
 
-def beam_seach(smiles, model, beam_size=10, rxn=None):
+def beam_seach_one(
+    smiles, model, tokenizer, device, beam_size=10, rxn=None,
+    start_token='<CLS>', end_token='<END>', sep_token='`',
+):
     model = model.eval()
     mol = get_mol(smiles, kekulize=False)
     assert mol is not None, "Invalid smiles passed"
@@ -118,8 +123,19 @@ def beam_seach(smiles, model, beam_size=10, rxn=None):
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
 
+    for state, syn, score in topk_synthons:
+        syn_tokens = [start_token]
+        syn_tokens.extend(smi_tokenizer(syn.replace('.', sep_token)))
+        syn_tokens.append(end_token)
+        xip = tokenizer.encode2d([syn_tokens])
+        memory, mem_pad = model.encode(
+            xip, node_emb, prod_graph.batch_mask,
+            graph_rxn=rxn, trans_ip_key_padding=None
+        )
+        
 
-def beam_search_one(
+
+def beam_search_lg(
     b_memory, b_memory_pad, num_sep, model, tokenizer, device, max_len,
     size=2, begin_token='<CLS>', end_token='<END>', sep_token='`'
 ):
@@ -156,7 +172,7 @@ def beam_search_one(
             mem_pad_mask = b_mem_pad_mask.repeat(real_size, 1)
             tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
             tgt_mask = tgt_mask.to(device)
-            result = model.trans_dec_forward(
+            result = model.decode(
                 tgt=tgt, memory=memory, mem_pad=mem_pad_mask,
                 trans_op_mask=tgt_mask,
             )

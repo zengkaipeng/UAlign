@@ -205,6 +205,10 @@ class OverallModel(torch.nn.Module):
         word_emb = self.PE(word_emb)
         graph_emb = self.add_type_emb(graph_emb, 'prod', graph_rxn)
 
+        if word_pad is None:
+            word_pad = torch.zeros(word_emb.shape[:2]).bool()
+            word_pad = word_pad.to(word_emb.device)
+
         if self.pre_graph:
             trans_input = torch.cat([word_emb, graph_emb], dim=1)
             memory_pad = torch.cat([word_pad, graph_pad], dim=1)
@@ -374,16 +378,26 @@ class OverallModel(torch.nn.Module):
 
         return AC_logits, prod_e_logits, prod_n_emb, prod_e_emb
 
-    def trans_dec_forward(
+    def decode(
         self, tgt, memory, trans_op_mask=None, memory_pad=None,
         trans_op_key_padding=None
     ):
-        trans_op = self.PE(self.word_emb(tgt))
+        trans_op = self.PE(self.token_embeddings(tgt))
         return self.trans_pred(self.trans_dec(
             tgt=trans_op, memory=memory, tgt_mask=trans_op_mask,
             memory_key_padding_mask=memory_pad,
             tgt_key_padding_mask=trans_op_key_padding
         ))
+
+    def encode(
+        self, trans_ip, graph_emb, batch_mask,
+        graph_rxn=None, trans_ip_key_padding=None,
+    ):
+        trans_ip = self.token_embeddings(trans_ip)
+        graph_mem, graph_pad = make_memory_from_feat(graph_emb, batch_mask)
+        return self.trans_enc_forward(
+            trans_ip, trans_ip_key_padding, graph_mem, graph_pad, graph_rxn
+        )
 
 
 class SIM(torch.nn.Module):
