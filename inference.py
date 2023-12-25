@@ -1,7 +1,12 @@
 from model import OverallModel
-from data_utils import avg_edge_logs
+from sparse_backBone import GINBase, GATBase
+from Mix_backbone import MixFormer
 import argparse
 import pandas
+import pickle
+import torch
+from inference_tools import beam_seach_one
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Parser')
@@ -75,4 +80,72 @@ if __name__ == '__main__':
 
     meta_file = pandas.read_csv(args.file)
 
+    if not torch.cuda.is_available() or args.device < 0:
+        device = torch.device('cpu')
+    else:
+        device = torch.device(f'cuda:{args.device}')
+
+    fix_seed(args.seed)
+    with open(args.token_ckpt, 'rb') as Fin:
+        tokenizer = pickle.load(Fin)
+
+
+    f args.transformer:
+        if args.gnn_type == 'gin':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'edge_dim': args.dim
+            }
+        elif args.gnn_type == 'gat':
+            assert args.dim % args.heads == 0, \
+                'The model dim should be evenly divided by num_heads'
+            gnn_args = {
+                'in_channels': args.dim, 'dropout': 0.1,
+                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
+                'negative_slope': args.negative_slope, 'heads': args.heads
+            }
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+        GNN = MixFormer(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            dropout=0.1, heads=args.heads, gnn_type=args.gnn_type,
+            n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
+        )
+    else:
+        if args.gnn_type == 'gin':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=0.1,
+                embedding_dim=args.dim, n_class=11 if args.use_class else None
+            )
+        elif args.gnn_type == 'gat':
+            GNN = GATBase(
+                num_layers=args.n_layer, dropout=0.1,
+                embedding_dim=args.dim, num_heads=args.heads,
+                negative_slope=args.negative_slope,
+                n_class=11 if args.use_class else None
+            )
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+    enc_layer = torch.nn.TransformerEncoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=0.1
+    )
+    dec_layer = torch.nn.TransformerDecoderLayer(
+        args.dim, args.heads, dim_feedforward=args.dim * 2,
+        batch_first=True, dropout=0.1
+    )
+    TransEnc = torch.nn.TransformerEncoder(enc_layer, args.n_layer)
+    TransDec = torch.nn.TransformerDecoder(dec_layer, args.n_layer)
+
+    model = OverallModel(
+        GNN, TransEnc, TransDec, args.dim, args.dim,
+        num_token=tokenizer.get_token_size(), heads=args.heads,
+        dropout=0.1, use_sim=args.use_sim, pre_graph=args.pregraph,
+        rxn_num=11 if args.use_class else None
+    ).to(device)
+
+    model = model.eval()
     
