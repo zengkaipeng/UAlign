@@ -436,3 +436,4 @@ class SIM(torch.nn.Module):
             key_padding_mask=key_padding_mask
         )
         return torch.relu(x + attn_o)
+
