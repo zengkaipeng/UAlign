@@ -399,6 +399,28 @@ class OverallModel(torch.nn.Module):
             trans_ip, trans_ip_key_padding, graph_mem, graph_pad, graph_rxn
         )
 
+    def eval_conn_forward(
+        self, prod_feat, lg_feat, conn_edges,
+        prod_batch_mask=None, lg_batch_mask=None
+    ):
+        lg_act_logits = self.lg_activate(lg_feat).squeeze(dim=-1)
+        lg_useful = lg_graph.node_label > 0
+
+        if self.use_sim:
+            assert prod_batch_mask is not None and \
+                lg_batch_mask is not None, 'batch mask is required'
+            n_prod_emb, n_lg_emb = self.update_via_sim(
+                prod_n_emb, prod_batch_mask, lg_n_emb, lg_batch_mask
+            )
+        else:
+            n_prod_emb, n_lg_emb = prod_feat, lg_feat
+
+        conn_logits, conn_mask = self.conn_forward(
+            n_lg_emb, n_prod_emb,  conn_edges, lg_useful
+        )
+
+        return conn_logits, conn_mask
+
 
 class SIM(torch.nn.Module):
     def __init__(self, q_dim, kv_dim, heads, dropout):

@@ -896,6 +896,21 @@ def add_random_Amap(smiles):
     return Chem.MolToSmiles(mol)
 
 
+def add_random_Amap_lg(smiles):
+    smiles = smiles.split('`')
+    x_res, pa = [], 1
+    for x in smiles:
+        if x_res != '':
+            p = Chem.MolFromSmiles(x)
+            for am in p.GetAtoms():
+                am.SetAtomMapNum(pa)
+                pa += 1
+            x_res.append(Chem.MolToSmiles(p))
+        else:
+            x_res.append(x)
+    return '`'.join(x_res)
+
+
 def get_node_types(smiles, return_idx=True):
     mol = get_mol(smiles)
     result = {}

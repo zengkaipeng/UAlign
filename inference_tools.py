@@ -5,7 +5,8 @@ from data_utils import (
 )
 from utils.chemistry_parse import (
     canonical_smiles, add_random_Amap, edit_to_synthons,
-    get_mol, get_bond_info, BOND_FLOAT_TYPES
+    get_mol, get_bond_info, BOND_FLOAT_TYPES, add_random_Amap_lg,
+    get_all_amap
 )
 
 from tokenlizer import smi_tokenizer
@@ -90,6 +91,7 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
 def beam_seach_one(
     smiles, model, tokenizer, device, beam_size=10, rxn=None,
     start_token='<CLS>', end_token='<END>', sep_token='`',
+    max_len=100,
 ):
     model = model.eval()
     mol = get_mol(smiles, kekulize=False)
@@ -123,6 +125,8 @@ def beam_seach_one(
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
 
+    x_beams = []
+
     for state, syn, score in topk_synthons:
         syn_tokens = [start_token]
         syn_tokens.extend(smi_tokenizer(syn.replace('.', sep_token)))
@@ -132,6 +136,51 @@ def beam_seach_one(
             xip, node_emb, prod_graph.batch_mask,
             graph_rxn=rxn, trans_ip_key_padding=None
         )
+
+        num_sep = len(syn.split('.')) - 1
+
+        lgs, lg_score = beam_search_lg(
+            b_memory=memory, b_memory_pad=mem_pad, num_sep=num_sep,
+            model=model, tokenizer=tokenizer, device=device, max_len=max_len,
+            size=beam_size, begin_token=start_token, end_token=end_token,
+            sep_token=sep_token
+        )
+
+        for idx, p in lgs:
+            x_beams.append((state, syn, p, lg_score[idx] + score))
+
+    x_beams.sort(lambda x: -x[-1])
+
+    topk_syn_lg = x_beams[:beam_size]
+
+    x_beams = []
+    for state, syn, lg, score in topk_syn_lg:
+        syn_split = syn.split('.')
+        lg_split = lg.split('`')
+
+        if all(x == '' for x in lg_split):
+            x_beams.append((state, lg, [], score))
+            continue
+
+        lg_graph, lg_amap = smiles2graph(
+            lg.replace('`', '.'), kekulize=False, with_amap=True
+        )
+
+        lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn)
+
+        with torch.no_grad():
+            lg_n_feat, lg_e_feat = model.GNN(lg_graph_ip)
+
+        conn_cog = []
+        for idx, syx in enumerate(syn_split):
+            lgx = lg_split[idx]
+            amap_syn = get_all_amap(syx)
+            amap_lg = get_all_amap(lgx)
+            for a in amap_syn:
+                for b in amap_lg:
+                    conn_cog.append((amap[a], lg_amap[b]))
+
+        conn_cog = torch.LongTensor(conn_cog).to(device)
         
 
 
