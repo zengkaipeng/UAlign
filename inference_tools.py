@@ -6,7 +6,8 @@ from data_utils import (
 from utils.chemistry_parse import (
     canonical_smiles, add_random_Amap, edit_to_synthons,
     get_mol, get_bond_info, BOND_FLOAT_TYPES, add_random_Amap_lg,
-    get_all_amap
+    get_all_amap, clear_map_number, get_reactants_from_edits,
+    run_special_case
 )
 
 from tokenlizer import smi_tokenizer
@@ -45,7 +46,7 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
             if last_state is not None:
                 next_state[last_state[: 2]] = this_state
             else:
-                init_state[k] = (p, math.log([p] + 1e-9))
+                init_state[k] = (p, math.log(v[p] + 1e-9))
                 init_score += math.log(v[p] + 1e-9)
 
             last_state = this_state
@@ -57,7 +58,8 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
     valid_synthons = []
 
     while not Q.empty():
-        curr_state, curr_score = Q.get()
+        htop = Q.get()
+        curr_state, curr_score = htop.state, htop.score
         delta = {}
         for k, v in curr_state.items():
             old_type = bond_types[k][0]
@@ -88,6 +90,50 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
     return valid_synthons
 
 
+def get_topk_conn(conn_edges, conn_logs, K):
+    next_state, init_state, init_score = {}, {}, 0
+    for idx, eg in enumerate(conn_edges):
+        a, b = eg.tolist()
+        logs = conn_logs[idx].tolsit()
+        idx = [0, 1, 2, 3]
+        idx.sort(key=lambda x: -logs[x])
+        last_state = None
+        for p in idx:
+            this_state = (a, b, p, math.log(v[p] + 1e-9))
+            if last_state is not None:
+                next_state[last_state[:3]] = this_state
+            else:
+                init_state[(a, b)] = (p, math.log(v[p] + 1e-9))
+                init_score += math.log(v[p] + 1e-9)
+            last_state = this_state
+
+    Q = PQ()
+    Q.put(SynthonState(init_state, init_score))
+
+    result = []
+    while not Q.empty():
+        htop = Q.get()
+        curr_state, curr_score = htop.state, htop.score
+        conns = {k: BOND_FLOAT_TYPES[v[0]] for k, v in curr_state.items()}
+
+        result.append((conns, curr_score))
+
+        if result == K:
+            break
+
+        for k, v in curr_state.items():
+            nx_state = next_state.get((k[0], k[1], v[0]), None)
+            if nx_state is not None:
+                _, nx_idx, nx_score = nx_state
+                cur_idx, cur_score = v
+                sub_state = deepcopy(curr_state)
+                sub_state[k] = (nx_idx, nx_score)
+                sub_score = curr_score - cur_score + nx_score
+                Q.put(SynthonState(sub_state, sub_score))
+
+    return result
+
+
 def beam_seach_one(
     smiles, model, tokenizer, device, beam_size=10, rxn=None,
     start_token='<CLS>', end_token='<END>', sep_token='`',
@@ -112,6 +158,11 @@ def beam_seach_one(
             model.synthon_forward(prod_graph)
 
     AC_label = convert_log_into_label(AC_logs, mod='sigmoid')
+
+    charge_atoms = {
+        reidx_amap[idx] for idx, p in enumerate(AC_label.tolist()) if p > 0
+    }
+
     edge_logs = avg_edge_logs(edge_logs, prod_graph.edge_index)
     amap_edge_logs = {}
     for (a, b), c in t_edge_logs.items():
@@ -128,8 +179,16 @@ def beam_seach_one(
     x_beams = []
 
     for state, syn, score in topk_synthons:
+        sorted_syn = syn.split('.')
+        cano_syn = [clear_map_number(x) for x in sorted_syn]
+        cano_idx = list(range(len(cano_syn)))
+        cano_idx.sort(key=lambda x: len(cano_syn[x]))
+
+        cano_syn = [cano_syn[x] for x in cano_idx]
+        sorted_syn = '.'.join([sorted_syn[x] for x in cano_idx])
+
         syn_tokens = [start_token]
-        syn_tokens.extend(smi_tokenizer(syn.replace('.', sep_token)))
+        syn_tokens.extend(smi_tokenizer(sep_token.join(cano_syn)))
         syn_tokens.append(end_token)
         xip = tokenizer.encode2d([syn_tokens])
         memory, mem_pad = model.encode(
@@ -137,7 +196,7 @@ def beam_seach_one(
             graph_rxn=rxn, trans_ip_key_padding=None
         )
 
-        num_sep = len(syn.split('.')) - 1
+        num_sep = len(cano_syn) - 1
 
         lgs, lg_score = beam_search_lg(
             b_memory=memory, b_memory_pad=mem_pad, num_sep=num_sep,
@@ -147,7 +206,7 @@ def beam_seach_one(
         )
 
         for idx, p in lgs:
-            x_beams.append((state, syn, p, lg_score[idx] + score))
+            x_beams.append((state, sorted_syn, p, lg_score[idx] + score))
 
     x_beams.sort(lambda x: -x[-1])
 
@@ -156,15 +215,19 @@ def beam_seach_one(
     x_beams = []
     for state, syn, lg, score in topk_syn_lg:
         syn_split = syn.split('.')
-        lg_split = lg.split('`')
+        lg_split = lg.split(sep_token)
 
         if all(x == '' for x in lg_split):
-            x_beams.append((state, lg, [], score))
+            x_beams.append((state, '', {}, score))
             continue
+
+        lg = add_random_Amap_lg(lg, sep_token)
 
         lg_graph, lg_amap = smiles2graph(
             lg.replace('`', '.'), kekulize=False, with_amap=True
         )
+
+        lg_reidx_amap = {v: k for k, v in lg_amap.items()}
 
         lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn)
 
@@ -181,7 +244,49 @@ def beam_seach_one(
                     conn_cog.append((amap[a], lg_amap[b]))
 
         conn_cog = torch.LongTensor(conn_cog).to(device)
-        
+        with torch.no_grad():
+            conn_mask, conn_logs = model.eval_conn_forward(
+                prod_feat=ndoe_emb, lg_feat=lg_n_feat, conn_edges=conn_cog,
+                prod_batch_mask=prod_graph.batch_mask,
+                lg_batch_mask=lg_graph_ip.batch_mask
+            )
+            conn_logs = torch.softmax(conn_logs, dim=-1)
+
+        topk_conns = get_topk_conn(conn_cog[conn_mask], conn_logs)
+
+        for conn, conn_score in topk_conns:
+            conn = {
+                (reidx_amap[a], lg_reidx_amap[b]): v
+                for (a, b), v in conn.items()
+            }
+            x_beams.append((state, lg, conn, score + conn_score))
+
+    x_beams.sort(key=lambda x: -x[-1])
+    results = []
+    for state, lg, conn, score in x_beams:
+        delta = {}
+        for k, v in state.items():
+            old_type = bond_types[k][0]
+            new_type = BOND_FLOAT_TYPES[v[0]]
+            if old_type != new_type:
+                delta[k] = new_type
+
+        try:
+            reactants = get_reactants_from_edits(
+                prod_smi=smiles, edge_edits=delta,
+                lgs=lg.replace(sep_token, '.'), conns=conn
+            )
+            reactants = run_special_case(reactants, charge_atoms)
+        except Exception as e:
+            reactants = None
+            print(e)
+
+        if reactants is not None:
+            results.append((reactants, score))
+
+        if len(results) == beam_size:
+            break
+    return results
 
 
 def beam_search_lg(
