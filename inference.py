@@ -6,6 +6,8 @@ import pandas
 import pickle
 import torch
 from inference_tools import beam_seach_one
+from utils.chemistry_parse import clear_map_number
+import numpy as np
 
 
 if __name__ == '__main__':
@@ -75,6 +77,15 @@ if __name__ == '__main__':
         help='the path of token checkpoint, required while' +
         ' checkpoint is specified'
     )
+    parser.add_argument(
+        '--beam', type=int, default=10,
+        help='the beam size for beam search'
+    )
+
+    parser.add_argument(
+        '--max_len', type=int, default=100,
+        help='the max_length for generating the leaving group'
+    )
 
     args = parser.parse_args()
 
@@ -89,8 +100,7 @@ if __name__ == '__main__':
     with open(args.token_ckpt, 'rb') as Fin:
         tokenizer = pickle.load(Fin)
 
-
-    f args.transformer:
+    if args.transformer:
         if args.gnn_type == 'gin':
             gnn_args = {
                 'in_channels': args.dim, 'out_channels': args.dim,
@@ -147,5 +157,40 @@ if __name__ == '__main__':
         rxn_num=11 if args.use_class else None
     ).to(device)
 
+    model_weight = torch.load(args.checkpoint, map_location=device)
+    model.load_state_dict(model_weight)
     model = model.eval()
-    
+
+    topks = []
+
+    for idx, resu in enumerate(meta_file['reactants>reagents>production']):
+        if args.use_class:
+            rxn_class = meta_file['class'][idx]
+            start_toekn = f'<RXN_{rxn_class}>'
+        else:
+            rxn_class = None
+            start_toekn = "<CLS>"
+        reac, prod = resu.strip().split('>>')
+
+        answer = clear_map_number(reac)
+
+        preds = beam_seach_one(
+            smiles=prod, model=model, tokenizer=tokenizer, device=device,
+            beam_size=args.beam, rxn=rxn_class, start_token=start_toekn,
+            end_token='<END>', sep_token='`', max_len=args.max_len
+        )
+
+        this_hit = np.zeros(args.beam)
+
+        for idx, (res, score) in enumerate(preds):
+            if res == answer:
+                this_hit[idx:] = 1
+                break
+
+        topks.append(this_hit)
+
+    topks = np.stack(topks, axis=0)
+
+    topk_acc = np.mean(topks, axis=0)
+    for i in [1, 3, 5, 10]:
+        print(f'[TOP {i}]', topk_acc[i - 1])
