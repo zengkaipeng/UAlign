@@ -176,8 +176,8 @@ def beam_seach_one(
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
 
-    for _, _, syn, score in topk_synthons:
-        print(score, syn)
+    # for _, _, syn, score in topk_synthons:
+    #     print(score, syn)
 
     x_beams = []
 
@@ -190,8 +190,8 @@ def beam_seach_one(
         cano_syn = [cano_syn[x] for x in cano_idx]
         sorted_syn = '.'.join([sorted_syn[x] for x in cano_idx])
 
-        print('[CANO]', cano_syn)
-        print('[ORGA]', sorted_syn)
+        # print('[CANO]', cano_syn)
+        # print('[ORGA]', sorted_syn)
 
         syn_tokens = [start_token]
         syn_tokens.extend(smi_tokenizer(sep_token.join(cano_syn)))
@@ -268,9 +268,12 @@ def beam_seach_one(
                 (reidx_amap[a], lg_reidx_amap[b]): v
                 for (a, b), v in conn.items() if v != 0
             }
-            x_beams.append((state, delta, lg, conn, score + conn_score))
+            x_beams.append((
+                state, delta, lg_for_mol, conn, score + conn_score
+            ))
 
     x_beams.sort(key=lambda x: -x[-1])
+
     results = []
 
     for state, delta, lg, conn, score in x_beams:
@@ -283,6 +286,7 @@ def beam_seach_one(
         except Exception as e:
             reactants = None
             print("error", e)
+            exit()
 
         if reactants is not None:
             results.append((reactants, score))
@@ -290,7 +294,6 @@ def beam_seach_one(
         if len(results) == beam_size:
             break
 
-    exit()
     return results
 
 
