@@ -94,17 +94,17 @@ def get_topk_conn(conn_edges, conn_logs, K):
     next_state, init_state, init_score = {}, {}, 0
     for idx, eg in enumerate(conn_edges):
         a, b = eg.tolist()
-        logs = conn_logs[idx].tolsit()
+        logs = conn_logs[idx].tolist()
         idx = [0, 1, 2, 3]
         idx.sort(key=lambda x: -logs[x])
         last_state = None
         for p in idx:
-            this_state = (a, b, p, math.log(v[p] + 1e-9))
+            this_state = (a, b, p, math.log(logs[p] + 1e-9))
             if last_state is not None:
                 next_state[last_state[:3]] = this_state
             else:
-                init_state[(a, b)] = (p, math.log(v[p] + 1e-9))
-                init_score += math.log(v[p] + 1e-9)
+                init_state[(a, b)] = (p, math.log(logs[p] + 1e-9))
+                init_score += math.log(logs[p] + 1e-9)
             last_state = this_state
 
     Q = PQ()
@@ -124,7 +124,7 @@ def get_topk_conn(conn_edges, conn_logs, K):
         for k, v in curr_state.items():
             nx_state = next_state.get((k[0], k[1], v[0]), None)
             if nx_state is not None:
-                _, nx_idx, nx_score = nx_state
+                _, _, nx_idx, nx_score = nx_state
                 cur_idx, cur_score = v
                 sub_state = deepcopy(curr_state)
                 sub_state[k] = (nx_idx, nx_score)
@@ -222,15 +222,13 @@ def beam_seach_one(
     x_beams = []
     for state, delta, syn, lg, score in topk_syn_lg:
         syn_split = syn.split('.')
+        lg = add_random_Amap_lg(lg, sep_token)
         lg_split = lg.split(sep_token)
-
-        assert len(syn_split) == len(lg_split), 'Invalid generation, bug find'
-
         if all(x == '' for x in lg_split):
             x_beams.append((state, delta, '', {}, score))
             continue
 
-        lg = add_random_Amap_lg(lg, sep_token)
+        assert len(syn_split) == len(lg_split), 'Invalid generation, bug find'
 
         lg_for_mol = '.'.join(x for x in lg.split(sep_token) if x != '')
 
@@ -239,9 +237,6 @@ def beam_seach_one(
         )
 
         lg_reidx_amap = {v: k for k, v in lg_amap.items()}
-
-        print(lg_reidx_amap)
-        exit()
 
         lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn).to(device)
 
@@ -259,24 +254,25 @@ def beam_seach_one(
 
         conn_cog = torch.LongTensor(conn_cog).to(device)
         with torch.no_grad():
-            conn_mask, conn_logs = model.eval_conn_forward(
-                prod_feat=ndoe_emb, lg_feat=lg_n_feat, conn_edges=conn_cog,
+            conn_logs, conn_mask = model.eval_conn_forward(
+                prod_feat=node_emb, lg_feat=lg_n_feat, conn_edges=conn_cog,
                 prod_batch_mask=prod_graph.batch_mask,
                 lg_batch_mask=lg_graph_ip.batch_mask
             )
             conn_logs = torch.softmax(conn_logs, dim=-1)
 
-        topk_conns = get_topk_conn(conn_cog[conn_mask], conn_logs)
+        topk_conns = get_topk_conn(conn_cog[conn_mask], conn_logs, beam_size)
 
         for conn, conn_score in topk_conns:
             conn = {
                 (reidx_amap[a], lg_reidx_amap[b]): v
-                for (a, b), v in conn.items()
+                for (a, b), v in conn.items() if v != 0
             }
             x_beams.append((state, delta, lg, conn, score + conn_score))
 
     x_beams.sort(key=lambda x: -x[-1])
     results = []
+
     for state, delta, lg, conn, score in x_beams:
         try:
             reactants = get_reactants_from_edits(
@@ -286,13 +282,15 @@ def beam_seach_one(
             reactants = run_special_case(reactants, charge_atoms)
         except Exception as e:
             reactants = None
-            print(e)
+            print("error", e)
 
         if reactants is not None:
             results.append((reactants, score))
 
         if len(results) == beam_size:
             break
+
+    exit()
     return results
 
 
