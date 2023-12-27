@@ -72,7 +72,7 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
             this_syn = None
 
         if this_syn is not None and get_mol(this_syn) is not None:
-            valid_synthons.append((curr_state, this_syn, curr_score))
+            valid_synthons.append((curr_state, delta, this_syn, curr_score))
 
         if len(valid_synthons) == beam_size:
             break
@@ -150,7 +150,7 @@ def beam_seach_one(
     bond_types = get_bond_info(mol)
 
     graph, amap = smiles2graph(smiles, with_amap=True, kekulize=False)
-    prod_graph = make_prod_graph(graph, rxn=rxn)
+    prod_graph = make_prod_graph(graph, rxn=rxn).to(device)
     reidx_amap = {v: k for k, v in amap.items()}
 
     with torch.no_grad():
@@ -178,7 +178,7 @@ def beam_seach_one(
 
     x_beams = []
 
-    for state, syn, score in topk_synthons:
+    for state, delta, syn, score in topk_synthons:
         sorted_syn = syn.split('.')
         cano_syn = [clear_map_number(x) for x in sorted_syn]
         cano_idx = list(range(len(cano_syn)))
@@ -206,14 +206,16 @@ def beam_seach_one(
         )
 
         for idx, p in lgs:
-            x_beams.append((state, sorted_syn, p, lg_score[idx] + score))
+            x_beams.append((
+                state, delta, sorted_syn, p, lg_score[idx] + score
+            ))
 
     x_beams.sort(lambda x: -x[-1])
 
     topk_syn_lg = x_beams[:beam_size]
 
     x_beams = []
-    for state, syn, lg, score in topk_syn_lg:
+    for state, delta, syn, lg, score in topk_syn_lg:
         syn_split = syn.split('.')
         lg_split = lg.split(sep_token)
 
@@ -229,7 +231,7 @@ def beam_seach_one(
 
         lg_reidx_amap = {v: k for k, v in lg_amap.items()}
 
-        lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn)
+        lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn).to(device)
 
         with torch.no_grad():
             lg_n_feat, lg_e_feat = model.GNN(lg_graph_ip)
@@ -259,18 +261,11 @@ def beam_seach_one(
                 (reidx_amap[a], lg_reidx_amap[b]): v
                 for (a, b), v in conn.items()
             }
-            x_beams.append((state, lg, conn, score + conn_score))
+            x_beams.append((state, delta, lg, conn, score + conn_score))
 
     x_beams.sort(key=lambda x: -x[-1])
     results = []
-    for state, lg, conn, score in x_beams:
-        delta = {}
-        for k, v in state.items():
-            old_type = bond_types[k][0]
-            new_type = BOND_FLOAT_TYPES[v[0]]
-            if old_type != new_type:
-                delta[k] = new_type
-
+    for state, delta, lg, conn, score in x_beams:
         try:
             reactants = get_reactants_from_edits(
                 prod_smi=smiles, edge_edits=delta,

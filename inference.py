@@ -8,10 +8,11 @@ import torch
 from inference_tools import beam_seach_one
 from utils.chemistry_parse import clear_map_number
 import numpy as np
+from data_utils import fix_seed
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Parser')
+    parser = argparse.ArgumentParser('Parser for beam serach inference')
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
