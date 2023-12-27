@@ -206,22 +206,24 @@ def beam_seach_one(
 
         num_sep = len(cano_syn) - 1
 
-        lgs, lg_score = beam_search_lg(
+        lgs_with_score = beam_search_lg(
             b_memory=memory, b_memory_pad=mem_pad, num_sep=num_sep,
             model=model, tokenizer=tokenizer, device=device, max_len=max_len,
             size=beam_size, begin_token=start_token, end_token=end_token,
             sep_token=sep_token
         )
 
-        for idx, p in lgs:
-            x_beams.append((
-                state, delta, sorted_syn, p, lg_score[idx] + score
-            ))
+        for p, q in lgs_with_score:
+            x_beams.append((state, delta, sorted_syn, p, q + score))
 
-    x_beams.sort(lambda x: -x[-1])
-    exit()
+    x_beams.sort(key=lambda x: -x[-1])
 
     topk_syn_lg = x_beams[:beam_size]
+
+
+    for _, _, syn, lg, score in topk_syn_lg:
+        print(syn, lg, score)
+    exit()
 
     x_beams = []
     for state, delta, syn, lg, score in topk_syn_lg:
@@ -303,7 +305,7 @@ def beam_search_lg(
     tgt = torch.LongTensor([[beg_id]]).to(device)
     probs = torch.Tensor([0]).to(device)
     lens = torch.Tensor([0]).to(device)
-    alive = torch.Tensor([1]).to(device).bool()
+    alive = torch.BoolTensor([True]).to(device)
     n_spe = torch.Tensor([0]).to(device)
     sep_id = tokenizer.token2idx[sep_token]
 
@@ -319,7 +321,7 @@ def beam_search_lg(
                 prob_beam.append(probs[ended])
                 alive_beam.append(alive[ended])
                 len_beam.append(lens[ended])
-                sep_beam.append(sep_beam[ended])
+                sep_beam.append(n_spe[ended])
 
             if torch.all(ended).item():
                 break
@@ -368,12 +370,11 @@ def beam_search_lg(
 
     answer = [(probs[idx].item(), t.tolist()) for idx, t in enumerate(tgt)]
     answer.sort(reverse=True)
-    real_answer, real_prob = [], []
+    real_answer = []
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
         if get_mol(r_smiles.replace(sep_token, '.')) is None:
             continue
-        real_answer.append(r_smiles)
-        real_prob.append(y)
-    return real_answer, real_prob
+        real_answer.append((r_smiles, y))
+    return real_answer
