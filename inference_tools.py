@@ -176,9 +176,6 @@ def beam_seach_one(
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
 
-    # for _, _, syn, score in topk_synthons:
-    #     print(score, syn)
-
     x_beams = []
 
     for state, delta, syn, score in topk_synthons:
@@ -189,9 +186,6 @@ def beam_seach_one(
 
         cano_syn = [cano_syn[x] for x in cano_idx]
         sorted_syn = '.'.join([sorted_syn[x] for x in cano_idx])
-
-        # print('[CANO]', cano_syn)
-        # print('[ORGA]', sorted_syn)
 
         syn_tokens = [start_token]
         syn_tokens.extend(smi_tokenizer(sep_token.join(cano_syn)))
@@ -285,11 +279,6 @@ def beam_seach_one(
         except Exception as e:
             reactants = None
             print("error", e)
-
-            # print('[syn]', edit_to_synthons(smiles, delta))
-            # print('[lg]', lg)
-            # print('[conn]', conn)
-            # exit()
 
         if reactants is not None:
             results.append((reactants, score))
@@ -387,8 +376,8 @@ def beam_search_lg(
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
-
         r_for_mol = '.'.join(x for x in r_smiles.split(sep_token) if x != '')
+
         if get_mol(r_for_mol) is None:
             continue
         real_answer.append((r_smiles, y))
