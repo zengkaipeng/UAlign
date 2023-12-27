@@ -232,9 +232,6 @@ def beam_seach_one(
 
         lg = add_random_Amap_lg(lg, sep_token)
 
-        print('[lg with amap]', lg)
-        exit()
-
         lg_for_mol = '.'.join(x for x in lg.split(sep_token) if x != '')
 
         lg_graph, lg_amap = smiles2graph(
@@ -242,6 +239,9 @@ def beam_seach_one(
         )
 
         lg_reidx_amap = {v: k for k, v in lg_amap.items()}
+
+        print(lg_reidx_amap)
+        exit()
 
         lg_graph_ip = make_prod_graph(lg_graph, rxn=rxn).to(device)
 
