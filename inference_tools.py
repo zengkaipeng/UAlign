@@ -69,6 +69,9 @@ def beam_search_one(
                 break
 
             tgt = tgt[alive]
+            probs = probs[alive]
+            lens = lens[alive]
+
             real_size = min(tgt.shape[0], size)
             memory = base_memory.repeat(real_size, 1, 1)
             mem_pad_mask = base_mem_pad_mask.repeat(real_size, 1)
