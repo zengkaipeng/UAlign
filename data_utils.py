@@ -379,7 +379,6 @@ def avg_edge_logs(logits, edge_index, mod='sigmoid'):
         logits = torch.softmax(logits, dim=-1)
     else:
         logits = logits.sigmoid().tolist()
-
     for idx, p in enumerate(logits):
         row, col = edge_index[:, idx]
         row, col = row.item(), col.item()

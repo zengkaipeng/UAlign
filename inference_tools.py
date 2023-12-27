@@ -171,14 +171,13 @@ def beam_seach_one(
         key_pair = (min(amap_a, amap_b), max(amap_a, amap_b))
         amap_edge_logs[key_pair] = c
 
-
     topk_synthons = get_topk_synthons(
         smiles=smiles, bond_types=bond_types,
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
+
     for _, _, syn, score in topk_synthons:
-        print(f'{score}\t{syn}')
-    exit()
+        print(score, syn)
 
     x_beams = []
 
@@ -191,10 +190,15 @@ def beam_seach_one(
         cano_syn = [cano_syn[x] for x in cano_idx]
         sorted_syn = '.'.join([sorted_syn[x] for x in cano_idx])
 
+        print('[CANO]', cano_syn)
+        print('[ORGA]', sorted_syn)
+
         syn_tokens = [start_token]
         syn_tokens.extend(smi_tokenizer(sep_token.join(cano_syn)))
         syn_tokens.append(end_token)
         xip = tokenizer.encode2d([syn_tokens])
+        xip = torch.LongTensor(xip).to(device)
+
         memory, mem_pad = model.encode(
             xip, node_emb, prod_graph.batch_mask,
             graph_rxn=rxn, trans_ip_key_padding=None
@@ -215,6 +219,7 @@ def beam_seach_one(
             ))
 
     x_beams.sort(lambda x: -x[-1])
+    exit()
 
     topk_syn_lg = x_beams[:beam_size]
 
@@ -322,11 +327,11 @@ def beam_search_lg(
             tgt = tgt[alive]
             real_size = min(tgt.shape[0], size)
             memory = b_memory.repeat(real_size, 1, 1)
-            mem_pad_mask = b_mem_pad_mask.repeat(real_size, 1)
+            mem_pad_mask = b_memory_pad.repeat(real_size, 1)
             tgt_mask = generate_square_subsequent_mask(tgt.shape[1])
             tgt_mask = tgt_mask.to(device)
             result = model.decode(
-                tgt=tgt, memory=memory, mem_pad=mem_pad_mask,
+                tgt=tgt, memory=memory, memory_pad=mem_pad_mask,
                 trans_op_mask=tgt_mask,
             )
             result = torch.log_softmax(result[:, -1], dim=-1)
