@@ -281,7 +281,7 @@ def beam_seach_one(
             print("error", e)
 
         if reactants is not None:
-            results.append((reactants, score))
+            results.append((clear_map_number(reactants), score))
 
         if len(results) == beam_size:
             break
