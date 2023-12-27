@@ -224,6 +224,8 @@ def beam_seach_one(
         syn_split = syn.split('.')
         lg_split = lg.split(sep_token)
 
+        assert len(syn_split) == len(lg_split), 'Invalid generation, bug find'
+
         if all(x == '' for x in lg_split):
             x_beams.append((state, delta, '', {}, score))
             continue
