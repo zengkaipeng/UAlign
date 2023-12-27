@@ -61,7 +61,6 @@ def clear_map_number(smi):
     """Clear the atom mapping number of a SMILES sequence"""
     mol = Chem.MolFromSmiles(smi)
     if mol is None:
-        print(smi)
         return smi
     for atom in mol.GetAtoms():
         if atom.HasProp('molAtomMapNumber'):
@@ -753,6 +752,8 @@ def run_special_case(reactants, charge_atoms=None):
     )
     reac_mols = [Chem.MolFromSmiles(x) for x in reactants.split('.')]
     reac_wo_amap = [clear_map_number(x) for x in reactants.split('.')]
+
+    assert all(x is not None for x in reac_mols), 'Invalid reactants given'
 
     if charge_atoms is not None:
         for idx, x in enumerate(reac_mols):

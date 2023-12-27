@@ -279,14 +279,17 @@ def beam_seach_one(
     for state, delta, lg, conn, score in x_beams:
         try:
             reactants = get_reactants_from_edits(
-                prod_smi=smiles, edge_edits=delta,
-                lgs=lg.replace(sep_token, '.'), conns=conn
+                prod_smi=smiles, edge_edits=delta, lgs=lg, conns=conn
             )
             reactants = run_special_case(reactants, charge_atoms)
         except Exception as e:
             reactants = None
             print("error", e)
-            exit()
+
+            # print('[syn]', edit_to_synthons(smiles, delta))
+            # print('[lg]', lg)
+            # print('[conn]', conn)
+            # exit()
 
         if reactants is not None:
             results.append((reactants, score))

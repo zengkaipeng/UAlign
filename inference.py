@@ -9,6 +9,7 @@ from inference_tools import beam_seach_one
 from utils.chemistry_parse import clear_map_number
 import numpy as np
 from data_utils import fix_seed
+from tqdm import tqdm
 
 
 if __name__ == '__main__':
@@ -164,7 +165,7 @@ if __name__ == '__main__':
 
     topks = []
 
-    for idx, resu in enumerate(meta_file['reactants>reagents>production']):
+    for idx, resu in enumerate(tqdm(meta_file['reactants>reagents>production'])):
         if args.use_class:
             rxn_class = meta_file['class'][idx]
             start_toekn = f'<RXN_{rxn_class}>'
