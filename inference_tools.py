@@ -67,7 +67,7 @@ def get_topk_synthons(smiles, bond_types, edge_logs, beam_size):
             if old_type != new_type:
                 delta[k] = new_type
         try:
-            this_syn = edit_to_synthons(smiles, edge_edits)
+            this_syn = edit_to_synthons(smiles, edge_edits=delta)
         except Exception as e:
             this_syn = None
 
@@ -118,7 +118,7 @@ def get_topk_conn(conn_edges, conn_logs, K):
 
         result.append((conns, curr_score))
 
-        if result == K:
+        if len(result) == K:
             break
 
         for k, v in curr_state.items():
@@ -163,18 +163,22 @@ def beam_seach_one(
         reidx_amap[idx] for idx, p in enumerate(AC_label.tolist()) if p > 0
     }
 
-    edge_logs = avg_edge_logs(edge_logs, prod_graph.edge_index)
+    edge_logs = avg_edge_logs(edge_logs, prod_graph.edge_index, mod='softmax')
     amap_edge_logs = {}
-    for (a, b), c in t_edge_logs.items():
+    for (a, b), c in edge_logs.items():
         amap_a = reidx_amap[a]
         amap_b = reidx_amap[b]
         key_pair = (min(amap_a, amap_b), max(amap_a, amap_b))
         amap_edge_logs[key_pair] = c
 
+
     topk_synthons = get_topk_synthons(
         smiles=smiles, bond_types=bond_types,
         edge_logs=amap_edge_logs, beam_size=beam_size
     )
+    for _, _, syn, score in topk_synthons:
+        print(f'{score}\t{syn}')
+    exit()
 
     x_beams = []
 
