@@ -217,13 +217,7 @@ def beam_seach_one(
             x_beams.append((state, delta, sorted_syn, p, q + score))
 
     x_beams.sort(key=lambda x: -x[-1])
-
     topk_syn_lg = x_beams[:beam_size]
-
-
-    for _, _, syn, lg, score in topk_syn_lg:
-        print(syn, lg, score)
-    exit()
 
     x_beams = []
     for state, delta, syn, lg, score in topk_syn_lg:
@@ -231,13 +225,18 @@ def beam_seach_one(
         lg_split = lg.split(sep_token)
 
         if all(x == '' for x in lg_split):
-            x_beams.append((state, '', {}, score))
+            x_beams.append((state, delta, '', {}, score))
             continue
 
         lg = add_random_Amap_lg(lg, sep_token)
 
+        print('[lg with amap]', lg)
+        exit()
+
+        lg_for_mol = '.'.join(x for x in lg.split(sep_token) if x != '')
+
         lg_graph, lg_amap = smiles2graph(
-            lg.replace('`', '.'), kekulize=False, with_amap=True
+            lg_for_mol, kekulize=False, with_amap=True
         )
 
         lg_reidx_amap = {v: k for k, v in lg_amap.items()}
@@ -327,6 +326,10 @@ def beam_search_lg(
                 break
 
             tgt = tgt[alive]
+            probs = probs[alive]
+            lens = lens[alive]
+            n_spe = n_spe[alive]
+
             real_size = min(tgt.shape[0], size)
             memory = b_memory.repeat(real_size, 1, 1)
             mem_pad_mask = b_memory_pad.repeat(real_size, 1)
@@ -368,13 +371,20 @@ def beam_search_lg(
             lens = len_beam[beam_top_k.indices]
             n_spe = sep_beam[beam_top_k.indices]
 
+            # print(f'------------{idx}-------------')
+            # for tdx, p in enumerate(tgt):
+            #     print(tokenizer.decode1d(p.tolist()), n_spe[tdx].item(), alive[tdx].item(), probs[tdx].item())
+
     answer = [(probs[idx].item(), t.tolist()) for idx, t in enumerate(tgt)]
     answer.sort(reverse=True)
     real_answer = []
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
-        if get_mol(r_smiles.replace(sep_token, '.')) is None:
+
+        r_for_mol = '.'.join(x for x in r_smiles.split(sep_token) if x != '')
+        if get_mol(r_for_mol) is None:
             continue
         real_answer.append((r_smiles, y))
+
     return real_answer

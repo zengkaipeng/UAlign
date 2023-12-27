@@ -900,7 +900,7 @@ def add_random_Amap_lg(smiles, sep_token='`'):
     smiles = smiles.split(sep_token)
     x_res, pa = [], 1
     for x in smiles:
-        if x_res != '':
+        if x != '':
             p = Chem.MolFromSmiles(x)
             for am in p.GetAtoms():
                 am.SetAtomMapNum(pa)
