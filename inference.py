@@ -11,6 +11,9 @@ import numpy as np
 from data_utils import fix_seed
 from tqdm import tqdm
 
+import time
+import json
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Parser for beam serach inference')
@@ -163,7 +166,10 @@ if __name__ == '__main__':
     model.load_state_dict(model_weight)
     model = model.eval()
 
+    out_file = f'answer-{time.time()}.json'
+
     topks = []
+    answers = []
 
     for idx, resu in enumerate(tqdm(meta_file['reactants>reagents>production'])):
         if args.use_class:
@@ -176,11 +182,30 @@ if __name__ == '__main__':
 
         answer = clear_map_number(reac)
 
+        answers.append({
+            'query': resu,
+            'idx': idx
+        })
+
+        with open(out_file, 'w') as Fout:
+            json.dump({
+                'args': args.__dict__,
+                'answer': answers
+            }, Fout, indent=4)
+
         preds = beam_seach_one(
             smiles=prod, model=model, tokenizer=tokenizer, device=device,
             beam_size=args.beam, rxn=rxn_class, start_token=start_toekn,
             end_token='<END>', sep_token='`', max_len=args.max_len
         )
+
+        answers[-1]['answer'] = preds
+
+        with open(out_file, 'w') as Fout:
+            json.dump({
+                'args': args.__dict__,
+                'answer': answers
+            }, Fout, indent=4)
 
         this_hit = np.zeros(args.beam)
 
@@ -196,3 +221,10 @@ if __name__ == '__main__':
     topk_acc = np.mean(topks, axis=0)
     for i in [1, 3, 5, 10]:
         print(f'[TOP {i}]', topk_acc[i - 1])
+
+    with open(out_file, 'w') as Fout:
+        json.dump({
+            'args': args.__dict__,
+            'answer': answers,
+            'topks': topk_acc.tolist()
+        }, Fout, indent=4)

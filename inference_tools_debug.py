@@ -383,9 +383,9 @@ def beam_search_lg(
             n_spe = sep_beam[beam_top_k.indices]
             n_close = clo_beam[beam_top_k.indices]
 
-            # print(f'------------{idx}-------------')
-            # for tdx, p in enumerate(tgt):
-            #     print(tokenizer.decode1d(p.tolist()), n_spe[tdx].item(), alive[tdx].item(), probs[tdx].item())
+            print(f'------------{idx}-------------')
+            for tdx, p in enumerate(tgt):
+                print(tokenizer.decode1d(p.tolist()), n_close[tdx].item(), alive[tdx].item(), probs[tdx].item())
 
     answer = [
         (probs[idx].item(), t.tolist()) for idx, t in enumerate(tgt[ended])
@@ -396,6 +396,8 @@ def beam_search_lg(
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
         r_for_mol = '.'.join(x for x in r_smiles.split(sep_token) if x != '')
+
+        print('r_for_mol', r_for_mol, y)
 
         if get_mol(r_for_mol) is None:
             continue
