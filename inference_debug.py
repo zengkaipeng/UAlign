@@ -175,3 +175,6 @@ if __name__ == '__main__':
         beam_size=args.beam, rxn=rxn_class, start_token=start_toekn,
         end_token='<END>', sep_token='`', max_len=args.max_len
     )
+
+    for res, score in preds:
+        print(res, score)
