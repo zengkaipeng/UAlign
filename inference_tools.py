@@ -395,10 +395,14 @@ def beam_search_lg(
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
-        r_for_mol = '.'.join(x for x in r_smiles.split(sep_token) if x != '')
 
-        if get_mol(r_for_mol) is None:
-            continue
-        real_answer.append((r_smiles, y))
+        flag = True
+        for x in r_smiles.split(sep_token):
+            if x != '' and get_mol(x) is None:
+                flag = False
+                break
+
+        if flag:
+            real_answer.append((r_smiles, y))
 
     return real_answer
