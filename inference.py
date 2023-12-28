@@ -209,9 +209,9 @@ if __name__ == '__main__':
 
         this_hit = np.zeros(args.beam)
 
-        for idx, (res, score) in enumerate(preds):
+        for edx, (res, score) in enumerate(preds):
             if res == answer:
-                this_hit[idx:] = 1
+                this_hit[edx:] = 1
                 break
 
         topks.append(this_hit)
