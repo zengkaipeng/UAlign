@@ -280,8 +280,8 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_perf is None or valid_results['trans'] > best_perf:
-            best_perf, best_ep = valid_results['trans'], ep
+        if best_perf is None or valid_result['trans'] > best_perf:
+            best_perf, best_ep = valid_result['trans'], ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 3 and ep > max(10, args.early_stop):

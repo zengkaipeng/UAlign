@@ -91,9 +91,12 @@ def train_trans(
 
 
 def eval_trans(
-    loader, model, device,  tokenizer, pad='<PAD>', verbose=True
+    loader, model, device, tokenizer, 
+    pad='<PAD>', end='<END>', verbose=True
 ):
     model = model.eval()
+    pad_idx = tokenizer.token2idx[pad]
+    end_idx = tokenizer.token2idx[end]
     tran_acc, eg_acc, ah_acc, ae_acc, ac_acc = [[] for i in range(5)]
     for data in tqdm(loader) if verbose else loader:
         graphs, tgt = data
@@ -117,7 +120,7 @@ def eval_trans(
         AC_pred = convert_log_into_label(AC_logs, mod='softmax')
 
         edge_pred = convert_edge_log_into_labels(
-            edge_logs, graph.edge_index,
+            edge_logs, graphs.edge_index,
             mod='softmax', return_dict=False
         )
 
@@ -125,7 +128,7 @@ def eval_trans(
         trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
         edge_acc = eval_by_batch(
-            edge_pred, graphs.edge_label,
+            edge_pred, graphs.new_edge_types,
             graphs.e_batch, return_tensor=True
         )
         AE_acc = eval_by_batch(
@@ -154,7 +157,8 @@ def eval_trans(
         'HChange': ah_acc, 'ChargeChange': ac_acc
     }
 
-    result = {k: torch.cat(v, dim=0).mean().item() for k, v in result.items()}
+    result = {k: torch.cat(v, dim=0).float() for k, v in result.items()}
+    result = {k: v.mean().item() for k, v in result.items()}
     return result
 
 
