@@ -255,15 +255,27 @@ class Graph2Seq(torch.nn.Module):
         super(Graph2Seq, self).__init__()
         self.word_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
-        self.node_cls = torch.nn.Sequential(
+        self.Hchange = torch.nn.Sequential(
             torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
             torch.nn.Linear(d_model, 2)
         )
-        self.edge_cls = torch.nn.Sequential(
+
+        self.Cchange = torch.nn.Sequential(
             torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
             torch.nn.Linear(d_model, 2)
+        )
+        self.Echange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
+
+        self.edge_cls = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 5)
         )
         self.pos_enc = pos_enc
         self.output_layer = torch.nn.Sequential(
@@ -274,8 +286,8 @@ class Graph2Seq(torch.nn.Module):
 
     def graph2batch(
         self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
-        batch_size: int, max_node: int
     ) -> torch.Tensor:
+        batch_size, max_node = batch_mask.shape
         answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
         answer = answer.to(node_feat.device)
         answer[batch_mask] = node_feat
@@ -283,14 +295,9 @@ class Graph2Seq(torch.nn.Module):
 
     def encode(self, graphs):
         node_feat, edge_feat = self.encoder(graphs)
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
 
-        # batch_size = graphs.batch.max().item() + 1
-        # max_mem_len = graphs.node_per_graph.max().item()
-        batch_size, max_mem_len = graphs.batch_mask.shape
-        memory = self.graph2batch(
-            node_feat=node_feat, batch_mask=graphs.batch_mask,
-            batch_size=batch_size, max_node=max_mem_len
-        )
         return memory, torch.logical_not(graphs.batch_mask)
 
     def decode(
@@ -305,15 +312,12 @@ class Graph2Seq(torch.nn.Module):
         )
         return self.output_layer(result)
 
-    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask, pred_core=False):
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask):
         tgt_emb = self.pos_enc(self.word_emb(tgt))
         node_feat, edge_feat = self.encoder(graphs)
 
-        batch_size, max_mem_len = graphs.batch_mask.shape
-        memory = self.graph2batch(
-            node_feat=node_feat, batch_mask=graphs.batch_mask,
-            batch_size=batch_size, max_node=max_mem_len
-        )
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
 
         result = self.output_layer(self.decoder(
             tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
@@ -321,12 +325,13 @@ class Graph2Seq(torch.nn.Module):
             tgt_key_padding_mask=tgt_pad_mask
         ))
 
-        if pred_core:
-            node_res = self.node_cls(node_feat)
-            edge_res = self.edge_cls(edge_feat)
-            return result, node_res, edge_res
-        else:
-            return result
+        AH_logs = self.Hchange(node_feat)
+        AE_logs = self.Echange(node_feat)
+        AC_logs = self.Cchange(node_feat)
+
+        edge_logs = self.edge_cls(edge_feat)
+
+        return edge_logs, AH_logs, AE_logs, AC_logs, result
 
 
 class PretrainModel(torch.nn.Module):

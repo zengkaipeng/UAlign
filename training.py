@@ -3,11 +3,12 @@ import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
 from data_utils import (
-    generate_tgt_mask, correct_trans_output, 
+    generate_tgt_mask, correct_trans_output,
     convert_log_into_label
 )
 
 from data_utils import eval_trans as data_eval_trans
+
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     def f(x):
@@ -19,17 +20,25 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
 
+def loss_batch(logs, label, batch):
+    losses = cross_entropy(logs, label, reduction='none')
+    all_x = torch.zeros(batch.max().items() + 1).to(losses)
+    all_x.index_add_(dim=0, source=losses, index=batch)
+    return all_x.mean()s
+
+
 def train_trans(
-    loader, model, optimizer, device, tokenizer, node_fn,
-    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False,
-    pad='<PAD>', unk='<UNK>', accu=1
+    loader, model, optimizer, device, tokenizer, verbose=True,
+    warmup=False, pad='<PAD>', unk='<UNK>', accu=1
 ):
-    model, ele_acc, ele_total = model.train(), 0, 0
-    node_loss, edge_loss, tran_loss = [], [], []
+    model = model.train()
+    acl, ahl, ael, edge_loss, tran_loss = [[] for i in range(5)]
     its, total_len = 1, len(loader)
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
+
+    ignore_idx = tokenizer.token2idx[pad]
     for data in tqdm(loader) if verbose else loader:
         graphs, tgt = data
         graphs = graphs.to(device)
@@ -45,19 +54,18 @@ def train_trans(
             tgt_input, tokenizer, pad, device
         )
 
-        result, node_res, edge_res = model(
+        edge_logs, AH_logs, AE_logs, AC_logs, result = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
             tgt_pad_mask=pad_mask, pred_core=True
         )
 
-        loss_node = node_fn(node_res, graphs.node_label)
-        loss_edge = edge_fn(edge_res, graphs.edge_label)
-        loss_tran = trans_fn(
-            result.reshape(-1, result.shape[-1]),
-            tgt_output.reshape(-1)
-        )
+        AH_loss = loss_batch(AH_logs, graphs.HChange, graphs.batch)
+        AC_loss = loss_batch(AC_logs, graphs.ChargeChange, graphs.batch)
+        AE_loss = loss_batch(AE_logs, graphs.EdgeChange, graphs.batch)
+        ed_loss = loss_batch(edge_logs, graphs.new_edge_types, graphs.e_batch)
+        loss_tran = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
 
-        loss = loss_node + loss_edge + loss_tran
+        loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
         if not warmup and accu > 1:
             loss = loss / accu
         loss.backward()
@@ -67,18 +75,16 @@ def train_trans(
             optimizer.zero_grad()
         its += 1
 
-        node_loss.append(loss_node.item())
-        edge_loss.append(loss_edge.item())
+        acl.append(AC_loss.item())
+        ahl.append(AH_loss.item())
+        ael.append(AE_loss.item())
+        edge_loss.append(ed_loss.item())
         tran_loss.append(loss_tran.item())
-
-        with torch.no_grad():
-            A, B = acc_fn(result, tgt_output)
-            ele_acc, ele_total = ele_acc + A, ele_total + B
 
         if warmup:
             warmup_sher.step()
-    return np.mean(node_loss), np.mean(edge_loss), \
-        np.mean(tran_loss), ele_acc / ele_total
+    return np.mean(acl), np.mean(ahl), np.mean(ael), \
+        np.mean(edge_loss), np.mean(tran_loss)
 
 
 def eval_trans(
