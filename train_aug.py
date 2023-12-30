@@ -9,9 +9,9 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
-from model import Graph2Seq, col_fn_unloop, PositionalEncoding, Acc_fn
+from model import Graph2Seq, edit_col_fn, PositionalEncoding
 from training import train_trans, eval_trans
-from data_utils import load_ext_data, fix_seed
+from data_utils import load_data, fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 from model import OnFlyDataset
@@ -20,28 +20,15 @@ from MixConv import MixFormer
 
 def create_log_model(args):
     timestamp = time.time()
-    log_dir = [
-        f'dim_{args.dim}', f'seed_{args.seed}', f'dropout_{args.dropout}',
-        f'bs_{args.bs}', f'lr_{args.lr}', f'heads_{args.heads}',
-        f'encoder_{args.layer_encoder}', f'decoder_{args.layer_decoder}',
-        f'label_smooth_{args.label_smooth}', f'warm_{args.warmup}',
-        f'accu_{args.accu}', f'gamma_{args.gamma}',
-        f'lrstep_{args.step_start}', f'aug_prob_{args.aug_prob}'
-    ]
-
-    if args.kekulize:
-        log_dir.append('ke')
-
     detail_log_folder = os.path.join(
-        args.base_log,  args.backbone, '-'.join(log_dir)
+        args.base_log, ('Gtrans_' if args.transformer else '') + args.gnn_type
     )
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
     detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    token_dir = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
-    bacc_dir = os.path.join(detail_log_folder, f'acc-{timestamp}.pth')
-    return detail_log_dir, detail_model_dir, token_dir, bacc_dir
+    token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
+    return detail_log_dir, detail_model_dir, token_path
 
 
 if __name__ == '__main__':
@@ -76,8 +63,13 @@ if __name__ == '__main__':
         help='the epoch of warmup'
     )
     parser.add_argument(
-        '--backbone', type=str, choices=['GAT', 'GIN', 'MIX'],
+        '--backbone', type=str, choices=['gat', 'gin'],
         help='type of gnn backbone', required=True
+    )
+
+    parser.add_argument(
+        '--transformer', action='store_true',
+        help='use graph transformer or not'
     )
     parser.add_argument(
         '--gamma', default=0.998, type=float,
@@ -125,10 +117,6 @@ if __name__ == '__main__':
         help='the base dir of logging'
     )
     parser.add_argument(
-        '--label_smooth', default=0.0, type=float,
-        help='the label smoothing for transformer'
-    )
-    parser.add_argument(
         '--accu', type=int, default=1,
         help='the number of batch accu'
     )
@@ -160,32 +148,27 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
-    with open(args.token_path) as Fin:
-        ALL_TOKEN = json.load(Fin)
+    if args.checkpoint != '':
+        assert args.token_ckpt != '', \
+            'require token_ckpt when checkpoint is given'
+        with open(args.token_ckpt, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+    else:
+        assert args.token_path != '', 'file containing all tokens are required'
+        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
 
-    tokenizer = Tokenizer(ALL_TOKEN, DEFAULT_SP)
+        with open(args.token_path) as Fin:
+            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
 
-    train_rec, train_prod, train_rxn, train_target =\
-        load_ext_data(args.data_path, 'train')
-    val_rec, val_prod, val_rxn, val_target =\
-        load_ext_data(args.data_path, 'val')
-    test_rec, test_prod, test_rxn, test_target =\
-        load_ext_data(args.data_path, 'test')
+    train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
+    val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
+    test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
     print('[INFO] Data Loaded')
 
-    train_set = OnFlyDataset(
-        prod_sm=train_prod, reat_sm=train_rec, target=train_target,
-        aug_prob=args.aug_prob, randomize=True, kekulize=args.kekulize
-    )
-    valid_set = OnFlyDataset(
-        prod_sm=val_prod, reat_sm=val_rec, target=val_target,
-        aug_prob=0, randomize=False, kekulize=args.kekulize
-    )
-    test_set = OnFlyDataset(
-        prod_sm=test_prod, reat_sm=test_rec, target=test_target,
-        aug_prob=0, randomize=False, kekulize=args.kekulize
-    )
+    train_set = OnFlyDataset(train_prod, train_rec, args.aug_prob)
+    valid_set = OnFlyDataset(val_prod, val_rec, aug_prob=0)
+    test_set = OnFlyDataset(test_prod, test_rec, aug_prob=0)
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn_unloop,
@@ -200,34 +183,51 @@ if __name__ == '__main__':
         batch_size=args.bs, shuffle=False
     )
 
-    if args.backbone == 'GIN':
-        GNN = GINBase(
-            num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim,
-        )
-    elif args.backbone == 'GAT':
-        GNN = GATBase(
-            num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, negative_slope=args.negative_slope,
-            num_heads=args.heads
+    if args.transformer:
+        if args.gnn_type == 'gin':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'edge_dim': args.dim
+            }
+        elif args.gnn_type == 'gat':
+            assert args.dim % args.heads == 0, \
+                'The model dim should be evenly divided by num_heads'
+            gnn_args = {
+                'in_channels': args.dim, 'dropout': args.dropout,
+                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
+                'negative_slope': args.negative_slope, 'heads': args.heads
+            }
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+        GNN = MixFormer(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
+            n_class=None, update_gate=args.update_gate
         )
     else:
-        GNN = MixFormer(
-            emb_dim=args.dim, num_layer=args.layer_encoder,
-            heads=args.heads, dropout=args.dropout,
-            negative_slope=args.negative_slope
-        )
-    trans_head = args.heads if args.backbone != 'MIX' else args.heads * 2
+        if args.gnn_type == 'gin':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, n_class=None
+            )
+        elif args.gnn_type == 'gat':
+            GNN = GATBase(
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, num_heads=args.heads,
+                negative_slope=args.negative_slope, n_class=None
+            )
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
 
     decode_layer = TransformerDecoderLayer(
-        d_model=args.dim, nhead=trans_head, batch_first=True,
+        d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
-
-    Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
+    Decoder = TransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
-    model = Graph2Seq(
+    model = PretrainModel(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
@@ -236,31 +236,12 @@ if __name__ == '__main__':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight)
-
-    if args.token_ckpt != '':
-        print(f'[INFO] Loading tokenizer from {args.token_ckpt}')
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
+        model.load_state_dict(weight, strict=False)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    lr_sh = ExponentialLR(
-        optimizer, gamma=args.gamma, verbose=True
-    )
+    lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=True)
     best_perf, best_ep = None, None
-    best_acc, best_ep2 = None, None
 
-    node_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-    edge_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-    tran_fn = torch.nn.CrossEntropyLoss(
-        reduction='sum', ignore_index=tokenizer.token2idx['<PAD>'],
-        label_smoothing=args.label_smooth
-    )
-    valid_fn = torch.nn.CrossEntropyLoss(
-        reduction='sum', ignore_index=tokenizer.token2idx['<PAD>']
-    )
-
-    acc_fn = Acc_fn(ignore_index=tokenizer.token2idx['<PAD>'])
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
     log_info = {

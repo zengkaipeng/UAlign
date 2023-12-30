@@ -14,6 +14,18 @@ from rdkit import Chem
 import multiprocessing
 
 
+def load_data(data_dir, part):
+    df_train = pandas.read_csv(
+        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
+    )
+    rxn_class, reacts, prods = [], [], []
+    for idx, resu in enumerate(df_train['reactants>reagents>production']):
+        rxn_class.append(df_train['class'][idx])
+        rea, prd = resu.strip().split('>>')
+        reacts.append(rea)
+        prods.append(prd)
+    return reacts, prods, rxn_class
+
 
 def eval_by_batch(pred, label, batch, return_tensor=False, batch_size=None):
     if batch_size is None:
