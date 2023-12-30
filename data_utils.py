@@ -52,10 +52,6 @@ def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
     return tgt_pad_mask, tgt_sub_mask
 
 
-if __name__ == '__main__':
-    pass
-
-
 def correct_trans_output(trans_pred, end_idx, pad_idx):
     batch_size, max_len = trans_pred.shape
     device = trans_pred.device
@@ -82,3 +78,15 @@ def check_early_stop(*args):
     for x in args:
         answer &= all(t <= x[0] for t in x[1:])
     return answer
+
+
+def convert_log_into_label(logits, mod='sigmoid'):
+    if mod == 'sigmoid':
+        pred = torch.zeros_like(logits)
+        pred[logits >= 0] = 1
+        pred[logits < 0] = 0
+    elif mod == 'softmax':
+        pred = torch.argmax(logits, dim=-1)
+    else:
+        raise NotImplementedError(f'Invalid mode {mod}')
+    return pred

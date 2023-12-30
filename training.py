@@ -1,8 +1,13 @@
 from tqdm import tqdm
 import numpy as np
 import torch
-from data_utils import generate_tgt_mask, correct_trans_output, eval_trans
+from torch.nn.functional import cross_entropy
+from data_utils import (
+    generate_tgt_mask, correct_trans_output, 
+    convert_log_into_label
+)
 
+from data_utils import eval_trans as data_eval_trans
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
     def f(x):
@@ -108,6 +113,20 @@ def eval_trans(
     return np.mean(tran_loss), ele_acc / ele_total
 
 
+def calc_trans_loss(trans_pred, trans_lb, ignore_index):
+    batch_size, maxl, num_c = trans_pred.shape
+    trans_pred = trans_pred.reshape(-1, num_c)
+    trans_lb = trans_lb.reshape(-1)
+
+    losses = cross_entropy(
+        trans_pred, trans_lb, reduction='none',
+        ignore_index=ignore_index
+    )
+    losses = losses.reshape(batch_size, maxl)
+    loss = torch.mean(torch.sum(losses, dim=-1))
+    return loss
+
+
 def pretrain(
     loader, model, optimizer, device, tokenizer,
     pad_token, warmup
@@ -127,12 +146,13 @@ def pretrain(
         trans_op_mask, diag_mask = generate_tgt_mask(
             trans_dec_ip, tokenizer, pad_token, device=device
         )
-        loss = model(
-            graph=graph, trans_ip=trans_dec_ip, trans_op=trans_dec_op,
-            ignore_index=ignore_idx, trans_op_mask=diag_mask,
-            trans_op_key_padding=trans_op_mask
+
+        trans_logs = model(
+            graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
+            tgt_pad_mask=trans_op_mask
         )
 
+        loss = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -160,14 +180,13 @@ def preeval(model, loader, device, tokenizer, pad_token, end_token):
             trans_dec_ip, tokenizer, pad_token, device=device
         )
         with torch.no_grad():
-            trans_logs = model.eval_forward(
-                graph=graph, trans_ip=trans_dec_ip,
-                trans_op_mask=diag_mask,
-                trans_op_key_padding=trans_op_mask
+            trans_logs = model(
+                graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
+                tgt_pad_mask=trans_op_mask
             )
             trans_pred = convert_log_into_label(trans_logs, mod='softmax')
             trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
-        trans_acc = eval_trans(trans_pred, trans_dec_op, True)
+        trans_acc = data_eval_trans(trans_pred, trans_dec_op, True)
         trans_accs.append(trans_acc)
 
     trans_accs = torch.cat(trans_accs, dim=0).float()

@@ -32,7 +32,7 @@ class TransDataset(torch.utils.data.Dataset):
                 return f'{smi}.{k}'
             else:
                 mol = Chem.MolFromSmiles(smi)
-                atms = [atom.GetIdx() for x in mol.GetAtoms()]
+                atms = [x.GetIdx() for x in mol.GetAtoms()]
                 return Chem.MolToSmiles(mol, rootedAtAtom=random.choice(atms))
         return smi
 
@@ -292,7 +292,7 @@ class Graph2Seq(torch.nn.Module):
 
 class PretrainModel(torch.nn.Module):
     def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
-        super(Graph2Seq, self).__init__()
+        super(PretrainModel, self).__init__()
         self.word_emb = torch.nn.Embedding(token_size, d_model)
         self.encoder, self.decoder = encoder, decoder
         self.pos_enc = pos_enc
