@@ -1,3 +1,4 @@
+import numpy as np
 import re
 from copy import deepcopy
 from rdkit import Chem
@@ -232,8 +233,8 @@ def cano_with_am(smi):
         if atom.HasProp('molAtomMapNumber'):
             atom.ClearProp('molAtomMapNumber')
 
-    ranks = Chem.CanonicalRankAtoms(mol)
-    root_atom = np.argmin(ranks)
+    ranks = list(Chem.CanonicalRankAtoms(mol))
+    root_atom = int(np.argmin(ranks))
     return Chem.MolToSmiles(tmol, rootedAtAtom=root_atom, canonical=True)
 
 

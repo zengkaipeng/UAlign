@@ -43,12 +43,8 @@ if __name__ == '__main__':
         "should be between 0 and 1"
     )
     parser.add_argument(
-        '--layer_encoder', default=8, type=int,
+        '--n_layer', default=8, type=int,
         help='the layer of encoder gnn'
-    )
-    parser.add_argument(
-        '--layer_decoder', default=8, type=int,
-        help='the layer of transformer decoder'
     )
     parser.add_argument(
         '--token_path', required=True, type=str,
@@ -63,8 +59,12 @@ if __name__ == '__main__':
         help='the epoch of warmup'
     )
     parser.add_argument(
-        '--backbone', type=str, choices=['gat', 'gin'],
+        '--gnn_type', type=str, choices=['gat', 'gin'],
         help='type of gnn backbone', required=True
+    )
+    parser.add_argument(
+        '--update_gate', choices=['add', 'cat'], type=str,
+        help='the update gate for graphtransformer'
     )
 
     parser.add_argument(
@@ -167,15 +167,15 @@ if __name__ == '__main__':
     test_set = OnFlyDataset(test_prod, test_rec, aug_prob=0)
 
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn_unloop,
+        train_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=True,
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=col_fn_unloop,
+        valid_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=False
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn_unloop,
+        test_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=False
     )
 
@@ -223,7 +223,7 @@ if __name__ == '__main__':
     Decoder = TransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
-    model = PretrainModel(
+    model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)

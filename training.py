@@ -22,7 +22,7 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def loss_batch(logs, label, batch):
     losses = cross_entropy(logs, label, reduction='none')
-    all_x = torch.zeros(batch.max().items() + 1).to(losses)
+    all_x = torch.zeros(batch.max().item() + 1).to(losses)
     all_x.index_add_(dim=0, source=losses, index=batch)
     return all_x.mean()
 
@@ -63,7 +63,7 @@ def train_trans(
         AC_loss = loss_batch(AC_logs, graphs.ChargeChange, graphs.batch)
         AE_loss = loss_batch(AE_logs, graphs.EdgeChange, graphs.batch)
         ed_loss = loss_batch(edge_logs, graphs.new_edge_types, graphs.e_batch)
-        loss_tran = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
+        loss_tran = calc_trans_loss(result, tgt_output, ignore_idx)
 
         loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
         if not warmup and accu > 1:
@@ -91,8 +91,7 @@ def train_trans(
 
 
 def eval_trans(
-    loader, model, device, tran_fn, tokenizer,
-    acc_fn, pad='<PAD>', verbose=True
+    loader, model, device,  tokenizer, pad='<PAD>', verbose=True
 ):
     model = model.eval()
     tran_acc, eg_acc, ah_acc, ae_acc, ac_acc = [[] for i in range(5)]
@@ -113,36 +112,36 @@ def eval_trans(
                 tgt_pad_mask=pad_mask,
             )
 
-        AE_pred = convert_log_into_label(AE_logits, mod='softmax')
-        AH_pred = convert_log_into_label(AH_logits, mod='softmax')
-        AC_pred = convert_log_into_label(AC_logits, mod='softmax')
+        AE_pred = convert_log_into_label(AE_logs, mod='softmax')
+        AH_pred = convert_log_into_label(AH_logs, mod='softmax')
+        AC_pred = convert_log_into_label(AC_logs, mod='softmax')
 
         edge_pred = convert_edge_log_into_labels(
-            edge_logs, prod_graph.edge_index,
+            edge_logs, graph.edge_index,
             mod='softmax', return_dict=False
         )
 
-        trans_pred = convert_log_into_label(trans_logits, mod='softmax')
+        trans_pred = convert_log_into_label(result, mod='softmax')
         trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
 
         edge_acc = eval_by_batch(
-            edge_pred, prod_graph.edge_label,
-            prod_graph.e_batch, return_tensor=True
+            edge_pred, graphs.edge_label,
+            graphs.e_batch, return_tensor=True
         )
         AE_acc = eval_by_batch(
-            AE_pred, prod_graph.EdgeChange,
-            prod_graph.batch, return_tensor=True
+            AE_pred, graphs.EdgeChange,
+            graphs.batch, return_tensor=True
         )
         AH_acc = eval_by_batch(
-            AH_pred, prod_graph.HChange,
-            prod_graph.batch, return_tensor=True
+            AH_pred, graphs.HChange,
+            graphs.batch, return_tensor=True
         )
         AC_acc = eval_by_batch(
-            AC_pred, prod_graph.ChargeChange,
-            prod_graph.batch,  return_tensor=True
+            AC_pred, graphs.ChargeChange,
+            graphs.batch,  return_tensor=True
         )
 
-        trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
+        trans_acc = data_eval_trans(trans_pred, tgt_output, return_tensor=True)
 
         tran_acc.append(trans_acc)
         ae_acc.append(AE_acc)

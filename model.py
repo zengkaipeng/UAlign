@@ -1,4 +1,4 @@
-
+from numpy import concatenate as npcat
 import random
 import torch
 from sparse_backBone import GINBase, GATBase
@@ -132,21 +132,21 @@ class OnFlyDataset(torch.utils.data.Dataset):
                     )
 
                     aligned_reactants.append((y_smi, j))
+                    break
 
         aligned_reactants.sort(key=lambda x: x[1])
         return '.'.join(x[0] for x in aligned_reactants)
 
     def __getitem__(self, index):
         this_prod = self.process_prod(self.prod_sm[index])
-        this_reac = self.process_reac(self.reat_sm[index])
+        this_reac = self.process_reac_via_prod(this_prod, self.reat_sm[index])
 
         ret = ['<CLS>']
         ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
         ret.append('<END>')
-
-        ret = ['<CLS>']
-        ret += smi_tokenizer(self.process_reac(self.target[index]))
-        ret.append('<END>')
+        # print('[prod]', this_prod)
+        # print('[reac]', this_reac)
+        # print('[ret]', ret)
 
         Eatom, Hatom, Catom, deltaE, org_type = get_synthon_edits(
             this_reac, this_prod, consider_inner_bonds=True,
@@ -172,7 +172,7 @@ class OnFlyDataset(torch.utils.data.Dataset):
         for (src, dst), ntype in new_type.items():
             src, dst = amap[src], amap[dst]
             ntype = BOND_FLOAT_TO_IDX[ntype]
-            new_edge[(src, dst)] = new_type[(dst, src)] = ntype
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
 
         for i in range(num_edges):
             src, dst = graph['edge_index'][:, i].tolist()
@@ -228,7 +228,7 @@ def edit_col_fn(batch):
         'batch_mask': batch_mask
     }
 
-    return torch_geometric.data.Data(**result), reats
+    return GData(**result), reats
 
 
 class PositionalEncoding(torch.nn.Module):
