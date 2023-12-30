@@ -12,6 +12,76 @@ import math
 import numpy as np
 import multiprocessing
 from tokenlizer import smi_tokenizer
+from rdkit import Chem
+
+
+class TransDataset(torch.utils.data.Dataset):
+    def __init__(self, smiles, random_prob=0.0):
+        super(TransDataset, self).__init__()
+
+        self.smiles = smiles
+        self.aug_prob = aug_prob
+
+    def __len__(self):
+        return len(self.smiles)
+
+    def randomize_smiles(self, smi):
+        if 0 < self.aug_prob <= 1:
+            if random.randint(0, 1) == 1:
+                k = random.choice(self.smiles)
+                return f'{smi}.{k}'
+            else:
+                mol = Chem.MolFromSmiles(smi)
+                atms = [atom.GetIdx() for x in mol.GetAtoms()]
+                return Chem.MolToSmiles(mol, rootedAtAtom=random.choice(atms))
+        return smi
+
+    def __getitem__(self, index):
+        ret = ['<CLS>']
+        out_smi = self.randomize_smiles(self.smiles[index])
+        ret.extend(smi_tokenizer(out_smi))
+        ret.append('<END>')
+
+        return smiles2graph(out_smi, with_amap=False), ret
+
+
+def col_fn_pretrain(data_batch):
+    batch_size, max_node = len(data_batch), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, reats, node_per_graph = [], [0], [], []
+    for idx, data in enumerate(data_batch):
+        graph, ret = data
+        num_nodes = graph['num_nodes']
+        num_edges = graph['edge_index'].shape[1]
+        reats.append(ret)
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
+        ptr.append(lstnode)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0),
+        'ptr': np.array(ptr, dtype=np.int64)
+    }
+
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    result['batch_mask'] = all_batch_mask.bool()
+
+    return GData(**result), reats
 
 
 class OnFlyDataset(torch.utils.data.Dataset):
@@ -220,14 +290,53 @@ class Graph2Seq(torch.nn.Module):
             return result
 
 
-class Acc_fn(torch.nn.Module):
-    def __init__(self, ignore_index=-1):
-        super(Acc_fn, self).__init__()
-        self.ignore_index = ignore_index
+class PretrainModel(torch.nn.Module):
+    def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
+        super(Graph2Seq, self).__init__()
+        self.word_emb = torch.nn.Embedding(token_size, d_model)
+        self.encoder, self.decoder = encoder, decoder
+        self.pos_enc = pos_enc
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, token_size)
+        )
 
-    def forward(self, tgt, gt):
-        tgt = tgt.argmax(dim=-1)
-        mask = (gt != self.ignore_index)
-        accs = (tgt[mask] == gt[mask]).sum()
-        tots = mask.sum()
-        return accs.item(), tots.item()
+    def graph2batch(
+        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, max_node = batch_mask.shape
+        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        answer = answer.to(node_feat)
+        answer[batch_mask] = node_feat
+        return answer
+
+    def encode(self, graphs):
+        node_feat, edge_feat = self.encoder(graphs)
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
+
+        return memory, torch.logical_not(graphs.batch_mask)
+
+    def decode(
+        self, tgt, memory, memory_padding_mask=None,
+        tgt_mask=None, tgt_padding_mask=None
+    ):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_padding_mask,
+            tgt_key_padding_mask=tgt_padding_mask
+        )
+        return self.output_layer(result)
+
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask):
+
+        memory, memory_pad = self.encode(graphs)
+        result = self.decode(
+            tgt=tgt, memory=memory, memory_padding_mask=memory_pad,
+            tgt_padding_mask=tgt_pad_mask, tgt_mask=tgt_mask
+        )
+
+        return result
+

@@ -13,6 +13,7 @@ import rdkit
 from rdkit import Chem
 import multiprocessing
 
+
 def load_ext_data(data_dir, part=None):
     if part is not None:
         fname = os.path.join(data_dir, f'extend_{part}.csv')
@@ -53,3 +54,24 @@ def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
 
 if __name__ == '__main__':
     pass
+
+
+def correct_trans_output(trans_pred, end_idx, pad_idx):
+    batch_size, max_len = trans_pred.shape
+    device = trans_pred.device
+    x_range = torch.arange(0, max_len, 1).unsqueeze(0)
+    x_range = x_range.repeat(batch_size, 1).to(device)
+
+    y_cand = (torch.ones_like(trans_pred).long() * max_len + 12).to(device)
+    y_cand[trans_pred == end_idx] = x_range[trans_pred == end_idx]
+    min_result = torch.min(y_cand, dim=-1, keepdim=True)
+    end_pos = min_result.values
+    trans_pred[x_range > end_pos] = pad_idx
+    return trans_pred
+
+
+def eval_trans(trans_pred, trans_lb, return_tensor=False):
+    batch_size, max_len = trans_pred.shape
+    line_acc = torch.sum(trans_pred == trans_lb, dim=-1) == max_len
+    line_acc = line_acc.cpu()
+    return line_acc if return_tensor else (line_acc.sum().item(), batch_size)

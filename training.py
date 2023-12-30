@@ -1,7 +1,7 @@
 from tqdm import tqdm
 import numpy as np
 import torch
-from data_utils import generate_tgt_mask
+from data_utils import generate_tgt_mask, correct_trans_output, eval_trans
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -106,3 +106,69 @@ def eval_trans(
             ele_acc, ele_total = ele_acc + A, ele_total + B
         tran_loss.append(loss_tran.item())
     return np.mean(tran_loss), ele_acc / ele_total
+
+
+def pretrain(
+    loader, model, optimizer, device, tokenizer,
+    pad_token, warmup
+):
+    model, losses = model.train(), []
+    ignore_idx = tokenizer.token2idx[pad_token]
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
+    for graph, tran in tqdm(loader):
+        graph = graph.to(device)
+
+        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+        loss = model(
+            graph=graph, trans_ip=trans_dec_ip, trans_op=trans_dec_op,
+            ignore_index=ignore_idx, trans_op_mask=diag_mask,
+            trans_op_key_padding=trans_op_mask
+        )
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        losses.append(loss.item())
+
+        if warmup:
+            warmup_sher.step()
+
+    return np.mean(losses)
+
+
+def preeval(model, loader, device, tokenizer, pad_token, end_token):
+    model, trans_accs = model.eval(), []
+    end_idx = tokenizer.token2idx[end_token]
+    pad_idx = tokenizer.token2idx[pad_token]
+
+    for graph, tran in tqdm(loader):
+        graph = graph.to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+        with torch.no_grad():
+            trans_logs = model.eval_forward(
+                graph=graph, trans_ip=trans_dec_ip,
+                trans_op_mask=diag_mask,
+                trans_op_key_padding=trans_op_mask
+            )
+            trans_pred = convert_log_into_label(trans_logs, mod='softmax')
+            trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+        trans_acc = eval_trans(trans_pred, trans_dec_op, True)
+        trans_accs.append(trans_acc)
+
+    trans_accs = torch.cat(trans_accs, dim=0).float()
+    return trans_accs.mean().item()
