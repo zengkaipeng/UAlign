@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, edit_col_fn, PositionalEncoding
 from training import train_trans, eval_trans
-from data_utils import load_data, fix_seed
+from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 from model import OnFlyDataset
@@ -257,32 +257,22 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        node_loss, edge_loss, tran_loss, tracc = train_trans(
+        train_loss = train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            node_fn, edge_fn, tran_fn, acc_fn, verbose=True,
-            warmup=(ep < args.warmup), accu=args.accu
+            verbose=True, warmup=(ep < args.warmup), accu=args.accu
         )
-        log_info['train_loss'].append({
-            'node': node_loss, 'edge': edge_loss,
-            'trans': tran_loss, 'acc': tracc
-        })
+        log_info['train_loss'].append(train_loss)
 
-        valid_results, valid_acc = eval_trans(
-            valid_loader, model, device, valid_fn,
-            tokenizer, acc_fn, verbose=True
+        valid_result = eval_trans(
+            valid_loader, model, device, tokenizer, verbose=True
         )
-        log_info['valid_metric'].append({
-            'trans': valid_results, 'acc': valid_acc
-        })
+        log_info['valid_metric'].append(valid_result)
 
-        test_results, test_acc = eval_trans(
-            test_loader, model, device, valid_fn,
-            tokenizer, acc_fn, verbose=True
+        test_result = eval_trans(
+            test_loader, model, device, tokenizer, verbose=True
         )
 
-        log_info['test_metric'].append({
-            'trans': test_results, 'acc': test_acc
-        })
+        log_info['test_metric'].append(test_result)
 
         print('[TRAIN]', log_info['train_loss'][-1])
         print('[VALID]', log_info['valid_metric'][-1])
@@ -293,30 +283,17 @@ if __name__ == '__main__':
 
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
-        if best_perf is None or valid_results < best_perf:
-            best_perf, best_ep = valid_results, ep
+
+        if best_perf is None or valid_results['trans'] > best_perf:
+            best_perf, best_ep = valid_results['trans'], ep
             torch.save(model.state_dict(), model_dir)
 
-        if best_acc is None or valid_acc > best_acc:
-            best_acc, best_ep2 = valid_acc, ep
-            torch.save(model.state_dict(), acc_dir)
-
         if args.early_stop > 3 and ep > max(10, args.early_stop):
-            tx = [
-                x['trans'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
-            ty = [
-                x['acc'] for x in
-                log_info['valid_metric'][-args.early_stop:]
-            ]
-            if all(x >= tx[0] for x in tx) and all(x <= ty[0] for x in ty):
+            tx = log_info['valid_metric'][-args.early_stop]
+            tx = [x['trans'] for x in tx]
+            if check_early_stop(tx):
                 break
 
-    print(f'[INFO] best loss epoch: {best_ep}')
+    print(f'[INFO] best acc epoch: {best_ep}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
     print(f'[INFO] best test loss: {log_info["test_metric"][best_ep]}')
-
-    print(f'[INFO] best acc epoch: {best_ep2}')
-    print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep2]}')
-    print(f'[INFO] best test loss: {log_info["test_metric"][best_ep2]}')
