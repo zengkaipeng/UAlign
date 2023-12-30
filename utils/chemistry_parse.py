@@ -1,3 +1,5 @@
+import re
+from copy import deepcopy
 from rdkit import Chem
 from typing import List, Dict, Set, Tuple
 from rdkit.Chem import AllChem
@@ -17,17 +19,6 @@ BOND_FLOAT_TO_TYPE = {
 }
 
 BOND_FLOAT_TO_IDX = {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 1.5: 4}
-# ATOM_TPYE_TO_IDX = {
-#     'S_1_SP3': 1, 'O_0_SP3': 2, 'S_0_SP3D2': 3, 'Cu_0_SP3D2': 4, 'N_1_SP3': 5,
-#     'S_0_SP3D': 6, 'Br_0_SP3': 7, 'C_0_SP': 8, 'N_0_SP2': 9, 'S_0_SP3': 10,
-#     'P_0_SP3': 11, 'Sn_0_SP3': 12, 'I_0_SP3': 13, 'S_0_SP2': 14, 'C_0_SP3': 15,
-#     'P_0_SP2': 16, 'C_0_SP2': 17, 'S_-1_SP2': 18, 'C_-1_SP': 19, 'F_0_SP3': 20,
-#     'O_-1_SP3': 21, 'Mg_1_S': 22, 'Mg_0_SP': 23, 'N_-1_SP2': 24, 'O_-1_SP2': 25,
-#     'S_1_SP2': 26, 'Zn_0_SP': 27, 'Se_0_SP2': 28, 'Zn_1_S': 29, 'Si_0_SP3': 30,
-#     'N_0_SP': 31, 'N_1_SP2': 32, 'P_1_SP3': 33, 'P_0_SP3D': 34, 'O_0_SP2': 35,
-#     'N_1_SP': 36, 'S_-1_SP3': 37, 'Se_0_SP3': 38, 'Cl_0_SP3': 39, 'P_1_SP2': 40,
-#     'B_0_SP2': 41, 'N_0_SP3': 42
-# }
 
 ATOM_TPYE_TO_IDX = {
     'Zn_1': 1, 'S_-1': 2, 'Mg_1': 3, 'C_0_SP2': 4, 'Si_0': 5,
@@ -109,216 +100,64 @@ def get_mol(smiles: str, kekulize: bool = False) -> Chem.Mol:
     return mol
 
 
-def align_kekule_pairs(r: str, p: str) -> Tuple[Chem.Mol, Chem.Mol]:
-    """Aligns kekule pairs to ensure unchanged bonds have same bond order in
-    previously aromatic rings.
-    Parameters
-    ----------
-    r: str,
-        SMILES string representing the reactants
-    p: str,
-        SMILES string representing the product
-    """
-    reac_mol = Chem.MolFromSmiles(r)
-    max_amap = max([atom.GetAtomMapNum() for atom in reac_mol.GetAtoms()])
-    for atom in reac_mol.GetAtoms():
-        if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_amap + 1)
-            max_amap = max_amap + 1
-
-    prod_mol = Chem.MolFromSmiles(p)
-
-    prod_prev = get_bond_info(prod_mol)
-    Chem.Kekulize(prod_mol)
-    prod_new = get_bond_info(prod_mol)
-
-    reac_prev = get_bond_info(reac_mol)
-    Chem.Kekulize(reac_mol)
-    reac_new = get_bond_info(reac_mol)
-
-    for bond in prod_new:
-        if bond in reac_new and (prod_prev[bond][0] == reac_prev[bond][0]):
-            reac_new[bond][0] = prod_new[bond][0]
-
-    reac_mol = Chem.RWMol(reac_mol)
-    amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in reac_mol.GetAtoms()
-    }
-
-    for bond in reac_new:
-        idx1, idx2 = amap_idx[bond[0]], amap_idx[bond[1]]
-        bo = reac_new[bond][0]
-        reac_mol.RemoveBond(idx1, idx2)
-        reac_mol.AddBond(idx1, idx2, BOND_FLOAT_TO_TYPE[bo])
-
-    return reac_mol.GetMol(), prod_mol
-
-
-def get_reaction_core(
-    r: str, p: str, kekulize: bool = False
-) -> Tuple[Set, List]:
-    """Get the reaction core and edits for given reaction
-
-    Parameters
-    ----------
-    r: str,
-        SMILES string representing the reactants
-    p: str,
-        SMILES string representing the product
-    kekulize: bool,
-        Whether to kekulize molecules to fetch minimal set of edits
-    """
-    reac_mol = get_mol(r)
-    prod_mol = get_mol(p)
-
+def get_synthon_edits(
+    reac: str, prod: str, consider_inner_bonds: bool = False,
+    return_org_type: bool = False
+):
+    reac_mol, prod_mol = get_mol(reac), get_mol(prod)
+    ke_reac_mol = get_mol(reac, kekulize=True)
     if reac_mol is None or prod_mol is None:
-        return set(), []
-
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(r, p)
+        raise NotImplementedError('[SYN BREAK] Invalid Smiles Given')
 
     prod_bonds = get_bond_info(prod_mol)
-    p_amap_idx = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in prod_mol.GetAtoms()
-    }
-
-    max_amap = max([atom.GetAtomMapNum() for atom in reac_mol.GetAtoms()])
-    for atom in reac_mol.GetAtoms():
-        if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_amap + 1)
-            max_amap += 1
-
     reac_bonds = get_bond_info(reac_mol)
-    reac_amap = {
-        atom.GetAtomMapNum(): atom.GetIdx()
-        for atom in reac_mol.GetAtoms()
-    }
 
-    rxn_core = set()
-    core_edits = []
-
-    for bond in prod_bonds:
-        if bond in reac_bonds and prod_bonds[bond][0] != reac_bonds[bond][0]:
-            a_start, a_end = bond
-            prod_bo, reac_bo = prod_bonds[bond][0], reac_bonds[bond][0]
-
-            a_start, a_end = sorted([a_start, a_end])
-            edit = f"{a_start}:{a_end}:{prod_bo}:{reac_bo}"
-            core_edits.append(edit)
-            rxn_core.update([a_start, a_end])
-
-        if bond not in reac_bonds:
-            a_start, a_end = bond
-            reac_bo = 0.0
-            prod_bo = prod_bonds[bond][0]
-
-            start, end = sorted([a_start, a_end])
-            edit = f"{a_start}:{a_end}:{prod_bo}:{reac_bo}"
-            core_edits.append(edit)
-            rxn_core.update([a_start, a_end])
-
-    for bond in reac_bonds:
-        if bond not in prod_bonds:
-            amap1, amap2 = bond
-
-            if (amap1 in p_amap_idx) and (amap2 in p_amap_idx):
-                a_start, a_end = sorted([amap1, amap2])
-                reac_bo = reac_bonds[bond][0]
-                edit = f"{a_start}:{a_end}:{0.0}:{reac_bo}"
-                core_edits.append(edit)
-                rxn_core.update([a_start, a_end])
-
-    for atom in prod_mol.GetAtoms():
-        amap_num = atom.GetAtomMapNum()
-
-        numHs_prod = atom.GetTotalNumHs()
-        numHs_reac = reac_mol.GetAtomWithIdx(
-            reac_amap[amap_num]
-        ).GetTotalNumHs()
-
-        if numHs_prod != numHs_reac:
-            edit = f"{amap_num}:{0}:{1.0}:{0.0}"
-            core_edits.append(edit)
-            rxn_core.add(amap_num)
-
-    return rxn_core, core_edits
-
-
-def get_modified_atoms_bonds(
-    reac: str, prod: str, kekulize: bool
-) -> Tuple[Set, List]:
-    reac_mol = get_mol(reac)
-    prod_mol = get_mol(prod)
-
-    if reac_mol is None or prod_mol is None:
-        return set(), []
-    if kekulize:
-        reac_mol, prod_mol = align_kekule_pairs(reac, prod)
-
-    prod_bonds = get_bond_info(prod_mol)
     prod_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
         for atom in prod_mol.GetAtoms()
     }
-    max_reac_amap = max(x.GetAtomMapNum() for x in reac_mol.GetAtoms())
-    for atom in reac_mol.GetAtoms():
-        if atom.GetAtomMapNum() == 0:
-            atom.SetAtomMapNum(max_reac_amap + 1)
-            max_reac_amap += 1
 
-    reac_bonds = get_bond_info(reac_mol)
     reac_amap_idx = {
         atom.GetAtomMapNum(): atom.GetIdx()
         for atom in reac_mol.GetAtoms()
     }
+    ke_reac_bonds = get_bond_info(ke_reac_mol)
 
-    atom_edit, edge_edit = set(), []
-    for bond in prod_bonds:
+    Eatom, Hatom, Catom, deltaE = set(), set(), set(), {}
+    for bond, (ftype, bidx) in prod_bonds.items():
         if bond not in reac_bonds:
-            edge_edit.append(bond)
-            atom_edit.update(bond)
+            target = 0
+        elif ftype == reac_bonds[bond][0]:
+            continue
+        elif reac_bonds[bond][0] == 1.5:
+            target = ke_reac_bonds[bond][0]
         else:
-            reac_bond_type = reac_bonds[bond][0]
-            prod_bond_type = prod_bonds[bond][0]
-            if reac_bond_type != prod_bond_type:
-                edge_edit.append(bond)
-                atom_edit.update(bond)
+            target = reac_bonds[bond][0]
 
-    for bond in reac_bonds:
-        if bond not in prod_bonds:
-            start, end = bond
-            if start in prod_amap_idx:
-                atom_edit.add(start)
-            if end in prod_amap_idx:
-                atom_edit.add(end)
+        assert target != 1.5, 'Building aromatic bonds!'
+        if ftype != target:
+            deltaE[bond] = (ftype, target)
+            Eatom.update(bond)
+
+    if consider_inner_bonds:
+        for bond in reac_bonds:
+            if bond[0] not in prod_amap_idx or bond[1] not in prod_amap_idx:
+                continue
+            if bond not in prod_bonds:
+                deltaE[bond] = (0, ke_reac_bonds[bond][0])
+                Eatom.update(bond)
 
     for atom in prod_mol.GetAtoms():
         amap_num = atom.GetAtomMapNum()
+        reac_atom = reac_mol.GetAtomWithIdx(reac_amap_idx[amap_num])
+        if atom.GetTotalNumHs() != reac_atom.GetTotalNumHs():
+            Hatom.add(amap_num)
+        if atom.GetFormalCharge() != reac_atom.GetFormalCharge():
+            Catom.add(amap_num)
 
-        numHs_prod = atom.GetTotalNumHs()
-        numHs_reac = reac_mol.GetAtomWithIdx(
-            reac_amap_idx[amap_num]
-        ).GetTotalNumHs()
-        if numHs_prod != numHs_reac:
-            atom_edit.add(amap_num)
-
-    return atom_edit, edge_edit
-
-
-
-
-def get_edge_types(smiles, kekulize=False):
-    mol = get_mol(smiles, kekulize=kekulize)
-    result = {}
-    for bond in mol.GetBonds():
-        a_start = bond.GetBeginAtom().GetAtomMapNum()
-        a_end = bond.GetEndAtom().GetAtomMapNum()
-        bond_type = BOND_FLOAT_TO_IDX[bond.GetBondTypeAsDouble()]
-        result[(a_start, a_end)] = bond_type
-        result[(a_end, a_start)] = bond_type
-    return result
+    if not return_org_type:
+        return Eatom, Hatom, Catom, deltaE
+    return Eatom, Hatom, Catom, deltaE, prod_bonds
 
 
 if __name__ == '__main__':
@@ -360,8 +199,6 @@ if __name__ == '__main__':
     print([x.GetSymbol() for x in p_mol.GetAtoms()])
 
 
-
-
 def clear_map_number(smi):
     """Clear the atom mapping number of a SMILES sequence"""
     mol = Chem.MolFromSmiles(smi)
@@ -388,3 +225,26 @@ def canonical_smiles(smi):
         return canonical_smi
 
 
+def cano_with_am(smi):
+    mol = Chem.MolFromSmiles(smi)
+    tmol = deepcopy(mol)
+    for atom in mol.GetAtoms():
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+
+    ranks = Chem.CanonicalRankAtoms(mol)
+    root_atom = np.argmin(ranks)
+    return Chem.MolToSmiles(tmol, rootedAtAtom=root_atom, canonical=True)
+
+
+def remove_am_wo_cano(smi):
+    mol = Chem.MolFromSmiles(smi)
+    for atom in mol.GetAtoms():
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+
+    return Chem.MolToSmiles(mol, canonical=False)
+
+
+def find_all_amap(smi):
+    return list(map(int, re.findall(r"(?<=:)\d+", smi)))

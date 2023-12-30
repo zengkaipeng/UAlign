@@ -1,9 +1,13 @@
+
 import random
 import torch
 from sparse_backBone import GINBase, GATBase
 
 from ogb.graphproppred.mol_encoder import AtomEncoder
-from utils.chemistry_parse import get_reaction_core, clear_map_number
+from utils.chemistry_parse import(
+    clear_map_number, get_synthon_edits, BOND_FLOAT_TO_IDX,
+    cano_with_am, find_all_amap, remove_am_wo_cano
+)
 from utils.graph_utils import smiles2graph
 
 from typing import Any, Dict, List, Tuple, Optional, Union
@@ -26,14 +30,16 @@ class TransDataset(torch.utils.data.Dataset):
         return len(self.smiles)
 
     def randomize_smiles(self, smi):
-        if 0 < self.aug_prob <= 1:
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
             if random.randint(0, 1) == 1:
                 k = random.choice(self.smiles)
                 return f'{smi}.{k}'
             else:
                 mol = Chem.MolFromSmiles(smi)
                 atms = [x.GetIdx() for x in mol.GetAtoms()]
-                return Chem.MolToSmiles(mol, rootedAtAtom=random.choice(atms))
+                return Chem.MolToSmiles(
+                    mol, rootedAtAtom=random.choice(atms), canonical=True
+                )
         return smi
 
     def __getitem__(self, index):
@@ -86,110 +92,143 @@ def col_fn_pretrain(data_batch):
 
 class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
-        self, prod_sm: List[str], reat_sm: List[str], target: List[str],
-        randomize: bool = False, aug_prob: float = 0, kekulize: bool = False
+        self, prod_sm: List[str], reat_sm: List[str], aug_prob: float = 0,
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
         self.reat_sm = reat_sm
-        self.target = target
 
-        self.randomize = randomize
         self.aug_prob = aug_prob
-        self.kekulize = kekulize
 
     def __len__(self):
         return len(self.reat_sm)
 
-    def process_reac(self, smi):
-        if not self.randomize or not (0 < self.aug_prob < 1):
-            return smi
-        if random.random() < self.aug_prob:
-            x = smi.split('.')
-            random.shuffle(x)
-            return '.'.join(x)
+    def process_prod(self, smi):
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+            mol = Chem.MolFromSmiles(smi)
+            atms = [x.GetIdx() for x in mol.GetAtoms()]
+            return Chem.MolToSmiles(
+                mol, rootedAtAtom=random.choice(atms), canonical=True
+            )
         else:
-            return smi
+            return cano_with_am(smi)
+
+    def process_reac_via_prod(self, prod, reac):
+        pro_atom_maps = find_all_amap(prod)
+        reacts = reac.split('.')
+        rea_atom_maps = [find_all_amap(x) for x in reacts]
+
+        aligned_reactants = []
+        for i, rea_map_num in enumerate(rea_atom_maps):
+            for j, mapnum in enumerate(pro_atom_maps):
+                if mapnum in rea_map_num:
+                    mol = Chem.MolFromSmiles(reacts[i])
+                    amap = {
+                        x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()
+                    }
+
+                    y_smi = Chem.MolToSmiles(
+                        mol, rootedAtAtom=amap[mapnum], canonical=True
+                    )
+
+                    aligned_reactants.append((y_smi, j))
+
+        aligned_reactants.sort(key=lambda x: x[1])
+        return '.'.join(x[0] for x in aligned_reactants)
 
     def __getitem__(self, index):
+        this_prod = self.process_prod(self.prod_sm[index])
+        this_reac = self.process_reac(self.reat_sm[index])
+
+        ret = ['<CLS>']
+        ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
+        ret.append('<END>')
+
         ret = ['<CLS>']
         ret += smi_tokenizer(self.process_reac(self.target[index]))
         ret.append('<END>')
 
-        x, y = get_reaction_core(
-            r=self.reat_sm[index], p=self.prod_sm[index],
-            kekulize=self.kekulize
+        Eatom, Hatom, Catom, deltaE, org_type = get_synthon_edits(
+            this_reac, this_prod, consider_inner_bonds=True,
+            return_org_type=True
         )
 
-        graph, amap = smiles2graph(
-            smiles_string=self.prod_sm[index],
-            with_amap=True, kekulize=self.kekulize
-        )
+        graph, amap = smiles2graph(this_prod, with_amap=True)
 
-        node_label = torch.zeros(graph['num_nodes']).long()
-        node_label[[amap[t] for t in x]] = 1
+        Ea = torch.zeros(graph['num_nodes']).long()
+        Ha = torch.zeros(graph['num_nodes']).long()
+        Ca = torch.zeros(graph['num_nodes']).long()
+
+        Ea[[amap[t] for t in Eatom]] = 1
+        Ha[[amap[t] for t in Hatom]] = 1
+        Ca[[amap[t] for t in Catom]] = 1
 
         num_edges = graph['edge_feat'].shape[0]
+        edge_label = torch.zeros(num_edges).long()
 
-        es, edge_label = [], torch.zeros(num_edges).long()
-        for edgs in y:
-            src, dst, _, _ = edgs.split(':')
-            src, dst = int(src), int(dst)
-            if dst == 0:
-                continue
-            es.append((amap[src], amap[dst]))
+        new_type = {k: v[0] for k, v in org_type.items()}
+        new_type.update({k: v[1] for k, v in deltaE.items()})
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
+            src, dst = amap[src], amap[dst]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
+            new_edge[(src, dst)] = new_type[(dst, src)] = ntype
 
-        for idx, t in enumerate(graph['edge_index'][0]):
-            src, dst = t.item(), graph['edge_index'][1][idx]
-            if (src, dst) in es or (dst, src) in es:
-                edge_label[idx] = 1
+        for i in range(num_edges):
+            src, dst = graph['edge_index'][:, i].tolist()
+            edge_label[i] = new_edge[(src, dst)]
 
-        return graph, node_label, edge_label, ret
+        return graph, Ea, Ha, Ca, edge_label, ret
 
 
-def col_fn_unloop(data_batch):
-    batch_size, node_label, max_node = len(data_batch), [], 0
-    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
-    edge_label, batch, ptr, reats = [], [], [0], []
-    node_per_graph = []
-    for idx, data in enumerate(data_batch):
-        graph, n_lb, e_lb, ret = data
-        num_nodes = graph['num_nodes']
-        num_edges = graph['edge_index'].shape[1]
+def edit_col_fn(batch):
+    Eatom, Hatom, Catom, reats = [], [], [], []
+    batch_size, all_new, lstnode, lstedge = len(batch), [], 0, 0
+    edge_idx, node_feat, edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    max_node = max(x[0]['num_nodes'] for x in batch)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
 
-        node_label.append(n_lb)
-        edge_label.append(e_lb)
+    for idx, data in enumerate(batch):
+        gp, Ea, Ha, Ca, elb, ret = data
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_new.append(elb)
+        Eatom.append(Ea)
+        Hatom.append(Ha)
+        Catom.append(Ca)
         reats.append(ret)
 
-        edge_idxes.append(graph['edge_index'] + lstnode)
-        edge_feats.append(graph['edge_feat'])
-        node_feats.append(graph['node_feat'])
+        batch_mask[idx, :node_cnt] = True
 
-        lstnode += num_nodes
-        max_node = max(max_node, num_nodes)
-        node_per_graph.append(num_nodes)
-        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
-        ptr.append(lstnode)
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
 
     result = {
-        'edge_index': np.concatenate(edge_idxes, axis=-1),
-        'edge_attr': np.concatenate(edge_feats, axis=0),
-        'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0),
-        'ptr': np.array(ptr, dtype=np.int64)
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'new_edge_types': torch.cat(all_new, dim=0),
+        'EdgeChange': torch.cat(Eatom, dim=0),
+        "ChargeChange": torch.cat(Catom, dim=0),
+        "HChange": torch.cat(Hatom, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
     }
 
-    result = {k: torch.from_numpy(v) for k, v in result.items()}
-    result['num_nodes'] = lstnode
-    result['node_label'] = torch.cat(node_label, dim=0)
-    result['edge_label'] = torch.cat(edge_label, dim=0)
-
-    all_batch_mask = torch.zeros((batch_size, max_node))
-    for idx, mk in enumerate(node_per_graph):
-        all_batch_mask[idx, :mk] = 1
-    result['batch_mask'] = all_batch_mask.bool()
-
-    return GData(**result), reats
+    return torch_geometric.data.Data(**result), reats
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -339,4 +378,3 @@ class PretrainModel(torch.nn.Module):
         )
 
         return result
-
