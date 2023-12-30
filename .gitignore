@@ -3,7 +3,7 @@ tmp_figs
 __pycache__
 log
 log_edit
-data_validation
+log_exp
 mix_base.pth
-log_overall
 encoder_base.pth
+log_overall
