@@ -3,8 +3,8 @@ import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
 from data_utils import (
-    generate_tgt_mask, correct_trans_output,
-    convert_log_into_label
+    generate_tgt_mask, correct_trans_output, eval_by_batch,
+    convert_log_into_label, convert_edge_log_into_labels
 )
 
 from data_utils import eval_trans as data_eval_trans
@@ -56,7 +56,7 @@ def train_trans(
 
         edge_logs, AH_logs, AE_logs, AC_logs, result = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
-            tgt_pad_mask=pad_mask, pred_core=True
+            tgt_pad_mask=pad_mask,
         )
 
         AH_loss = loss_batch(AH_logs, graphs.HChange, graphs.batch)
@@ -83,8 +83,11 @@ def train_trans(
 
         if warmup:
             warmup_sher.step()
-    return np.mean(acl), np.mean(ahl), np.mean(ael), \
-        np.mean(edge_loss), np.mean(tran_loss)
+    return {
+        'ChargeChange': np.mean(acl), 'HChange': np.mean(ahl),
+        'EdgeChange': np.mean(ael), 'Edge': np.mean(edge_loss),
+        'trans': np.mean(tran_loss)
+    }
 
 
 def eval_trans(
@@ -92,7 +95,7 @@ def eval_trans(
     acc_fn, pad='<PAD>', verbose=True
 ):
     model = model.eval()
-    tran_loss, ele_total, ele_acc = [], 0, 0
+    tran_acc, eg_acc, ah_acc, ae_acc, ac_acc = [[] for i in range(5)]
     for data in tqdm(loader) if verbose else loader:
         graphs, tgt = data
         graphs = graphs.to(device)
@@ -105,18 +108,55 @@ def eval_trans(
         )
 
         with torch.no_grad():
-            result = model(
+            edge_logs, AH_logs, AE_logs, AC_logs, result = model(
                 graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
-                tgt_pad_mask=pad_mask, pred_core=False
+                tgt_pad_mask=pad_mask,
             )
-            loss_tran = tran_fn(
-                result.reshape(-1, result.shape[-1]),
-                tgt_output.reshape(-1)
-            )
-            A, B = acc_fn(result, tgt_output)
-            ele_acc, ele_total = ele_acc + A, ele_total + B
-        tran_loss.append(loss_tran.item())
-    return np.mean(tran_loss), ele_acc / ele_total
+
+        AE_pred = convert_log_into_label(AE_logits, mod='softmax')
+        AH_pred = convert_log_into_label(AH_logits, mod='softmax')
+        AC_pred = convert_log_into_label(AC_logits, mod='softmax')
+
+        edge_pred = convert_edge_log_into_labels(
+            edge_logs, prod_graph.edge_index,
+            mod='softmax', return_dict=False
+        )
+
+        trans_pred = convert_log_into_label(trans_logits, mod='softmax')
+        trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+
+        edge_acc = eval_by_batch(
+            edge_pred, prod_graph.edge_label,
+            prod_graph.e_batch, return_tensor=True
+        )
+        AE_acc = eval_by_batch(
+            AE_pred, prod_graph.EdgeChange,
+            prod_graph.batch, return_tensor=True
+        )
+        AH_acc = eval_by_batch(
+            AH_pred, prod_graph.HChange,
+            prod_graph.batch, return_tensor=True
+        )
+        AC_acc = eval_by_batch(
+            AC_pred, prod_graph.ChargeChange,
+            prod_graph.batch,  return_tensor=True
+        )
+
+        trans_acc = eval_trans(trans_pred, trans_dec_op, return_tensor=True)
+
+        tran_acc.append(trans_acc)
+        ae_acc.append(AE_acc)
+        ah_acc.append(AH_acc)
+        ac_acc.append(AC_acc)
+        eg_acc.append(edge_acc)
+
+    result = {
+        'trans': tran_acc, 'EdgeChange': ae_acc, 'Edge': eg_acc,
+        'HChange': ah_acc, 'ChargeChange': ac_acc
+    }
+
+    result = {k: torch.cat(v, dim=0).mean().item() for k, v in result.items()}
+    return result
 
 
 def calc_trans_loss(trans_pred, trans_lb, ignore_index):

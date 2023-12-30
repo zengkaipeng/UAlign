@@ -14,6 +14,90 @@ from rdkit import Chem
 import multiprocessing
 
 
+
+def eval_by_batch(pred, label, batch, return_tensor=False, batch_size=None):
+    if batch_size is None:
+        batch_size = batch.max().item() + 1
+
+    accs = torch.zeros(batch_size).bool()
+
+    for i in range(batch_size):
+        this_mask = batch == i
+
+        if torch.any(this_mask):
+            this_lb = label[this_mask]
+            this_pd = pred[this_mask]
+            accs[i] = torch.all(this_lb == this_pd).item()
+        else:
+            accs[i] = True
+
+    if not return_tensor:
+        return accs.sum().item(), batch_size
+    else:
+        return accs
+
+
+def convert_edge_log_into_labels(
+    logits, edge_index, mod='sigmoid', return_dict=False
+):
+    def covert_into_dict(edge_logs, mode):
+        result = {}
+        if mode == 'sigmoid':
+            for (row, col), v in edge_logs.items():
+                if (row, col) not in result and (col, row) not in result:
+                    result[(row, col)] = 1 if v >= 0.5 else 0
+        else:
+            for (row, col), v in edge_logs.items():
+                if (row, col) not in result and (col, row) not in result:
+                    result[(row, col)] = v.argmax().item()
+        return result
+
+    def convert_into_tensor(edge_logs, edge_index, mode):
+        num_edges = edge_index.shape[1]
+        result = torch.zeros(num_edges).long().to(edge_index.device)
+        if mode == 'sigmoid':
+            for idx, (row, col) in enumerate(edge_index.T):
+                row, col = row.item(), col.item()
+                result[idx] = 1 if edge_logs[(row, col)] >= 0.5 else 0
+        else:
+            for idx, (row, col) in enumerate(edge_index.T):
+                row, col = row.item(), col.item()
+                result[idx] = edge_logs[(row, col)].argmax().item()
+        return result
+
+    if mod == 'sigmoid':
+        edge_logs = {}
+        for idx, p in enumerate(logits):
+            row, col = edge_index[:, idx]
+            row, col = row.item(), col.item()
+            p = p.sigmoid().item()
+            if (row, col) not in edge_logs:
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
+            else:
+                real_log = (edge_logs[(row, col)] + p) / 2
+                edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
+
+        edge_pred = covert_into_dict(edge_logs, mode=mod) if return_dict\
+            else convert_into_tensor(edge_logs, edge_index, mode=mod)
+
+    else:
+        edge_logs = {}
+        logits = torch.softmax(logits, dim=-1)
+        for idx, p in enumerate(logits):
+            row, col = edge_index[:, idx]
+            row, col = row.item(), col.item()
+            if (row, col) not in edge_logs:
+                edge_logs[(row, col)] = edge_logs[(col, row)] = p
+            else:
+                real_log = (edge_logs[(row, col)] + p) / 2
+                edge_logs[(row, col)] = edge_logs[(col, row)] = real_log
+
+        edge_pred = covert_into_dict(edge_logs, mode=mod) if return_dict\
+            else convert_into_tensor(edge_logs, edge_index, mode=mod)
+
+    return edge_pred
+
+
 def load_ext_data(data_dir, part=None):
     if part is not None:
         fname = os.path.join(data_dir, f'extend_{part}.csv')
