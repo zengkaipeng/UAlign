@@ -75,3 +75,10 @@ def eval_trans(trans_pred, trans_lb, return_tensor=False):
     line_acc = torch.sum(trans_pred == trans_lb, dim=-1) == max_len
     line_acc = line_acc.cpu()
     return line_acc if return_tensor else (line_acc.sum().item(), batch_size)
+
+
+def check_early_stop(*args):
+    answer = True
+    for x in args:
+        answer &= all(t <= x[0] for t in x[1:])
+    return answer

@@ -7,6 +7,53 @@ from GINConv import MyGINConv
 from sparse_backBone import (
     SparseAtomEncoder, SparseBondEncoder, SparseEdgeUpdateLayer
 )
+import math
+
+
+class DotMhAttn(torch.nn.Module):
+    def __init__(
+        self, Qdim, Kdim, Vdim, Odim, emb_dim,
+        num_heads, dropout=0.0,
+    ):
+        super(DotMhAttn, self).__init__()
+        self.heads = num_heads
+        assert emb_dim % num_heads == 0, \
+            'The embedding dim should be evenly divided by heads'
+        self.Qproj = torch.nn.Linear(Qdim, emb_dim)
+        self.Kproj = torch.nn.Linear(Kdim, emb_dim)
+        self.Vproj = torch.nn.Linear(Vdim, emb_dim)
+        self.Oproj = torch.nn.Linear(emb_dim, Odim)
+        self.drop_fun = torch.nn.Dropout(dropout)
+        self.temp = math.sqrt(emb_dim / num_heads)
+        self.xdim = emb_dim // self.heads
+
+    def forward(
+        self, query, key, value, attn_mask=None,
+        key_padding_mask=None
+    ):
+        (BS, Q_len), K_len = query.shape[:2], key.shape[1]
+        Qp = self.Qproj(query).reshape(BS, Q_len, self.xdim, self.heads)
+        Kp = self.Kproj(key).reshape(BS, K_len, self.xdim, self.heads)
+        Vp = self.Vproj(value).reshape(BS, K_len, self.xdim, self.heads)
+        attn_w = torch.einsum('abcd,aecd->aebd', Qp, Kp) / self.temp
+
+        # [BS, key_len, query_len, dim]
+
+        if key_padding_mask is not None:
+            assert key_padding_mask.shape == (BS, K_len), \
+                'The key padding mask should have shape (BS, Key)'
+            attn_w[key_padding_mask] = 1 - (1 << 32)
+
+        if attn_mask is not None:
+            assert attn_mask.shape == (BS, Q_len, K_len, self.heads),\
+                "The attn mask should be (BS, Query, Key, heads)"
+            attn_w[attn_mask] = 1 - (1 << 32)
+
+        attn_w = self.drop_fun(torch.softmax(attn_w, dim=1))
+        attn_o = torch.einsum('acbd,aced->abed', attn_w, Vp)
+        attn_o = self.Oproj(attn_o.reshape(BS, Q_len, -1))
+
+        return attn_o, attn_w.transpose(1, 2)
 
 
 class MixConv(torch.nn.Module):
@@ -15,8 +62,9 @@ class MixConv(torch.nn.Module):
         dropout: float = 0, gnn_type: str = 'gin', update_gate: str = 'add'
     ):
         super(MixConv, self).__init__()
-        self.attn_conv = torch.nn.MultiheadAttention(
-            emb_dim, batch_first=True, dropout=dropout, num_heads=heads,
+        self.attn_conv = DotMhAttn(
+            emb_dim, emb_dim, emb_dim, emb_dim, emb_dim,
+            num_heads=heads, dropout=dropout
         )
         assert update_gate in ['add', 'cat'], \
             f'Invalid update method {update_gate}'
@@ -34,7 +82,6 @@ class MixConv(torch.nn.Module):
     def forward(
         self, node_feat: torch.Tensor, edge_index: torch.Tensor,
         edge_feat: torch.Tensor, batch_mask: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         conv_res = self.gnn_conv(
             x=node_feat, edge_attr=edge_feat,
@@ -45,13 +92,9 @@ class MixConv(torch.nn.Module):
         attn_input = attn_input.to(node_feat)
         attn_input[batch_mask] = node_feat
 
-        if attn_mask is not None:
-            attn_mask = attn_mask.unsqueeze(1).repeat(1, self.heads, 1, 1)
-            attn_mask = attn_mask.reshape(-1, max_node, max_node)
-
         attn_res, attn_w = self.attn_conv(
             query=attn_input, key=attn_input, value=attn_input,
-            attn_mask=attn_mask, key_padding_mask=~batch_mask,
+            key_padding_mask=~batch_mask,
         )
 
         if self.update_method == 'cat':
@@ -97,8 +140,7 @@ class MixFormer(torch.nn.Module):
         for i in range(self.num_layers):
             conv_res = self.convs[i](
                 node_feat=node_feats, edge_feat=edge_feats,
-                edge_index=G.edge_index, batch_mask=G.batch_mask,
-                attn_mask=G.get('attn_mask', None)
+                edge_index=G.edge_index, batch_mask=G.batch_mask
             ) + node_feats
 
             node_feats = self.dropout_fun(torch.relu(self.lns[i](conv_res)))

@@ -20,7 +20,7 @@ class TransDataset(torch.utils.data.Dataset):
         super(TransDataset, self).__init__()
 
         self.smiles = smiles
-        self.aug_prob = aug_prob
+        self.aug_prob = random_prob
 
     def __len__(self):
         return len(self.smiles)

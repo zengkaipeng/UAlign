@@ -85,7 +85,7 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--gnn_type', type=str, choices=['GAT', 'GIN', 'MIX'],
+        '--gnn_type', type=str, choices=['gin', 'gat'],
         help='type of gnn backbone', required=True
     )
     parser.add_argument(
@@ -96,6 +96,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '--base_log', default='log_pretrain', type=str,
         help='the base dir of logging'
+    )
+
+    parser.add_argument(
+        '--transformer', action='store_true',
+        help='use the graph transformer or not'
     )
 
     # GAT & Gtrans setting
@@ -166,40 +171,59 @@ if __name__ == '__main__':
     train_moles = load_moles(args.data_path, 'train')
     test_moles = load_moles(args.data_path, 'val')
 
-    train_set = PretrainDataset(train_moles, args.aug_prob)
-    test_set = PretrainDataset(test_moles, random_prob=0)
+    train_set = TransDataset(train_moles, args.aug_prob)
+    test_set = TransDataset(test_moles, random_prob=0)
 
     train_loader = DataLoader(
-        train_set, collate_fn=pretrain_col_fn,
+        train_set, collate_fn=col_fn_pretrain,
         batch_size=args.bs, shuffle=True
     )
     test_loader = DataLoader(
-        test_set, collate_fn=pretrain_col_fn,
+        test_set, collate_fn=col_fn_pretrain,
         batch_size=args.bs, shuffle=False
     )
 
-    if args.backbone == 'GIN':
-        GNN = GINBase(
-            num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim,
-        )
-    elif args.backbone == 'GAT':
-        GNN = GATBase(
-            num_layers=args.layer_encoder, dropout=args.dropout,
-            embedding_dim=args.dim, negative_slope=args.negative_slope,
-            num_heads=args.heads,
+    if args.transformer:
+        if args.gnn_type == 'gin':
+            gnn_args = {
+                'in_channels': args.dim, 'out_channels': args.dim,
+                'edge_dim': args.dim
+            }
+        elif args.gnn_type == 'gat':
+            assert args.dim % args.heads == 0, \
+                'The model dim should be evenly divided by num_heads'
+            gnn_args = {
+                'in_channels': args.dim, 'dropout': args.dropout,
+                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
+                'negative_slope': args.negative_slope, 'heads': args.heads
+            }
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
+
+        GNN = MixFormer(
+            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
+            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
+            n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
         )
     else:
-        GNN = MixFormer(
-            emb_dim=args.dim, num_layer=args.layer_encoder,
-            heads=args.heads, dropout=args.dropout,
-            negative_slope=args.negative_slope,
-        )
-
-    trans_head = args.heads if args.backbone != 'MIX' else args.heads * 2
+        if args.gnn_type == 'gin':
+            GNN = GINBase(
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, n_class=11 if args.use_class else None
+            )
+        elif args.gnn_type == 'gat':
+            GNN = GATBase(
+                num_layers=args.n_layer, dropout=args.dropout,
+                embedding_dim=args.dim, num_heads=args.heads,
+                negative_slope=args.negative_slope,
+                n_class=11 if args.use_class else None
+            )
+        else:
+            raise ValueError(f'Invalid GNN type {args.backbone}')
 
     decode_layer = TransformerDecoderLayer(
-        d_model=args.dim, nhead=trans_head, batch_first=True,
+        d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
     Decoder = TransformerDecoder(decode_layer, args.layer_decoder)
