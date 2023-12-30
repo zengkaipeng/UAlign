@@ -24,7 +24,7 @@ def loss_batch(logs, label, batch):
     losses = cross_entropy(logs, label, reduction='none')
     all_x = torch.zeros(batch.max().items() + 1).to(losses)
     all_x.index_add_(dim=0, source=losses, index=batch)
-    return all_x.mean()s
+    return all_x.mean()
 
 
 def train_trans(

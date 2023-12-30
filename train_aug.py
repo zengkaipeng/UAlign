@@ -8,14 +8,14 @@ import pickle
 
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase
 from model import Graph2Seq, edit_col_fn, PositionalEncoding
 from training import train_trans, eval_trans
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
 from model import OnFlyDataset
-from MixConv import MixFormer
+from sparse_backBone import GINBase, GATBase
+from Mix_backbone import MixFormer
 
 
 def create_log_model(args):
@@ -132,14 +132,10 @@ if __name__ == '__main__':
         '--token_ckpt', type=str, default='',
         help='the path of tokenizer, when ckpt is loaded, necessary'
     )
-    parser.add_argument(
-        '--kekulize', action='store_true',
-        help='use kekulize for mole or not'
-    )
 
     args = parser.parse_args()
     print(args)
-    log_dir, model_dir, token_dir, acc_dir = create_log_model(args)
+    log_dir, model_dir, token_dir = create_log_model(args)
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
