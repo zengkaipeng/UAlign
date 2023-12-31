@@ -36,11 +36,11 @@ if __name__ == '__main__':
             if len(INFO['valid_metric']) == 0:
                 continue
 
-            best_idx = np.argmax(INFO['valid_metric'])
+            best_idx = np.argmax([x['trans'] for x in INFO['valid_metric']])
             best_node_fit = INFO['test_metric'][best_idx]
 
-            if bpref is None or best_node_fit > bpref:
-                bpref = INFO['test_metric'][best_idx]
+            if bpref is None or best_node_fit['trans'] > bpref['trans']:
+                bpref = best_node_fit
                 btime, bargs, bep = timestamp, INFO['args'], best_idx
 
     print('[args]\n', bargs)
