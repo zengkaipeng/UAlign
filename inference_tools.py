@@ -50,11 +50,15 @@ def beam_search_one(
     lens = torch.Tensor([0]).to(device)
     alive = torch.Tensor([1]).to(device).bool()
 
+    n_close = torch.Tensor([0]).to(device)
+    fst_idx = tokenizer.token2idx['(']
+    sec_idx = tokenizer.token2idx[")"]
+
     with torch.no_grad():
         base_memory, base_mem_pad_mask = model.encode(graph)
         for idx in range(max_len):
             input_beam, prob_beam = [], []
-            alive_beam, len_beam = [], []
+            alive_beam, len_beam, col_beam = [], [], []
 
             ended = torch.logical_not(alive)
             if torch.any(ended).item():
@@ -65,12 +69,15 @@ def beam_search_one(
                 prob_beam.append(probs[ended])
                 alive_beam.append(alive[ended])
                 len_beam.append(lens[ended])
+                col_beam.append(n_close[ended])
+
             if torch.all(ended).item():
                 break
 
             tgt = tgt[alive]
             probs = probs[alive]
             lens = lens[alive]
+            n_close = n_close[alive]
 
             real_size = min(tgt.shape[0], size)
             memory = base_memory.repeat(real_size, 1, 1)
@@ -86,6 +93,10 @@ def beam_search_one(
 
             for tdx, ep in enumerate(result_top_k.values):
                 not_end = result_top_k.indices[tdx] != end_id
+
+                is_fst = result_top_k.indices[tdx] == fst_idx
+                is_sed = result_top_k.indices[tdx] == sec_idx
+
                 tgt_base = tgt[tdx].repeat(size, 1)
                 this_seq = result_top_k.indices[tdx].unsqueeze(-1)
                 tgt_base = torch.cat([tgt_base, this_seq], dim=-1)
@@ -93,11 +104,19 @@ def beam_search_one(
                 prob_beam.append(ep + probs[tdx])
                 alive_beam.append(not_end)
                 len_beam.append(torch.ones(size).long().to(device) * (idx + 1))
+                col_beam.append(1. * is_fst - 1. * is_sed + n_close[tdx])
 
             input_beam = torch.cat(input_beam, dim=0)
             prob_beam = torch.cat(prob_beam, dim=0)
             alive_beam = torch.cat(alive_beam, dim=0)
             len_beam = torch.cat(len_beam, dim=0)
+            col_beam = torch.cat(col_beam, dim=0)
+
+            illegal = (clo_beam < 0) | ((~alive_beam) & (clo_beam != 0))
+            prob_beam[illegal] = -2e9
+
+            # ") num" > "( num"
+            # the str ends but () not close
 
             if 0 < pen_para < 1:
                 prob_beam /= (len_beam ** pen_para)
@@ -107,6 +126,7 @@ def beam_search_one(
             probs = beam_top_k.values
             alive = alive_beam[beam_top_k.indices]
             lens = len_beam[beam_top_k.indices]
+            n_close = col_beam[beam_top_k.indices]
 
     answer = [(probs[idx].item(), t.tolist()) for idx, t in enumerate(tgt)]
     answer.sort(reverse=True)
