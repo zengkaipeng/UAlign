@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import torch
 import argparse
 import json
@@ -18,6 +19,7 @@ from utils.graph_utils import smiles2graph
 import pandas
 import torch_geometric
 from inference_tools import beam_search_one
+import time
 
 
 def make_graph_batch(smi, rxn=None):
@@ -180,9 +182,13 @@ if __name__ == '__main__':
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
+    out_file = f'results/answer-{time.time()}.json'
+
     meta_df = pandas.read_csv(args.token_path)
 
-    for idx, resu in enumerate(meta_df['reactants>reagents>production']):
+    topks, answers = [], []
+
+    for idx, resu in tqdm(enumerate(meta_df['reactants>reagents>production'])):
         rea, prd = resu.strip().split('>>')
         prd = cano_with_am(prd)
         rea = clear_map_number(rea)
@@ -195,10 +201,43 @@ if __name__ == '__main__':
 
         g_ip = make_graph_batch(prd, rxn_class)
 
-        answers, probs = beam_search_one(
+        preds, probs = beam_search_one(
             model, tokenizer, g_ip, device, max_len=args.max_len,
             size=args.beams, begin_token=start_token, end_token='<END>',
             pen_para=0, validate=False
         )
 
-        
+        answers.append({
+            'query': resu, 'idx': idx,
+            'answer': preds, 'prob': probs
+        })
+
+        with open(out_file, 'w') as Fout:
+            json.dump({
+                'args': args.__dict__,
+                'answer': answers
+            }, Fout, indent=4)
+
+        this_hit = np.zeros(args.beam)
+
+        for edx, res in enumerate(preds):
+            tmol = Chem.MolFromSmiles(res)
+            if tmol is not None:
+                res = Chem.MolToSmiles(tmol)
+                if res == rea:
+                    this_hit[edx:] = 1
+                    break
+        topks.append(this_hit)
+
+    topks = np.stack(topks, axis=0)
+    topk_acc = np.mean(topks, axis=0)
+
+    for i in [1, 3, 5, 10]:
+        print(f'[TOP {i}]', topk_acc[i - 1])
+
+    with open(out_file, 'w') as Fout:
+        json.dump({
+            'args': args.__dict__,
+            'answer': answers,
+            'topks': topk_acc.tolist()
+        }, Fout, indent=4)
