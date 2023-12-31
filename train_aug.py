@@ -285,7 +285,7 @@ if __name__ == '__main__':
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 3 and ep > max(10, args.early_stop):
-            tx = log_info['valid_metric'][-args.early_stop]
+            tx = log_info['valid_metric'][-args.early_stop:]
             tx = [x['trans'] for x in tx]
             if check_early_stop(tx):
                 break
