@@ -135,7 +135,7 @@ if __name__ == '__main__':
             assert args.dim % args.heads == 0, \
                 'The model dim should be evenly divided by num_heads'
             gnn_args = {
-                'in_channels': args.dim, 'dropout': args.dropout,
+                'in_channels': args.dim, 'dropout': 0.1,
                 'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
                 'negative_slope': args.negative_slope, 'heads': args.heads
             }
@@ -144,18 +144,18 @@ if __name__ == '__main__':
 
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
+            dropout=0.1, heads=args.heads, gnn_type=args.gnn_type,
             n_class=None, update_gate=args.update_gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout,
+                num_layers=args.n_layer, dropout=0.1,
                 embedding_dim=args.dim, n_class=None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
-                num_layers=args.n_layer, dropout=args.dropout,
+                num_layers=args.n_layer, dropout=0.1,
                 embedding_dim=args.dim, num_heads=args.heads,
                 negative_slope=args.negative_slope, n_class=None
             )
@@ -164,10 +164,10 @@ if __name__ == '__main__':
 
     decode_layer = TransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=args.dropout
+        dim_feedforward=args.dim * 2, dropout=0.1
     )
     Decoder = TransformerDecoder(decode_layer, args.n_layer)
-    Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
+    Pos_env = PositionalEncoding(args.dim, 0.1, maxlen=2000)
 
     model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
