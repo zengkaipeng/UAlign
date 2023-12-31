@@ -184,7 +184,7 @@ if __name__ == '__main__':
 
     meta_df = pandas.read_csv(args.data_path)
 
-    topks, answers = [], []
+    answers = []
 
     for idx, resu in enumerate(tqdm(meta_df['reactants>reagents>production'])):
         rea, prd = resu.strip().split('>>')
@@ -206,7 +206,7 @@ if __name__ == '__main__':
         )
 
         answers.append({
-            'query': resu, 'idx': idx,
+            'query': resu, 'idx': idx, 'rxn_class': rxn_class,
             'answer': preds, 'prob': probs
         })
 
@@ -215,27 +215,3 @@ if __name__ == '__main__':
                 'args': args.__dict__,
                 'answer': answers
             }, Fout, indent=4)
-
-        this_hit = np.zeros(args.beams)
-
-        for edx, res in enumerate(preds):
-            tmol = Chem.MolFromSmiles(res)
-            if tmol is not None:
-                res = Chem.MolToSmiles(tmol)
-                if res == rea:
-                    this_hit[edx:] = 1
-                    break
-        topks.append(this_hit)
-
-    topks = np.stack(topks, axis=0)
-    topk_acc = np.mean(topks, axis=0)
-
-    for i in [1, 3, 5, 10]:
-        print(f'[TOP {i}]', topk_acc[i - 1])
-
-    with open(out_file, 'w') as Fout:
-        json.dump({
-            'args': args.__dict__,
-            'answer': answers,
-            'topks': topk_acc.tolist()
-        }, Fout, indent=4)

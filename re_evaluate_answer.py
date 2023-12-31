@@ -22,14 +22,14 @@ if __name__ == '__main__':
         answers = json.load(Fin)
 
     topks = []
-    for single in answers['answer']:
-        prod, reac = single['query'].split('>>')
+    for single in tqdm(answers['answer']):
+        reac, prod = single['query'].split('>>')
         real_ans = clear_map_number(reac)
         opt = np.zeros(args.beam)
         for idx, x in enumerate(single['answer']):
             x = canonical_smiles(x)
             if x == real_ans:
-                opt[x:] = 1
+                opt[idx:] = 1
                 break
         topks.append(opt)
     topks = np.stack(topks, axis=0)
