@@ -92,12 +92,13 @@ def col_fn_pretrain(data_batch):
 
 class OnFlyDataset(torch.utils.data.Dataset):
     def __init__(
-        self, prod_sm: List[str], reat_sm: List[str], aug_prob: float = 0,
+        self, prod_sm: List[str], reat_sm: List[str],
+        rxn_cls: Optional[List[int]] = None, aug_prob: float = 0,
     ):
         super(OnFlyDataset, self).__init__()
         self.prod_sm = prod_sm
         self.reat_sm = reat_sm
-
+        self.rxn_cls = rxn_cls
         self.aug_prob = aug_prob
 
     def __len__(self):
@@ -178,7 +179,9 @@ class OnFlyDataset(torch.utils.data.Dataset):
             src, dst = graph['edge_index'][:, i].tolist()
             edge_label[i] = new_edge[(src, dst)]
 
-        return graph, Ea, Ha, Ca, edge_label, ret
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+
+        return graph, Ea, Ha, Ca, edge_label, ret, rxn
 
 
 def edit_col_fn(batch):
@@ -186,11 +189,12 @@ def edit_col_fn(batch):
     batch_size, all_new, lstnode, lstedge = len(batch), [], 0, 0
     edge_idx, node_feat, edge_feat = [], [], []
     node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn = [], []
     max_node = max(x[0]['num_nodes'] for x in batch)
     batch_mask = torch.zeros(batch_size, max_node).bool()
 
     for idx, data in enumerate(batch):
-        gp, Ea, Ha, Ca, elb, ret = data
+        gp, Ea, Ha, Ca, elb, ret, rxn = data
         node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
 
         node_feat.append(gp['node_feat'])
@@ -211,6 +215,10 @@ def edit_col_fn(batch):
         node_ptr.append(lstnode)
         edge_ptr.append(lstedge)
 
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
     result = {
         'x': torch.from_numpy(npcat(node_feat, axis=0)),
         "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
@@ -227,6 +235,12 @@ def edit_col_fn(batch):
         'num_edges': lstedge,
         'batch_mask': batch_mask
     }
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
     return GData(**result), reats
 

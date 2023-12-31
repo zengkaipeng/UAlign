@@ -132,6 +132,10 @@ if __name__ == '__main__':
         '--token_ckpt', type=str, default='',
         help='the path of tokenizer, when ckpt is loaded, necessary'
     )
+    parser.add_argument(
+        '--use_class', action='store_true',
+        help='use class for model or not'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -162,9 +166,18 @@ if __name__ == '__main__':
 
     print('[INFO] Data Loaded')
 
-    train_set = OnFlyDataset(train_prod, train_rec, args.aug_prob)
-    valid_set = OnFlyDataset(val_prod, val_rec, aug_prob=0)
-    test_set = OnFlyDataset(test_prod, test_rec, aug_prob=0)
+    train_set = OnFlyDataset(
+        prod_sm=train_prod, reac_sm=train_rec, aug_prob=args.aug_prob,
+        rxn_cls=train_rxn if args.use_class else None
+    )
+    valid_set = OnFlyDataset(
+        prod_sm=val_prod, reac_sm=val_rec, aug_prob=0,
+        rxn_cls=val_rxn if args.use_class else None
+    )
+    test_set = OnFlyDataset(
+        prod_sm=test_prod, reac_sm=test_rec, aug_prob=0,
+        rxn_cls=test_rxn if args.use_class else None
+    )
 
     train_loader = DataLoader(
         train_set, collate_fn=edit_col_fn,
@@ -199,19 +212,22 @@ if __name__ == '__main__':
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
-            n_class=None, update_gate=args.update_gate
+            n_class=11 if args.use_class else None,
+            update_gate=args.update_gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, n_class=None
+                embedding_dim=args.dim,
+                n_class=11 if args.use_class else None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
                 num_layers=args.n_layer, dropout=args.dropout,
                 embedding_dim=args.dim, num_heads=args.heads,
-                negative_slope=args.negative_slope, n_class=None
+                negative_slope=args.negative_slope,
+                n_class=11 if args.use_class else None
             )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
