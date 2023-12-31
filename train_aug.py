@@ -167,15 +167,15 @@ if __name__ == '__main__':
     print('[INFO] Data Loaded')
 
     train_set = OnFlyDataset(
-        prod_sm=train_prod, reac_sm=train_rec, aug_prob=args.aug_prob,
+        prod_sm=train_prod, reat_sm=train_rec, aug_prob=args.aug_prob,
         rxn_cls=train_rxn if args.use_class else None
     )
     valid_set = OnFlyDataset(
-        prod_sm=val_prod, reac_sm=val_rec, aug_prob=0,
+        prod_sm=val_prod, reat_sm=val_rec, aug_prob=0,
         rxn_cls=val_rxn if args.use_class else None
     )
     test_set = OnFlyDataset(
-        prod_sm=test_prod, reac_sm=test_rec, aug_prob=0,
+        prod_sm=test_prod, reat_sm=test_rec, aug_prob=0,
         rxn_cls=test_rxn if args.use_class else None
     )
 

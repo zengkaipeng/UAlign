@@ -142,7 +142,8 @@ class OnFlyDataset(torch.utils.data.Dataset):
         this_prod = self.process_prod(self.prod_sm[index])
         this_reac = self.process_reac_via_prod(this_prod, self.reat_sm[index])
 
-        ret = ['<CLS>']
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+        ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
         ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
         ret.append('<END>')
         # print('[prod]', this_prod)
@@ -178,8 +179,6 @@ class OnFlyDataset(torch.utils.data.Dataset):
         for i in range(num_edges):
             src, dst = graph['edge_index'][:, i].tolist()
             edge_label[i] = new_edge[(src, dst)]
-
-        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
 
         return graph, Ea, Ha, Ca, edge_label, ret, rxn
 
