@@ -47,7 +47,7 @@ if __name__ == '__main__':
         help='the layer of encoder gnn'
     )
     parser.add_argument(
-        '--token_path', required=True, type=str,
+        '--token_path', type=str, default='',
         help='the path of a json containing all tokens'
     )
     parser.add_argument(
