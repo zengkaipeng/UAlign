@@ -112,7 +112,7 @@ def beam_search_one(
             len_beam = torch.cat(len_beam, dim=0)
             col_beam = torch.cat(col_beam, dim=0)
 
-            illegal = (clo_beam < 0) | ((~alive_beam) & (clo_beam != 0))
+            illegal = (col_beam < 0) | ((~alive_beam) & (col_beam != 0))
             prob_beam[illegal] = -2e9
 
             # ") num" > "( num"

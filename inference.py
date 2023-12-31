@@ -20,6 +20,8 @@ import pandas
 import torch_geometric
 from inference_tools import beam_search_one
 import time
+import numpy as np
+from rdkit import Chem
 
 
 def make_graph_batch(smi, rxn=None):
@@ -82,10 +84,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--seed', type=int, default=2023,
         help='the seed for training'
-    )
-    parser.add_argument(
-        '--bs', type=int, default=512,
-        help='the batch size for training'
     )
 
     parser.add_argument(
@@ -184,11 +182,11 @@ if __name__ == '__main__':
 
     out_file = f'results/answer-{time.time()}.json'
 
-    meta_df = pandas.read_csv(args.token_path)
+    meta_df = pandas.read_csv(args.data_path)
 
     topks, answers = [], []
 
-    for idx, resu in tqdm(enumerate(meta_df['reactants>reagents>production'])):
+    for idx, resu in enumerate(tqdm(meta_df['reactants>reagents>production'])):
         rea, prd = resu.strip().split('>>')
         prd = cano_with_am(prd)
         rea = clear_map_number(rea)
@@ -199,7 +197,7 @@ if __name__ == '__main__':
             rxn_class = None
             start_token = '<CLS>'
 
-        g_ip = make_graph_batch(prd, rxn_class)
+        g_ip = make_graph_batch(prd, rxn_class).to(device)
 
         preds, probs = beam_search_one(
             model, tokenizer, g_ip, device, max_len=args.max_len,
@@ -218,7 +216,7 @@ if __name__ == '__main__':
                 'answer': answers
             }, Fout, indent=4)
 
-        this_hit = np.zeros(args.beam)
+        this_hit = np.zeros(args.beams)
 
         for edx, res in enumerate(preds):
             tmol = Chem.MolFromSmiles(res)
