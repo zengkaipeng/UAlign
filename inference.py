@@ -13,7 +13,34 @@ from data_utils import fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
-from utils.chemistry_parse import clear_map_number
+from utils.chemistry_parse import clear_map_number, cano_with_am
+from utils.graph_utils import smiles2graph
+import pandas
+import torch_geometric
+from inference_tools import beam_search_one
+
+
+def make_graph_batch(smi, rxn=None):
+    graph = smiles2graph(smi, with_amap=False)
+    num_nodes = graph['node_feat'].shape[0]
+    num_edges = graph['edge_index'].shape[1]
+
+    data = {
+        'x': torch.from_numpy(graph['node_feat']),
+        'num_nodes': num_nodes,
+        'edge_attr': torch.from_numpy(graph['edge_feat']),
+        'edge_index': torch.from_numpy(graph['edge_index']),
+        'ptr': torch.LongTensor([0, num_nodes]),
+        'e_ptr': torch.LongTensor([0, num_edges]),
+        'batch': torch.zeros(num_nodes).long(),
+        'e_batch': torch.zeros(num_edges).long(),
+        'batch_mask': torch.ones(1, num_nodes).bool()
+    }
+
+    if rxn is not None:
+        data['node_rxn'] = torch.ones(num_nodes).long() * rxn
+        data['edge_rxn'] = torch.ones(num_edges).long() * rxn
+    return torch_geometric.data.Data(**data)
 
 
 if __name__ == '__main__':
@@ -70,6 +97,18 @@ if __name__ == '__main__':
     parser.add_argument(
         '--token_ckpt', type=str, required=True,
         help='the path of tokenizer, when ckpt is loaded, necessary'
+    )
+    parser.add_argument(
+        '--use_class', action='store_true',
+        help='use the class for model or not'
+    )
+    parser.add_argument(
+        '--max_len', default=300, type=int,
+        help='the max num of tokens in result'
+    )
+    parser.add_argument(
+        '--beams', default=10, type=int,
+        help='the number of beams '
     )
 
     args = parser.parse_args()
@@ -140,4 +179,26 @@ if __name__ == '__main__':
         model.load_state_dict(weight)
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
-    
+
+    meta_df = pandas.read_csv(args.token_path)
+
+    for idx, resu in enumerate(meta_df['reactants>reagents>production']):
+        rea, prd = resu.strip().split('>>')
+        prd = cano_with_am(prd)
+        rea = clear_map_number(rea)
+        if args.use_class:
+            rxn_class = meta_df['class'][idx]
+            start_token = f'<RXN_{rxn_class}>'
+        else:
+            rxn_class = None
+            start_token = '<CLS>'
+
+        g_ip = make_graph_batch(prd, rxn_class)
+
+        answers, probs = beam_search_one(
+            model, tokenizer, g_ip, device, max_len=args.max_len,
+            size=args.beams, begin_token=start_token, end_token='<END>',
+            pen_para=0, validate=False
+        )
+
+        
