@@ -208,7 +208,7 @@ if __name__ == '__main__':
         )
 
         answers.append({
-            'query': resu, 'idx': idx, 'rxn_class': rxn_class,
+            'query': resu, 'idx': idx, 'rxn_class': int(rxn_class),
             'answer': preds, 'prob': probs
         })
 
