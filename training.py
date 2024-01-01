@@ -28,8 +28,8 @@ def loss_batch(logs, label, batch):
 
 
 def train_trans(
-    loader, model, optimizer, device, tokenizer, verbose=True,
-    warmup=False, pad='<PAD>', unk='<UNK>', accu=1
+    loader, model, optimizer, device, tokenizer, verbose=True, accu=1,
+    warmup=False, pad='<PAD>', unk='<UNK>', label_smoothing=0.0
 ):
     model = model.train()
     acl, ahl, ael, edge_loss, tran_loss = [[] for i in range(5)]
@@ -63,7 +63,9 @@ def train_trans(
         AC_loss = loss_batch(AC_logs, graphs.ChargeChange, graphs.batch)
         AE_loss = loss_batch(AE_logs, graphs.EdgeChange, graphs.batch)
         ed_loss = loss_batch(edge_logs, graphs.new_edge_types, graphs.e_batch)
-        loss_tran = calc_trans_loss(result, tgt_output, ignore_idx)
+        loss_tran = calc_trans_loss(
+            result, tgt_output, ignore_idx, label_smoothing
+        )
 
         loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
         if not warmup and accu > 1:
@@ -91,7 +93,7 @@ def train_trans(
 
 
 def eval_trans(
-    loader, model, device, tokenizer, 
+    loader, model, device, tokenizer,
     pad='<PAD>', end='<END>', verbose=True
 ):
     model = model.eval()
@@ -162,14 +164,14 @@ def eval_trans(
     return result
 
 
-def calc_trans_loss(trans_pred, trans_lb, ignore_index):
+def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
     batch_size, maxl, num_c = trans_pred.shape
     trans_pred = trans_pred.reshape(-1, num_c)
     trans_lb = trans_lb.reshape(-1)
 
     losses = cross_entropy(
         trans_pred, trans_lb, reduction='none',
-        ignore_index=ignore_index
+        ignore_index=ignore_index, label_smoothing=lbsm
     )
     losses = losses.reshape(batch_size, maxl)
     loss = torch.mean(torch.sum(losses, dim=-1))

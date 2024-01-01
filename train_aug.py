@@ -136,6 +136,10 @@ if __name__ == '__main__':
         '--use_class', action='store_true',
         help='use class for model or not'
     )
+    parser.add_argument(
+        '--label_smoothing', type=float, default=0.0,
+        help='the label smoothing for transformer training'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -271,7 +275,8 @@ if __name__ == '__main__':
         print(f'[INFO] traing at epoch {ep + 1}')
         train_loss = train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            verbose=True, warmup=(ep < args.warmup), accu=args.accu
+            verbose=True, warmup=(ep < args.warmup), accu=args.accu,
+            label_smoothing=args.label_smoothing
         )
         log_info['train_loss'].append(train_loss)
 

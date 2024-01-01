@@ -47,6 +47,7 @@ if __name__ == '__main__':
 
     all_pfs.sort(key=lambda x: -x[-1]['trans'])
     for arg, ep, ts, pf in all_pfs[:args.topk]:
+        print('=====================================================')
         print(f'[args]\n{arg}')
         print(f'[time] {ts}')
         print(f'[epoch] {ep}')
