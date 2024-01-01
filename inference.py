@@ -193,7 +193,7 @@ if __name__ == '__main__':
         prd = cano_with_am(prd)
         rea = clear_map_number(rea)
         if args.use_class:
-            rxn_class = meta_df['class'][idx]
+            rxn_class = int(meta_df['class'][idx])
             start_token = f'<RXN>_{rxn_class}'
         else:
             rxn_class = None
@@ -208,7 +208,7 @@ if __name__ == '__main__':
         )
 
         answers.append({
-            'query': resu, 'idx': idx, 'rxn_class': int(rxn_class),
+            'query': resu, 'idx': idx, 'rxn_class': rxn_class,
             'answer': preds, 'prob': probs
         })
 
