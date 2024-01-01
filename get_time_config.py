@@ -45,9 +45,9 @@ if __name__ == '__main__':
 
             all_pfs.append((INFO['args'], best_idx, timestamp, curr_perf))
 
-    all_pfs.sort(lambda x: -x[-1]['trans'])
+    all_pfs.sort(key=lambda x: -x[-1]['trans'])
     for arg, ep, ts, pf in all_pfs[:args.topk]:
-        print(f'[args]\n{args}')
+        print(f'[args]\n{arg}')
         print(f'[time] {ts}')
         print(f'[epoch] {ep}')
         print(f'[result] {pf}')
