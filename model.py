@@ -40,7 +40,8 @@ class TransDataset(torch.utils.data.Dataset):
                 return Chem.MolToSmiles(
                     mol, rootedAtAtom=random.choice(atms), canonical=True
                 )
-        return smi
+        else:
+            return smi
 
     def __getitem__(self, index):
         ret = ['<CLS>']
