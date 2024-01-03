@@ -62,6 +62,25 @@ def remap_amap(rxn_smi):
     return f"{r_update}>>{p_update}"
 
 
+def check_valid(rxn_smi):
+    reac, prod = rxn_smi.split('>>')
+    if reac == '' or prod == '':
+        return False, "empty_mol"
+    reac_mol = Chem.MolFromSmiles(reac)
+    prod_mol = Chem.MolFromSmiles(prod)
+
+    prod_amap = set(x.GetAtomMapNum() for x in prod_mol.GetAtoms())
+    reac_amap = set(x.GetAtomMapNum() for x in reac_mol.GetAtoms()) - {0}
+
+    if 0 in prod_amap or len(prod_amap - reac_amap) > 0:
+        return False, "Invalid atom mapping"
+
+    if len(prod_amap.GetAtoms()) == 1:
+        return False, "Single Atom prod"
+
+    return True, "correct"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -83,6 +102,10 @@ def main():
         uspto_id, class_id = element['id'], element['class']
         rxn_smi = element['reactants>reagents>production']
 
+        is_valid, message = check_valid(rxn_smi)
+        if not is_valid:
+            continue
+
         rxn_new = add_all_amap(rxn_smi)
         rxn_new = remap_amap(rxn_new)
         new_dict['id'].append(uspto_id)
@@ -91,6 +114,8 @@ def main():
 
     new_df = pd.DataFrame.from_dict(new_dict)
     new_df.to_csv(f"{file_dir}/{new_file}", index=False)
+
+    print('[INFO] file size after process:', len(new_df))
 
 
 if __name__ == "__main__":
