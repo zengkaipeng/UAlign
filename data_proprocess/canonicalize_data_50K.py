@@ -68,14 +68,21 @@ def check_valid(rxn_smi):
         return False, "empty_mol"
     reac_mol = Chem.MolFromSmiles(reac)
     prod_mol = Chem.MolFromSmiles(prod)
+    if reac_mol is None or prod_mol is None:
+        return False, 'Invalid Smiles'
 
-    prod_amap = set(x.GetAtomMapNum() for x in prod_mol.GetAtoms())
+    prod_amap = [x.GetAtomMapNum() for x in prod_mol.GetAtoms()]
+    pre_len = len(prod_amap)
+    prod_amap = set(prod_amap)
     reac_amap = set(x.GetAtomMapNum() for x in reac_mol.GetAtoms()) - {0}
 
     if 0 in prod_amap or len(prod_amap - reac_amap) > 0:
         return False, "Invalid atom mapping"
 
-    if len(prod_amap.GetAtoms()) == 1:
+    if len(prod_amap) != pre_len:
+        return False, "Duplicate Amap in prod"
+
+    if len(prod_mol.GetAtoms()) == 1:
         return False, "Single Atom prod"
 
     return True, "correct"
@@ -104,6 +111,8 @@ def main():
 
         is_valid, message = check_valid(rxn_smi)
         if not is_valid:
+            print('[reaction]', rxn_smi)
+            print('[message]', message)
             continue
 
         rxn_new = add_all_amap(rxn_smi)
