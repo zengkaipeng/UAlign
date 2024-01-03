@@ -180,10 +180,11 @@ def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
 
 def pretrain(
     loader, model, optimizer, device, tokenizer,
-    pad_token, warmup
+    pad_token, warmup, accu=1
 ):
     model, losses = model.train(), []
     ignore_idx = tokenizer.token2idx[pad_token]
+    its, total_len = 1, len(loader)
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
@@ -204,9 +205,15 @@ def pretrain(
         )
 
         loss = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
-        optimizer.zero_grad()
+
+        if not warmup and accu > 1:
+            loss = loss / accu
         loss.backward()
-        optimizer.step()
+
+        if its % accu == 0 or its == total_len or warmup:
+            optimizer.step()
+            optimizer.zero_grad()
+        its += 1
 
         losses.append(loss.item())
 

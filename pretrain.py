@@ -146,6 +146,10 @@ if __name__ == '__main__':
         '--warmup', type=int, default=4,
         help='the epochs of warmup epochs'
     )
+    parser.add_argument(
+        '--accu', type=int, default=1,
+        help='the gradient accumulation step'
+    )
 
     # training
 
@@ -260,7 +264,7 @@ if __name__ == '__main__':
         loss = pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
-            warmup=(ep < args.warmup),
+            warmup=(ep < args.warmup), accu=args.accu
         )
         log_info['train_loss'].append(loss)
 
