@@ -208,20 +208,19 @@ if __name__ == '__main__':
         GNN = MixFormer(
             emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
             dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
-            n_class=11 if args.use_class else None, update_gate=args.update_gate
+            n_class=None, update_gate=args.update_gate
         )
     else:
         if args.gnn_type == 'gin':
             GNN = GINBase(
                 num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, n_class=11 if args.use_class else None
+                embedding_dim=args.dim, n_class=None
             )
         elif args.gnn_type == 'gat':
             GNN = GATBase(
                 num_layers=args.n_layer, dropout=args.dropout,
                 embedding_dim=args.dim, num_heads=args.heads,
-                negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
+                negative_slope=args.negative_slope, n_class=None
             )
         else:
             raise ValueError(f'Invalid GNN type {args.backbone}')
