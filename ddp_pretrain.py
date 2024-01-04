@@ -58,142 +58,6 @@ def load_moles(data_dir, part, verbose=False):
     return moles
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
-    # public setting
-    parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--n_layer', default=5, type=int,
-        help='the layer of backbones'
-    )
-    parser.add_argument(
-        '--data_path', required=True, type=str,
-        help='the path containing dataset'
-    )
-    parser.add_argument(
-        '--seed', type=int, default=2023,
-        help='the seed for training'
-    )
-    parser.add_argument(
-        '--bs', type=int, default=512,
-        help='the batch size for training'
-    )
-    parser.add_argument(
-        '--epoch', type=int, default=200,
-        help='the max epoch for training'
-    )
-    parser.add_argument(
-        '--early_stop', default=10, type=int,
-        help='number of epochs to judger early stop '
-        ', will be ignored when it\'s less than 5'
-    )
-    parser.add_argument(
-        '--lr', default='1e-3', type=float,
-        help='the learning rate for training'
-    )
-    parser.add_argument(
-        '--gnn_type', type=str, choices=['gin', 'gat'],
-        help='type of gnn backbone', required=True
-    )
-    parser.add_argument(
-        '--dropout', type=float, default=0.1,
-        help='the dropout rate, useful for all backbone'
-    )
-
-    parser.add_argument(
-        '--base_log', default='ddp_pretrain', type=str,
-        help='the base dir of logging'
-    )
-
-    parser.add_argument(
-        '--transformer', action='store_true',
-        help='use the graph transformer or not'
-    )
-
-    # GAT & Gtrans setting
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--update_gate', choices=['cat', 'add'], default='add',
-        help='the update method for mixformer', type=str,
-    )
-    parser.add_argument(
-        '--token_path', type=str, default='',
-        help='the path of json containing tokens'
-    )
-    parser.add_argument(
-        '--aug_prob', type=float, default=0.0,
-        help='the augument prob for training'
-    )
-    parser.add_argument(
-        '--checkpoint', type=str, default='',
-        help='the checkpoint for pretrained model'
-    )
-    parser.add_argument(
-        '--token_ckpt', type=str, default='',
-        help='the path of token checkpoint, required while' +
-        ' checkpoint is specified'
-    )
-    parser.add_argument(
-        '--lrgamma', type=float, default=1,
-        help='the gamma for lr_scheduler weight decay'
-    )
-    parser.add_argument(
-        '--warmup', type=int, default=4,
-        help='the epochs of warmup epochs'
-    )
-    parser.add_argument(
-        '--accu', type=int, default=1,
-        help='the gradient accumulation step'
-    )
-    parser.add_argument(
-        '--num_workers', default=0, type=int,
-        help='the number of workers for dataloader per worker'
-    )
-    parser.add_argument(
-        '--num_gpus', type=int, default=1,
-        help='the number of gpus to train and eval'
-    )
-    parser.add_argument(
-        '--port', type=int, default=12345,
-        help='the port for ddp nccl communication'
-    )
-
-    # training
-
-    args = parser.parse_args()
-    print(args)
-
-    log_dir, model_dir, token_dir = create_log_model(args)
-
-    if args.checkpoint != '':
-        assert args.token_ckpt != '', \
-            'require token_ckpt when checkpoint is given'
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
-    else:
-        assert args.token_path != '', 'file containing all tokens are required'
-        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
-
-        with open(args.token_path) as Fin:
-            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
-
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
-
-    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
-    fix_seed(args.seed)
-
-
 def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
 
     print(f'[INFO] Process {worker_idx} start')
@@ -345,3 +209,146 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
 
     print('[BEST EP]', best_ep)
     print('[BEST TEST]', log_info['test_metric'][best_ep])
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    # public setting
+    parser.add_argument(
+        '--dim', default=256, type=int,
+        help='the hidden dim of model'
+    )
+    parser.add_argument(
+        '--n_layer', default=5, type=int,
+        help='the layer of backbones'
+    )
+    parser.add_argument(
+        '--data_path', required=True, type=str,
+        help='the path containing dataset'
+    )
+    parser.add_argument(
+        '--seed', type=int, default=2023,
+        help='the seed for training'
+    )
+    parser.add_argument(
+        '--bs', type=int, default=512,
+        help='the batch size for training'
+    )
+    parser.add_argument(
+        '--epoch', type=int, default=200,
+        help='the max epoch for training'
+    )
+    parser.add_argument(
+        '--early_stop', default=10, type=int,
+        help='number of epochs to judger early stop '
+        ', will be ignored when it\'s less than 5'
+    )
+    parser.add_argument(
+        '--lr', default='1e-3', type=float,
+        help='the learning rate for training'
+    )
+    parser.add_argument(
+        '--gnn_type', type=str, choices=['gin', 'gat'],
+        help='type of gnn backbone', required=True
+    )
+    parser.add_argument(
+        '--dropout', type=float, default=0.1,
+        help='the dropout rate, useful for all backbone'
+    )
+
+    parser.add_argument(
+        '--base_log', default='ddp_pretrain', type=str,
+        help='the base dir of logging'
+    )
+
+    parser.add_argument(
+        '--transformer', action='store_true',
+        help='use the graph transformer or not'
+    )
+
+    # GAT & Gtrans setting
+    parser.add_argument(
+        '--heads', default=4, type=int,
+        help='the number of heads for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--negative_slope', type=float, default=0.2,
+        help='negative slope for attention, only useful for gat'
+    )
+    parser.add_argument(
+        '--update_gate', choices=['cat', 'add'], default='add',
+        help='the update method for mixformer', type=str,
+    )
+    parser.add_argument(
+        '--token_path', type=str, default='',
+        help='the path of json containing tokens'
+    )
+    parser.add_argument(
+        '--aug_prob', type=float, default=0.0,
+        help='the augument prob for training'
+    )
+    parser.add_argument(
+        '--checkpoint', type=str, default='',
+        help='the checkpoint for pretrained model'
+    )
+    parser.add_argument(
+        '--token_ckpt', type=str, default='',
+        help='the path of token checkpoint, required while' +
+        ' checkpoint is specified'
+    )
+    parser.add_argument(
+        '--lrgamma', type=float, default=1,
+        help='the gamma for lr_scheduler weight decay'
+    )
+    parser.add_argument(
+        '--warmup', type=int, default=4,
+        help='the epochs of warmup epochs'
+    )
+    parser.add_argument(
+        '--accu', type=int, default=1,
+        help='the gradient accumulation step'
+    )
+    parser.add_argument(
+        '--num_workers', default=0, type=int,
+        help='the number of workers for dataloader per worker'
+    )
+    parser.add_argument(
+        '--num_gpus', type=int, default=1,
+        help='the number of gpus to train and eval'
+    )
+    parser.add_argument(
+        '--port', type=int, default=12345,
+        help='the port for ddp nccl communication'
+    )
+
+    # training
+
+    args = parser.parse_args()
+    print(args)
+
+    log_dir, model_dir, token_dir = create_log_model(args)
+
+    if args.checkpoint != '':
+        assert args.token_ckpt != '', \
+            'require token_ckpt when checkpoint is given'
+        with open(args.token_ckpt, 'rb') as Fin:
+            tokenizer = pickle.load(Fin)
+    else:
+        assert args.token_path != '', 'file containing all tokens are required'
+        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
+
+        with open(args.token_path) as Fin:
+            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
+
+    with open(token_dir, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
+
+    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
+    fix_seed(args.seed)
+
+    torch_mp.spawn(
+        main_worker, nprocs=args.num_gpus,
+        args=(args, tokenizer, log_dir, model_dir, token_dir)
+    )
+
