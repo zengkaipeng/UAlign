@@ -173,10 +173,9 @@ def ddp_train_trans(
     return manager
 
 
-
 def ddp_pretrain(
     loader, model, optimizer, device, tokenizer,
-    pad_token, warmup, accu=1
+    pad_token, warmup, accu=1, verbose=False
 ):
     model = model.train()
     losses = MetricCollector('loss', type_fmt=':.3f')
@@ -187,7 +186,7 @@ def ddp_pretrain(
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
 
-    iterx = tqdm(loader, desc='train')
+    iterx = tqdm(loader, desc='train') if verbose else loader
     for graph, tran in iterx:
         graph = graph.to(device)
 
@@ -220,10 +219,10 @@ def ddp_pretrain(
         if warmup:
             warmup_sher.step()
 
-        iterx.set_postfix_str(manager.summary_all())
+        if verbose:
+            iterx.set_postfix_str(manager.summary_all())
 
     return manager
-
 
 
 def ddp_eval_trans(
@@ -269,8 +268,10 @@ def ddp_eval_trans(
     return manager
 
 
-
-def ddp_preeval(model, loader, device, tokenizer, pad_token, end_token):
+def ddp_preeval(
+    model, loader, device, tokenizer, pad_token, end_token,
+    verbose=False
+):
     model = model.eval()
 
     trans_accs = MetricCollector('loss', type_fmt=':.3f')
@@ -279,7 +280,7 @@ def ddp_preeval(model, loader, device, tokenizer, pad_token, end_token):
     end_idx = tokenizer.token2idx[end_token]
     pad_idx = tokenizer.token2idx[pad_token]
 
-    iterx = tqdm(loader, desc='eval')
+    iterx = tqdm(loader, desc='eval') if verbose else loader
 
     for graph, tran in tqdm(loader):
         graph = graph.to(device)
@@ -299,10 +300,10 @@ def ddp_preeval(model, loader, device, tokenizer, pad_token, end_token):
             trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
         A, B = data_eval_trans(trans_pred, trans_dec_op, False)
         trans_accs.update(val=A, num=B)
-        iterx.set_postfix_str(manager.summary_all())
+        if verbose:
+            iterx.set_postfix_str(manager.summary_all())
 
     return manager
-
 
 
 if __name__ == '__main__':

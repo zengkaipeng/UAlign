@@ -12,14 +12,20 @@ from model import (
     col_fn_pretrain, TransDataset, PositionalEncoding,
     PretrainModel
 )
-from training import pretrain, preeval
+from ddp_training import ddp_pretrain, ddp_preeval
 from data_utils import fix_seed, check_early_stop
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.optim.lr_scheduler import ExponentialLR
 from utils.chemistry_parse import clear_map_number
 import pandas
+from tqdm import tqdm
 
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
+
+
+import torch.distributed as torch_dist
+import torch.multiprocessing as torch_mp
+from torch.utils.data.distributed import DistributedSampler
 
 
 def create_log_model(args):
@@ -35,12 +41,15 @@ def create_log_model(args):
     return detail_log_dir, detail_model_dir, token_path
 
 
-def load_moles(data_dir, part):
+def load_moles(data_dir, part, verbose=False):
     df_train = pandas.read_csv(
         os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
     )
     moles = []
-    for idx, resu in enumerate(df_train['reactants>reagents>production']):
+    iterx = df_train['reactants>reagents>production']
+    if verbose:
+        iterx = tqdm(iterx)
+    for idx, resu in enumerate(iterx):
         rea, prd = resu.strip().split('>>')
         rea = clear_map_number(rea)
         prd = clear_map_number(prd)
@@ -82,10 +91,6 @@ if __name__ == '__main__':
         ', will be ignored when it\'s less than 5'
     )
     parser.add_argument(
-        '--device', default=-1, type=int,
-        help='the device for running exps'
-    )
-    parser.add_argument(
         '--lr', default='1e-3', type=float,
         help='the learning rate for training'
     )
@@ -99,7 +104,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--base_log', default='log_pretrain', type=str,
+        '--base_log', default='ddp_pretrain', type=str,
         help='the base dir of logging'
     )
 
@@ -150,6 +155,18 @@ if __name__ == '__main__':
         '--accu', type=int, default=1,
         help='the gradient accumulation step'
     )
+    parser.add_argument(
+        '--num_workers', default=0, type=int,
+        help='the number of workers for dataloader per worker'
+    )
+    parser.add_argument(
+        '--num_gpus', type=int, default=1,
+        help='the number of gpus to train and eval'
+    )
+    parser.add_argument(
+        '--port', type=int, default=12345,
+        help='the port for ddp nccl communication'
+    )
 
     # training
 
@@ -170,26 +187,44 @@ if __name__ == '__main__':
         with open(args.token_path) as Fin:
             tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
 
-    if not torch.cuda.is_available() or args.device < 0:
-        device = torch.device('cpu')
-    else:
-        device = torch.device(f'cuda:{args.device}')
+    with open(token_dir, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
 
+    print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
     fix_seed(args.seed)
 
-    train_moles = load_moles(args.data_path, 'train')
-    test_moles = load_moles(args.data_path, 'val')
+
+def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
+
+    print(f'[INFO] Process {worker_idx} start')
+    torch_dist.init_process_group(
+        backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
+        world_size=args.num_gpus, rank=worker_idx
+    )
+
+    device = torch.device(f'cuda:{worker_idx}')
+    verbose = (worker_idx == 0)
+
+    train_moles = load_moles(args.data_path, 'train', verbose)
+    test_moles = load_moles(args.data_path, 'val', verbose)
+
+    print(f'[INFO] worker {worker_idx} data loaded')
 
     train_set = TransDataset(train_moles, args.aug_prob)
     test_set = TransDataset(test_moles, random_prob=0)
 
+    train_sampler = DistributedSampler(train_set, shuffle=True)
+    test_sampler = DistributedSampler(test_set, shuffle=False)
+
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=True
+        train_set, collate_fn=col_fn_pretrain, batch_size=args.bs,
+        shuffle=False, pin_memory=True, sampler=train_sampler,
+        num_workers=args.num_workers
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=False
+        test_set, collate_fn=col_fn_pretrain,  batch_size=args.bs,
+        shuffle=False, pin_memory=True, sampler=test_sampler,
+        num_workers=args.num_workers
     )
 
     if args.transformer:
@@ -245,8 +280,12 @@ if __name__ == '__main__':
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight)
 
+    model = torch.nn.parallel.DistributedDataParallel(
+        model, device_ids=[worker_idx], output_device=worker_idx
+    )
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    lr_scher = ExponentialLR(optimizer, args.lrgamma, verbose=True)
+    lr_scher = ExponentialLR(optimizer, args.lrgamma, verbose=verbose)
     best_cov, best_ep = None, None
 
     log_info = {
@@ -254,27 +293,27 @@ if __name__ == '__main__':
         'test_metric': []
     }
 
-    with open(log_dir, 'w') as Fout:
-        json.dump(log_info, Fout, indent=4)
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
+    if verbose:
+        with open(log_dir, 'w') as Fout:
+            json.dump(log_info, Fout, indent=4)
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        loss = pretrain(
+        loss = ddp_pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
-            warmup=(ep < args.warmup), accu=args.accu
+            warmup=(ep < args.warmup), accu=args.accu, verbose=verbose
         )
-        log_info['train_loss'].append(loss)
 
-        print('[TRAIN]', log_info['train_loss'][-1])
-
-        test_results = preeval(
+        test_results = ddp_preeval(
             loader=test_loader, model=model, tokenizer=tokenizer,
-            pad_token='<PAD>', end_token='<END>', device=device
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=verbose
         )
+
+        log_info['train_loss'].append(loss)
         log_info['test_metric'].append(test_results)
+        print('[TRAIN]', log_info['train_loss'][-1])
 
         print('[TEST]', log_info['test_metric'][-1])
 
@@ -288,7 +327,7 @@ if __name__ == '__main__':
             best_cov, best_ep = test_results, ep
             torch.save(model.state_dict(), model_dir)
 
-        if args.early_stop >= 5 and ep > max(20, args.early_stop):
+        if args.early_stop >= 5 and ep > max(12, args.early_stop):
             val_his = log_info['test_metric'][-args.early_stop:]
             if check_early_stop(val_his):
                 break
