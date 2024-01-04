@@ -10,6 +10,7 @@ from data_utils import (
 from data_utils import eval_trans as data_eval_trans
 from training import calc_trans_loss, loss_batch
 import torch.distributed as torch_dist
+from enum import Enum
 
 
 class Summary(Enum):
