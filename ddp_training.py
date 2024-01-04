@@ -1,10 +1,15 @@
+from tqdm import tqdm
 import numpy as np
 import torch
-import torch.distributed as torch_dist
+from torch.nn.functional import cross_entropy
+from data_utils import (
+    generate_tgt_mask, correct_trans_output, eval_by_batch,
+    convert_log_into_label, convert_edge_log_into_labels
+)
 
-from data_utils import generate_tgt_mask
-from enum import Enum
-from tqdm import tqdm
+from data_utils import eval_trans as data_eval_trans
+from training import calc_trans_loss, loss_batch
+import torch.distributed as torch_dist
 
 
 class Summary(Enum):
@@ -168,6 +173,59 @@ def ddp_train_trans(
     return manager
 
 
+
+def ddp_pretrain(
+    loader, model, optimizer, device, tokenizer,
+    pad_token, warmup, accu=1
+):
+    model = model.train()
+    losses = MetricCollector('loss', type_fmt=':.3f')
+    manager = MetricManager([losses])
+    ignore_idx = tokenizer.token2idx[pad_token]
+    its, total_len = 1, len(loader)
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
+
+    iterx = tqdm(loader, desc='train')
+    for graph, tran in iterx:
+        graph = graph.to(device)
+
+        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+
+        trans_logs = model(
+            graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
+            tgt_pad_mask=trans_op_mask
+        )
+
+        loss = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
+
+        if not warmup and accu > 1:
+            loss = loss / accu
+        loss.backward()
+
+        if its % accu == 0 or its == total_len or warmup:
+            optimizer.step()
+            optimizer.zero_grad()
+        its += 1
+
+        losses.update(loss.item())
+
+        if warmup:
+            warmup_sher.step()
+
+        iterx.set_postfix_str(manager.summary_all())
+
+    return manager
+
+
+
 def ddp_eval_trans(
     loader, model, tran_fn, tokenizer, device,
     acc_fn, pad='<PAD>', verbose=True
@@ -209,6 +267,42 @@ def ddp_eval_trans(
         if verbose:
             iterx.set_postfix_str(manager.summary_all())
     return manager
+
+
+
+def ddp_preeval(model, loader, device, tokenizer, pad_token, end_token):
+    model = model.eval()
+
+    trans_accs = MetricCollector('loss', type_fmt=':.3f')
+    manager = MetricManager([trans_accs])
+
+    end_idx = tokenizer.token2idx[end_token]
+    pad_idx = tokenizer.token2idx[pad_token]
+
+    iterx = tqdm(loader, desc='eval')
+
+    for graph, tran in tqdm(loader):
+        graph = graph.to(device)
+        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        trans_dec_ip = tops[:, :-1]
+        trans_dec_op = tops[:, 1:]
+
+        trans_op_mask, diag_mask = generate_tgt_mask(
+            trans_dec_ip, tokenizer, pad_token, device=device
+        )
+        with torch.no_grad():
+            trans_logs = model(
+                graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
+                tgt_pad_mask=trans_op_mask
+            )
+            trans_pred = convert_log_into_label(trans_logs, mod='softmax')
+            trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+        A, B = data_eval_trans(trans_pred, trans_dec_op, False)
+        trans_accs.update(val=A, num=B)
+        iterx.set_postfix_str(manager.summary_all())
+
+    return manager
+
 
 
 if __name__ == '__main__':
