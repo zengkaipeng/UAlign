@@ -210,10 +210,6 @@ def pretrain(
             loss = loss / accu
         loss.backward()
 
-        for k, v in model.named_parameters():
-            print(k, v.grad)
-        exit()
-
         if its % accu == 0 or its == total_len or warmup:
             optimizer.step()
             optimizer.zero_grad()
