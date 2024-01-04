@@ -145,7 +145,8 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
         model.load_state_dict(weight)
 
     model = torch.nn.parallel.DistributedDataParallel(
-        model, device_ids=[worker_idx], output_device=worker_idx
+        model, device_ids=[worker_idx], output_device=worker_idx,
+        find_unused_parameters=True
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -187,11 +188,12 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
         if verbose:
             print('[TRAIN]', log_info['train_loss'][-1])
             print('[TEST]', log_info['test_metric'][-1])
+            test_tacc = log_info['test_metric'][-1]['trans_acc']
 
             with open(log_dir, 'w') as Fout:
                 json.dump(log_info, Fout, indent=4)
-            if best_cov is None or test_results > best_cov:
-                best_cov, best_ep = test_results, ep
+            if best_cov is None or test_tacc > best_cov:
+                best_cov, best_ep = test_tacc, ep
                 torch.save(model.state_dict(), model_dir)
 
         if ep >= args.warmup:
@@ -209,7 +211,6 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
 
     print('[BEST EP]', best_ep)
     print('[BEST TEST]', log_info['test_metric'][best_ep])
-
 
 
 if __name__ == '__main__':
@@ -351,4 +352,3 @@ if __name__ == '__main__':
         main_worker, nprocs=args.num_gpus,
         args=(args, tokenizer, log_dir, model_dir, token_dir)
     )
-
