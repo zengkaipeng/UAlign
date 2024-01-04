@@ -274,7 +274,7 @@ def ddp_preeval(
 ):
     model = model.eval()
 
-    trans_accs = MetricCollector('loss', type_fmt=':.3f')
+    trans_accs = MetricCollector('trans_acc', type_fmt=':.3f')
     manager = MetricManager([trans_accs])
 
     end_idx = tokenizer.token2idx[end_token]

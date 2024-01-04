@@ -298,7 +298,10 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
             json.dump(log_info, Fout, indent=4)
 
     for ep in range(args.epoch):
-        print(f'[INFO] traing at epoch {ep + 1}')
+        if verbose:
+            print(f'[INFO] traing at epoch {ep + 1}')
+
+        train_sampler.set_epoch(ep)
         loss = ddp_pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
@@ -310,27 +313,35 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
             pad_token='<PAD>', end_token='<END>', device=device,
             verbose=verbose
         )
+        torch_dist.barrier()
+        loss.all_reduct(device)
+        test_results.all_reduct(device)
 
-        log_info['train_loss'].append(loss)
-        log_info['test_metric'].append(test_results)
-        print('[TRAIN]', log_info['train_loss'][-1])
+        log_info['train_loss'].append(loss.get_all_value_dict())
+        log_info['test_metric'].append(test_results.get_all_value_dict())
 
-        print('[TEST]', log_info['test_metric'][-1])
+        if verbose:
+            print('[TRAIN]', log_info['train_loss'][-1])
+            print('[TEST]', log_info['test_metric'][-1])
+
+            with open(log_dir, 'w') as Fout:
+                json.dump(log_info, Fout, indent=4)
+            if best_cov is None or test_results > best_cov:
+                best_cov, best_ep = test_results, ep
+                torch.save(model.state_dict(), model_dir)
 
         if ep >= args.warmup:
             lr_scher.step()
 
-        with open(log_dir, 'w') as Fout:
-            json.dump(log_info, Fout, indent=4)
-
-        if best_cov is None or test_results > best_cov:
-            best_cov, best_ep = test_results, ep
-            torch.save(model.state_dict(), model_dir)
-
-        if args.early_stop >= 5 and ep > max(12, args.early_stop):
+        if args.early_stop >= 5 and ep > max(10, args.early_stop):
             val_his = log_info['test_metric'][-args.early_stop:]
+            val_his = [x['trans_acc'] for x in val_his]
             if check_early_stop(val_his):
+                print(f'[INFO {worker_idx}] early_stop_break')
                 break
+
+    if not verbose:
+        return
 
     print('[BEST EP]', best_ep)
     print('[BEST TEST]', log_info['test_metric'][best_ep])
