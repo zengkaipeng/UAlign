@@ -283,7 +283,7 @@ def ddp_preeval(
 
     iterx = tqdm(loader, desc='eval') if verbose else loader
 
-    for graph, tran in tqdm(loader):
+    for graph, tran in iterx:
         graph = graph.to(device)
         tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
         trans_dec_ip = tops[:, :-1]
