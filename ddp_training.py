@@ -236,8 +236,8 @@ def ddp_eval_trans(
     model = model.eval()
     pad_idx = tokenizer.token2idx[pad]
     end_idx = tokenizer.token2idx[end]
-    tran_acc = MetricCollector(name='tran_acc', type_fmt=':.2f')
-    eg_acc = MetricCollector(name='eg_acc', type_fmt=':.2f')
+    tran_acc = MetricCollector(name='trans', type_fmt=':.2f')
+    eg_acc = MetricCollector(name='edge', type_fmt=':.2f')
     ah_acc = MetricCollector(name='ah_acc', type_fmt=':.2f')
     ae_acc = MetricCollector(name='ae_acc', type_fmt=':.2f')
     ac_acc = MetricCollector(name='ac_acc', type_fmt=':.2f')
