@@ -180,7 +180,7 @@ def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
 
 def pretrain(
     loader, model, optimizer, device, tokenizer,
-    pad_token, warmup, accu=1
+    pad_token, warmup, accu=1, label_smoothing=0
 ):
     model, losses = model.train(), []
     ignore_idx = tokenizer.token2idx[pad_token]
@@ -204,7 +204,9 @@ def pretrain(
             tgt_pad_mask=trans_op_mask
         )
 
-        loss = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
+        loss = calc_trans_loss(
+            trans_logs, trans_dec_op, ignore_idx, label_smoothing
+        )
 
         if not warmup and accu > 1:
             loss = loss / accu
