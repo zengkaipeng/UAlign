@@ -230,21 +230,28 @@ def ddp_pretrain(
 
 
 def ddp_eval_trans(
-    loader, model, tran_fn, tokenizer, device,
-    acc_fn, pad='<PAD>', verbose=True
+    loader, model, device, tokenizer,
+    pad='<PAD>', end='<END>', verbose=True
 ):
     model = model.eval()
-    tran_loss = MetricCollector('tloss', type_fmt=':.3f')
-    xacc = MetricCollector('acc', type_fmt=':.3f')
-    manager = MetricManager([tran_loss, xacc])
+    pad_idx = tokenizer.token2idx[pad]
+    end_idx = tokenizer.token2idx[end]
+    tran_acc = MetricCollector(name='tran_acc', type_fmt=':.2f')
+    eg_acc = MetricCollector(name='eg_acc', type_fmt=':.2f')
+    ah_acc = MetricCollector(name='ah_acc', type_fmt=':.2f')
+    ae_acc = MetricCollector(name='ae_acc', type_fmt=':.2f')
+    ac_acc = MetricCollector(name='ac_acc', type_fmt=':.2f')
 
-    iterx = tqdm(loader, ascii=True, desc='eval') if verbose else loader
+    manager = MetricManager([ac_acc, ah_acc, ae_acc, eg_acc, tran_acc])
+
+    iterx = tqdm(loader, desc='eval') if verbose else loader
 
     for data in iterx:
         graphs, tgt = data
         graphs = graphs.to(device, non_blocking=True)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt))
         tgt_idx = tgt_idx.to(device, non_blocking=True)
+
         tgt_input = tgt_idx[:, :-1]
         tgt_output = tgt_idx[:, 1:]
 
@@ -256,19 +263,53 @@ def ddp_eval_trans(
         sub_mask = sub_mask.to(device, non_blocking=True)
 
         with torch.no_grad():
-            result = model(
+            edge_logs, AH_logs, AE_logs, AC_logs, result = model(
                 graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
-                tgt_pad_mask=pad_mask, pred_core=False
+                tgt_pad_mask=pad_mask,
             )
-            loss_tran = tran_fn(
-                result.reshape(-1, result.shape[-1]),
-                tgt_output.reshape(-1)
-            )
-            A, B = acc_fn(result, tgt_output)
-        xacc.update(val=A, num=B)
-        tran_loss.update(loss_tran.item())
+
+        AE_pred = convert_log_into_label(AE_logs, mod='softmax')
+        AH_pred = convert_log_into_label(AH_logs, mod='softmax')
+        AC_pred = convert_log_into_label(AC_logs, mod='softmax')
+
+        edge_pred = convert_edge_log_into_labels(
+            edge_logs, graphs.edge_index,
+            mod='softmax', return_dict=False
+        )
+
+        trans_pred = convert_log_into_label(result, mod='softmax')
+        trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+
+        A, B = eval_by_batch(
+            edge_pred, graphs.new_edge_types,
+            graphs.e_batch, return_tensor=False
+        )
+        eg_acc.update(val=A, num=B)
+
+        A, B = eval_by_batch(
+            AE_pred, graphs.EdgeChange,
+            graphs.batch, return_tensor=False
+        )
+        ae_acc.update(val=A, num=B)
+
+        A, B = eval_by_batch(
+            AH_pred, graphs.HChange,
+            graphs.batch, return_tensor=False
+        )
+        ah_acc.update(val=A, num=B)
+
+        A, B = eval_by_batch(
+            AC_pred, graphs.ChargeChange,
+            graphs.batch,  return_tensor=False
+        )
+        ac_acc.update(val=A, num=B)
+
+        A, B = data_eval_trans(trans_pred, tgt_output, return_tensor=False)
+        tran_acc.update(val=A, num=B)
+
         if verbose:
-            iterx.set_postfix_str(manager.summary_all())
+            iterx.set_postfix_str(manager.summary_all(split_string=','))
+
     return manager
 
 
