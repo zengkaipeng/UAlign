@@ -99,29 +99,29 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 
 def ddp_train_trans(
-    loader, model, optimizer, tokenizer, device, node_fn,
-    edge_fn, trans_fn, acc_fn, verbose=True, warmup=False,
-    pad='<PAD>', unk='<UNK>', accu=1
+    loader, model, optimizer, device, tokenizer, verbose=True, accu=1,
+    warmup=False, pad='<PAD>', unk='<UNK>', label_smoothing=0.0
 ):
     model = model.train()
-    node_loss = MetricCollector('nloss', type_fmt=':.3f')
-    edge_loss = MetricCollector('eloss', type_fmt=':.3f')
-    tran_loss = MetricCollector('tloss', type_fmt=':.3f')
-    xacc = MetricCollector('acc', type_fmt=':.3f')
-    manager = MetricManager([node_loss, edge_loss, tran_loss, xacc])
+    acl = MetricCollector(name='AC', type_fmt=':.2f')
+    ahl = MetricCollector(name='AH', type_fmt=':.2f')
+    ael = MetricCollector(name='AE', type_fmt=':.2f')
+    edge_loss = MetricCollector(name='edge', type_fmt=':.2f')
+    tran_loss = MetricCollector(name='trans', type_fmt=':.2f')
+    manager = MetricManager([acl, ahl, ael, edge_loss, tran_loss])
 
     its, total_len = 1, len(loader)
     if warmup:
-        warmup_iters = total_len - 1
+        warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
 
-    iterx = tqdm(loader, ascii=True, desc='train') if verbose else loader
+    ignore_idx = tokenizer.token2idx[pad]
+    iterx = tqdm(loader, desc='train') if verbose else loader
     for data in iterx:
         graphs, tgt = data
         graphs = graphs.to(device, non_blocking=True)
         tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt))
         tgt_idx = tgt_idx.to(device, non_blocking=True)
-
         UNK_IDX = tokenizer.token2idx[unk]
         assert torch.all(tgt_idx != UNK_IDX).item(), \
             'Unseen tokens found, update tokenizer'
@@ -132,22 +132,24 @@ def ddp_train_trans(
         pad_mask, sub_mask = generate_tgt_mask(
             tgt_input, tokenizer, pad, 'cpu'
         )
+
         pad_mask = pad_mask.to(device, non_blocking=True)
         sub_mask = sub_mask.to(device, non_blocking=True)
 
-        result, node_res, edge_res = model(
+        edge_logs, AH_logs, AE_logs, AC_logs, result = model(
             graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
-            tgt_pad_mask=pad_mask, pred_core=True
+            tgt_pad_mask=pad_mask,
         )
 
-        loss_node = node_fn(node_res, graphs.node_label)
-        loss_edge = edge_fn(edge_res, graphs.edge_label)
-        loss_tran = trans_fn(
-            result.reshape(-1, result.shape[-1]),
-            tgt_output.reshape(-1)
+        AH_loss = loss_batch(AH_logs, graphs.HChange, graphs.batch)
+        AC_loss = loss_batch(AC_logs, graphs.ChargeChange, graphs.batch)
+        AE_loss = loss_batch(AE_logs, graphs.EdgeChange, graphs.batch)
+        ed_loss = loss_batch(edge_logs, graphs.new_edge_types, graphs.e_batch)
+        loss_tran = calc_trans_loss(
+            result, tgt_output, ignore_idx, label_smoothing
         )
 
-        loss = loss_node + loss_edge + loss_tran
+        loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
         if not warmup and accu > 1:
             loss = loss / accu
         loss.backward()
@@ -157,13 +159,11 @@ def ddp_train_trans(
             optimizer.zero_grad()
         its += 1
 
-        node_loss.update(loss_node.item())
-        edge_loss.update(loss_edge.item())
+        acl.update(AC_loss.item())
+        ahl.update(AH_loss.item())
+        ael.update(AE_loss.item())
+        edge_loss.update(ed_loss.item())
         tran_loss.update(loss_tran.item())
-
-        with torch.no_grad():
-            A, B = acc_fn(result, tgt_output)
-            xacc.update(val=A, num=B)
 
         if warmup:
             warmup_sher.step()
@@ -189,15 +189,18 @@ def ddp_pretrain(
 
     iterx = tqdm(loader, desc='train') if verbose else loader
     for graph, tran in iterx:
-        graph = graph.to(device)
-
-        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        graph = graph.to(device, non_blocking=True)
+        tops = torch.LongTensor(tokenizer.encode2d(tran))
+        tops = tops.to(device, non_blocking=True)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 
         trans_op_mask, diag_mask = generate_tgt_mask(
-            trans_dec_ip, tokenizer, pad_token, device=device
+            trans_dec_ip, tokenizer, pad_token, 'cpu'
         )
+
+        trans_op_mask = trans_op_mask.to(device, non_blocking=True)
+        diag_mask = diag_mask.to(device, non_blocking=True)
 
         trans_logs = model(
             graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
@@ -284,14 +287,19 @@ def ddp_preeval(
     iterx = tqdm(loader, desc='eval') if verbose else loader
 
     for graph, tran in iterx:
-        graph = graph.to(device)
-        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        graph = graph.to(device, non_blocking=True)
+        tops = torch.LongTensor(tokenizer.encode2d(tran))
+        tops = tops.to(device, non_blocking=True)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 
         trans_op_mask, diag_mask = generate_tgt_mask(
-            trans_dec_ip, tokenizer, pad_token, device=device
+            trans_dec_ip, tokenizer, pad_token, 'cpu'
         )
+
+        trans_op_mask = trans_op_mask.to(device, non_blocking=True)
+        diag_mask = diag_mask.to(device, non_blocking=True)
+
         with torch.no_grad():
             trans_logs = model(
                 graphs=graph, tgt=trans_dec_ip, tgt_mask=diag_mask,
