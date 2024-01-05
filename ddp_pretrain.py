@@ -58,7 +58,7 @@ def load_moles(data_dir, part, verbose=False):
     return moles
 
 
-def main_worker(worker_idx, args, tokenizer, log_dir, model_dir, token_dir):
+def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
     print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
@@ -350,5 +350,5 @@ if __name__ == '__main__':
 
     torch_mp.spawn(
         main_worker, nprocs=args.num_gpus,
-        args=(args, tokenizer, log_dir, model_dir, token_dir)
+        args=(args, tokenizer, log_dir, model_dir)
     )

@@ -171,8 +171,11 @@ if __name__ == '__main__':
         with open(args.token_path) as Fin:
             tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
 
+    with open(token_dir, 'wb') as Fout:
+        pickle.dump(tokenizer, Fout)
 
-def main_worker(worker_idx, args, log_dir, model_dir, token_dir):
+
+def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
     print(f'[INFO] Process {worker_idx} start')
     torch_dist.init_process_group(
         backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
@@ -275,7 +278,7 @@ def main_worker(worker_idx, args, log_dir, model_dir, token_dir):
 
     if args.checkpoint != '':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
-        print(f'[INFO] Loading model weight in {args.checkpoint}')
+        print(f'[INFO {worker_idx}] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight, strict=False)
 
@@ -283,15 +286,13 @@ def main_worker(worker_idx, args, log_dir, model_dir, token_dir):
     lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=True)
     best_perf, best_ep = None, None
 
-    print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
+    print(f'[INFO {worker_idx}] padding index', tokenizer.token2idx['<PAD>'])
 
     log_info = {
         'args': args.__dict__, 'train_loss': [],
         'valid_metric': [], 'test_metric': []
     }
 
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)
