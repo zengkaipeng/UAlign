@@ -20,9 +20,8 @@ from Mix_backbone import MixFormer
 
 def create_log_model(args):
     timestamp = time.time()
-    detail_log_folder = os.path.join(
-        args.base_log, ('Gtrans_' if args.transformer else '') + args.gnn_type
-    )
+    model_name = ('Gtrans_' if args.transformer else '') + args.gnn_type
+    detail_log_folder = os.path.join(args.base_log, f'no_rc_{model_name}')
     if not os.path.exists(detail_log_folder):
         os.makedirs(detail_log_folder)
     detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
