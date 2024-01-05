@@ -18,6 +18,11 @@ from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
 
 
+import torch.distributed as torch_dist
+import torch.multiprocessing as torch_mp
+from torch.utils.data.distributed import DistributedSampler
+
+
 def create_log_model(args):
     timestamp = time.time()
     detail_log_folder = os.path.join(
@@ -141,7 +146,7 @@ if __name__ == '__main__':
         help='the label smoothing for transformer training'
     )
     parser.add_argument(
-        '--num_worker', type=int, default=0,
+        '--num_workers', type=int, default=0,
         help='the number of workers per dataset for data loading'
     )
     parser.add_argument(
@@ -166,16 +171,22 @@ if __name__ == '__main__':
         with open(args.token_path) as Fin:
             tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
 
-    if not torch.cuda.is_available() or args.device < 0:
-        device = torch.device('cpu')
-    else:
-        device = torch.device(f'cuda:{args.device}')
+
+def main_worker(worker_idx, args, log_dir, model_dir, token_dir):
+    print(f'[INFO] Process {worker_idx} start')
+    torch_dist.init_process_group(
+        backend='nccl', init_method=f'tcp://127.0.0.1:{args.port}',
+        world_size=args.num_gpus, rank=worker_idx
+    )
+
+    device = torch.device(f'cuda:{worker_idx}')
+    verbose = (worker_idx == 0)
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
     test_rec, test_prod, test_rxn = load_data(args.data_path, 'test')
 
-    print('[INFO] Data Loaded')
+    print(f'[INFO] worker {worker_idx} Data Loaded')
 
     train_set = OnFlyDataset(
         prod_sm=train_prod, reat_sm=train_rec, aug_prob=args.aug_prob,
@@ -190,17 +201,24 @@ if __name__ == '__main__':
         rxn_cls=test_rxn if args.use_class else None
     )
 
+    train_sampler = DistributedSampler(train_set, shuffle=True)
+    valid_sampler = DistributedSampler(valid_set, shuffle=False)
+    test_sampler = DistributedSampler(test_set, shuffle=False)
+
     train_loader = DataLoader(
-        train_set, collate_fn=edit_col_fn,
-        batch_size=args.bs, shuffle=True,
+        train_set, collate_fn=edit_col_fn, sampler=train_sampler,
+        batch_size=args.bs, shuffle=False, pin_memory=True,
+        num_workers=args.num_workers
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=edit_col_fn,
-        batch_size=args.bs, shuffle=False
+        valid_set, collate_fn=edit_col_fn, sampler=valid_sampler,
+        batch_size=args.bs, shuffle=False, pin_memory=True,
+        num_workers=args.num_workers
     )
     test_loader = DataLoader(
-        test_set, collate_fn=edit_col_fn,
-        batch_size=args.bs, shuffle=False
+        test_set, collate_fn=edit_col_fn, sampler=test_sampler,
+        batch_size=args.bs, shuffle=False, pin_memory=True,
+        num_workers=args.num_workers
     )
 
     if args.transformer:
