@@ -251,3 +251,90 @@ def preeval(model, loader, device, tokenizer, pad_token, end_token):
 
     trans_accs = torch.cat(trans_accs, dim=0).float()
     return trans_accs.mean().item()
+
+
+def ablation_rc_train_trans(
+    loader, model, optimizer, device, tokenizer, verbose=True, accu=1,
+    warmup=False, pad='<PAD>', unk='<UNK>', label_smoothing=0.0,
+    use_edge=False, use_ah=False, use_ac=False, use_ae=False
+):
+    model = model.train()
+
+    results = {'trans': []}
+    if use_edge:
+        results['Edge'] = []
+    if use_ah:
+        results['HChange'] = []
+    if use_ac:
+        results['ChargeChange'] = []
+    if use_ae:
+        results['EdgeChange'] = []
+
+    its, total_len = 1, len(loader)
+    if warmup:
+        warmup_iters = len(loader) - 1
+        warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
+
+    ignore_idx = tokenizer.token2idx[pad]
+    for data in tqdm(loader) if verbose else loader:
+        graphs, tgt = data
+        graphs = graphs.to(device)
+        tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        UNK_IDX = tokenizer.token2idx[unk]
+        assert torch.all(tgt_idx != UNK_IDX).item(), \
+            'Unseen tokens found, update tokenizer'
+
+        tgt_input = tgt_idx[:, :-1]
+        tgt_output = tgt_idx[:, 1:]
+
+        pad_mask, sub_mask = generate_tgt_mask(
+            tgt_input, tokenizer, pad, device
+        )
+
+        edge_logs, AH_logs, AE_logs, AC_logs, result = model(
+            graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
+            tgt_pad_mask=pad_mask,
+        )
+        if use_ah:
+            AH_loss = loss_batch(AH_logs, graphs.HChange, graphs.batch)
+            results['HChange'].append(AH_loss.item())
+        else:
+            AH_loss = 0
+        if use_ac:
+            AC_loss = loss_batch(AC_logs, graphs.ChargeChange, graphs.batch)
+            results['ChargeChange'].append(AC_loss.item())
+        else:
+            AC_loss = 0
+
+        if use_ae:
+            AE_loss = loss_batch(AE_logs, graphs.EdgeChange, graphs.batch)
+            results['EdgeChange'].append(AE_loss.item())
+        else:
+            AE_loss = 0
+
+        if use_edge:
+            ed_loss = loss_batch(
+                edge_logs, graphs.new_edge_types, graphs.e_batch
+            )
+            results['Edge'].append(ed_loss.item())
+        else:
+            ed_loss = 0
+
+        loss_tran = calc_trans_loss(
+            result, tgt_output, ignore_idx, label_smoothing
+        )
+        results['trans'].append(loss_tran.item())
+
+        loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
+        if not warmup and accu > 1:
+            loss = loss / accu
+        loss.backward()
+
+        if its % accu == 0 or its == total_len or warmup:
+            optimizer.step()
+            optimizer.zero_grad()
+        its += 1
+
+        if warmup:
+            warmup_sher.step()
+    return {k: np.mean(v) for k, v in results.items()}
