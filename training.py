@@ -418,4 +418,4 @@ def ablation_rc_eval_trans(
 
     results = {k: torch.cat(v, dim=0).float() for k, v in results.items()}
     results = {k: v.mean().item() for k, v in results.items()}
-    return result
+    return results

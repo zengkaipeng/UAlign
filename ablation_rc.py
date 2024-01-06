@@ -8,7 +8,7 @@ import pickle
 
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from model import PretrainModel, edit_col_fn, PositionalEncoding
+from model import Graph2Seq, edit_col_fn, PositionalEncoding
 from training import ablation_rc_train_trans, ablation_rc_eval_trans
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
@@ -258,7 +258,7 @@ if __name__ == '__main__':
     Decoder = TransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
-    model = PretrainModel(
+    model = Graph2Seq(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
@@ -267,7 +267,7 @@ if __name__ == '__main__':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight, strict=True)
+        model.load_state_dict(weight, strict=False)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=True)
@@ -290,24 +290,22 @@ if __name__ == '__main__':
         print(f'[INFO] traing at epoch {ep + 1}')
         train_loss = ablation_rc_train_trans(
             train_loader, model, optimizer, device, tokenizer,
-            warmup=(ep < args.warmup), accu=args.accu,
-            label_smoothing=args.label_smoothing, pad_token='<PAD>',
+            verbose=True, warmup=(ep < args.warmup), accu=args.accu,
+            label_smoothing=args.label_smoothing,
             use_edge=args.use_edge, use_ac=args.use_ac,
             use_ah=args.use_ah, use_ae=args.use_ae
         )
         log_info['train_loss'].append(train_loss)
 
         valid_result = ablation_rc_eval_trans(
-            loader=valid_loader, model=model, device=device,
-            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>',
+            valid_loader, model, device, tokenizer, verbose=True,
             use_edge=args.use_edge, use_ac=args.use_ac,
             use_ah=args.use_ah, use_ae=args.use_ae
         )
         log_info['valid_metric'].append(valid_result)
 
         test_result = ablation_rc_eval_trans(
-            loader=test_loader, model=model, device=device,
-            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>',
+            valid_loader, model, device, tokenizer, verbose=True,
             use_edge=args.use_edge, use_ac=args.use_ac,
             use_ah=args.use_ah, use_ae=args.use_ae
         )
@@ -324,12 +322,13 @@ if __name__ == '__main__':
         with open(log_dir, 'w') as Fout:
             json.dump(log_info, Fout, indent=4)
 
-        if best_perf is None or valid_result > best_perf:
-            best_perf, best_ep = valid_result, ep
+        if best_perf is None or valid_result['trans'] > best_perf:
+            best_perf, best_ep = valid_result['trans'], ep
             torch.save(model.state_dict(), model_dir)
 
         if args.early_stop > 3 and ep > max(10, args.early_stop):
             tx = log_info['valid_metric'][-args.early_stop:]
+            tx = [x['trans'] for x in tx]
             if check_early_stop(tx):
                 break
 
