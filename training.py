@@ -256,7 +256,7 @@ def preeval(model, loader, device, tokenizer, pad_token, end_token):
 def ablation_rc_train_trans(
     loader, model, optimizer, device, tokenizer, verbose=True, accu=1,
     warmup=False, pad='<PAD>', unk='<UNK>', label_smoothing=0.0,
-    use_edge=False, use_ah=False, use_ac=False, use_ae=False
+    use_edge=False, use_ah=False, use_ac=False, use_ae=False, alpha_rc=1
 ):
     model = model.train()
 
@@ -325,7 +325,7 @@ def ablation_rc_train_trans(
         )
         results['trans'].append(loss_tran.item())
 
-        loss = AC_loss + AH_loss + AE_loss + ed_loss + loss_tran
+        loss = alpha_rc * (AC_loss + AH_loss + AE_loss + ed_loss) + loss_tran
         if not warmup and accu > 1:
             loss = loss / accu
         loss.backward()

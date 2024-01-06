@@ -155,6 +155,10 @@ if __name__ == '__main__':
         '--use_ac', action='store_true',
         help='use the atom charge change in rc'
     )
+    parser.add_argument(
+        '--alpha_rc', type=float, default=1,
+        help='the weight of reaction center identification'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -291,7 +295,7 @@ if __name__ == '__main__':
         train_loss = ablation_rc_train_trans(
             train_loader, model, optimizer, device, tokenizer,
             verbose=True, warmup=(ep < args.warmup), accu=args.accu,
-            label_smoothing=args.label_smoothing,
+            label_smoothing=args.label_smoothing, alpha_rc=args.alpha_rc,
             use_edge=args.use_edge, use_ac=args.use_ac,
             use_ah=args.use_ah, use_ae=args.use_ae
         )
