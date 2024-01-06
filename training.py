@@ -338,3 +338,84 @@ def ablation_rc_train_trans(
         if warmup:
             warmup_sher.step()
     return {k: np.mean(v) for k, v in results.items()}
+
+
+def ablation_rc_eval_trans(
+    loader, model, device, tokenizer, pad='<PAD>', end='<END>',
+    verbose=True, use_edge=False, use_ah=False, use_ac=False,
+    use_ae=False
+):
+    model = model.eval()
+    pad_idx = tokenizer.token2idx[pad]
+    end_idx = tokenizer.token2idx[end]
+
+    results = {'trans': []}
+    if use_ae:
+        results['EdgeChange'] = []
+    if use_ah:
+        results['HChange'] = []
+    if use_ac:
+        results['ChargeChange'] = []
+    if use_edge:
+        results['Edge'] = []
+
+    for data in tqdm(loader) if verbose else loader:
+        graphs, tgt = data
+        graphs = graphs.to(device)
+        tgt_idx = torch.LongTensor(tokenizer.encode2d(tgt)).to(device)
+        tgt_input = tgt_idx[:, :-1]
+        tgt_output = tgt_idx[:, 1:]
+
+        pad_mask, sub_mask = generate_tgt_mask(
+            tgt_input, tokenizer, pad, device
+        )
+
+        with torch.no_grad():
+            edge_logs, AH_logs, AE_logs, AC_logs, result = model(
+                graphs=graphs, tgt=tgt_input, tgt_mask=sub_mask,
+                tgt_pad_mask=pad_mask,
+            )
+
+        if use_ae:
+            AE_pred = convert_log_into_label(AE_logs, mod='softmax')
+            AE_acc = eval_by_batch(
+                AE_pred, graphs.EdgeChange,
+                graphs.batch, return_tensor=True
+            )
+            results['EdgeChange'].append(AE_acc)
+
+        if use_ah:
+            AH_pred = convert_log_into_label(AH_logs, mod='softmax')
+            AH_acc = eval_by_batch(
+                AH_pred, graphs.HChange,
+                graphs.batch, return_tensor=True
+            )
+            results['HChange'].append(AH_acc)
+
+        if use_ac:
+            AC_pred = convert_log_into_label(AC_logs, mod='softmax')
+            AC_acc = eval_by_batch(
+                AC_pred, graphs.ChargeChange,
+                graphs.batch,  return_tensor=True
+            )
+            results['ChargeChange'].append(AC_acc)
+
+        if use_edge:
+            edge_pred = convert_edge_log_into_labels(
+                edge_logs, graphs.edge_index,
+                mod='softmax', return_dict=False
+            )
+            edge_acc = eval_by_batch(
+                edge_pred, graphs.new_edge_types,
+                graphs.e_batch, return_tensor=True
+            )
+            results['Edge'].append(edge_acc)
+
+        trans_pred = convert_log_into_label(result, mod='softmax')
+        trans_pred = correct_trans_output(trans_pred, end_idx, pad_idx)
+        trans_acc = data_eval_trans(trans_pred, tgt_output, return_tensor=True)
+        results['trans'].append(trans_acc)
+
+    results = {k: torch.cat(v, dim=0).float() for k, v in results.items()}
+    results = {k: v.mean().item() for k, v in results.items()}
+    return result
