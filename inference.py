@@ -183,7 +183,7 @@ if __name__ == '__main__':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight)
+        model.load_state_dict(weight, strict=False)
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
