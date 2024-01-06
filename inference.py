@@ -22,6 +22,7 @@ from inference_tools import beam_search_one
 import time
 import numpy as np
 from rdkit import Chem
+import os
 
 
 def make_graph_batch(smi, rxn=None):
@@ -110,6 +111,10 @@ if __name__ == '__main__':
         '--beams', default=10, type=int,
         help='the number of beams '
     )
+    parser.add_argument(
+        '--output_folder', default='results', type=str,
+        help='the path containing results'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -182,7 +187,10 @@ if __name__ == '__main__':
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
 
-    out_file = f'results/answer-{time.time()}.json'
+    if not os.path.exists(args.output_folder):
+        os.makedirs(args.output_folder)
+
+    out_file = os.path.join(args.output_folder, f'answer-{time.time()}.json')
 
     meta_df = pandas.read_csv(args.data_path)
 
