@@ -9,7 +9,7 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from model import PretrainModel, edit_col_fn, PositionalEncoding
-from training import pretrain, preeval
+from training import ablation_rc_train_trans, ablation_rc_eval_trans
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
@@ -138,6 +138,22 @@ if __name__ == '__main__':
     parser.add_argument(
         '--label_smoothing', type=float, default=0.0,
         help='the label smoothing for transformer training'
+    )
+    parser.add_argument(
+        '--use_edge', action='store_true',
+        help='use the edge prediction in rc'
+    )
+    parser.add_argument(
+        '--use_ae', action='store_true',
+        help='use the atom edge change in rc'
+    )
+    parser.add_argument(
+        '--use_ah', action='store_true',
+        help='use the atom H change in rc'
+    )
+    parser.add_argument(
+        '--use_ac', action='store_true',
+        help='use the atom charge change in rc'
     )
 
     args = parser.parse_args()
@@ -272,22 +288,28 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        train_loss = pretrain(
+        train_loss = ablation_rc_train_trans(
             train_loader, model, optimizer, device, tokenizer,
             warmup=(ep < args.warmup), accu=args.accu,
-            label_smoothing=args.label_smoothing, pad_token='<PAD>'
+            label_smoothing=args.label_smoothing, pad_token='<PAD>',
+            use_edge=args.use_edge, use_ac=args.use_ac,
+            use_ah=args.use_ah, use_ae=args.use_ae
         )
         log_info['train_loss'].append(train_loss)
 
-        valid_result = preeval(
+        valid_result = ablation_rc_eval_trans(
             loader=valid_loader, model=model, device=device,
-            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>'
+            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>',
+            use_edge=args.use_edge, use_ac=args.use_ac,
+            use_ah=args.use_ah, use_ae=args.use_ae
         )
         log_info['valid_metric'].append(valid_result)
 
-        test_result = preeval(
+        test_result = ablation_rc_eval_trans(
             loader=test_loader, model=model, device=device,
-            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>'
+            tokenizer=tokenizer, pad_token='<PAD>', end_token='<END>',
+            use_edge=args.use_edge, use_ac=args.use_ac,
+            use_ah=args.use_ah, use_ae=args.use_ae
         )
 
         log_info['test_metric'].append(test_result)
