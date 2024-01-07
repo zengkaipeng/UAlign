@@ -31,6 +31,10 @@ if __name__ == '__main__':
                 this_q['answer'].append((None, x['prob'][idx]))
             else:
                 this_q['answer'].append((canonical_smiles(y), x['prob'][idx]))
+        out_answers.append(this_q)
 
     with open(outf, 'w') as Fout:
-        json.dump(out_answers, Fout, indent=4)
+        json.dump({
+            'answer': out_answers,
+            'org_file': args.input,
+        }, Fout, indent=4)
