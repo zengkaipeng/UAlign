@@ -8,7 +8,7 @@ import pickle
 
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from model import Graph2Seq, edit_col_fn, PositionalEncoding
+from model import Graph2Seq, edit_col_fn, PositionalEncoding, PretrainModel
 # from training import ddp_train_trans, ddp_eval_trans
 from ddp_training import ddp_pretrain, ddp_preeval
 from data_utils import load_data, fix_seed, check_early_stop
@@ -133,7 +133,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
     Decoder = TransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
-    model = Graph2Seq(
+    model = PretrainModel(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
@@ -144,8 +144,13 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight, strict=False)
 
+    model = torch.nn.parallel.DistributedDataParallel(
+        model, device_ids=[worker_idx], output_device=worker_idx,
+        find_unused_parameters=True
+    )
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=True)
+    lr_sh = ExponentialLR(optimizer, gamma=args.gamma, verbose=verbose)
     best_perf, best_ep = None, None
 
     print(f'[INFO {worker_idx}] padding index', tokenizer.token2idx['<PAD>'])
@@ -200,8 +205,8 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
             with open(log_dir, 'w') as Fout:
                 json.dump(log_info, Fout, indent=4)
 
-            if best_perf is None or this_valid['trans'] > best_perf:
-                best_perf, best_ep = this_valid['trans'], ep
+            if best_perf is None or this_valid['trans_acc'] > best_perf:
+                best_perf, best_ep = this_valid['trans_acc'], ep
                 torch.save(model.state_dict(), model_dir)
 
         if ep >= args.warmup and ep >= args.step_start:
@@ -209,7 +214,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
         if args.early_stop > 3 and ep > max(10, args.early_stop):
             tx = log_info['valid_metric'][-args.early_stop:]
-            tx = [x['trans'] for x in tx]
+            tx = [x['trans_acc'] for x in tx]
             if check_early_stop(tx):
                 print(f'[INFO] worker {worker_idx} early stop')
                 break
