@@ -9,7 +9,7 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from model import NoPE, edit_col_fn, PositionalEncoding
-from training import train_trans, eval_trans
+from training import ablation_rc_train_trans, ablation_rc_eval_trans
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
@@ -267,14 +267,14 @@ if __name__ == '__main__':
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
-        train_loss = train_trans(
+        train_loss = ablation_rc_train_trans(
             train_loader, model, optimizer, device, tokenizer,
             verbose=True, warmup=(ep < args.warmup), accu=args.accu,
             label_smoothing=args.label_smoothing
         )
         log_info['train_loss'].append(train_loss)
 
-        valid_result = eval_trans(
+        valid_result = ablation_rc_eval_trans(
             valid_loader, model, device, tokenizer, verbose=True
         )
         log_info['valid_metric'].append(valid_result)
