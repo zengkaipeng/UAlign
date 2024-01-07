@@ -279,7 +279,7 @@ if __name__ == '__main__':
         )
         log_info['valid_metric'].append(valid_result)
 
-        test_result = eval_trans(
+        test_result = ablation_rc_eval_trans(
             test_loader, model, device, tokenizer, verbose=True
         )
 

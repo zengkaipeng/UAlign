@@ -9,7 +9,8 @@ import pickle
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from model import Graph2Seq, edit_col_fn, PositionalEncoding
-from training import ddp_train_trans, ddp_eval_trans
+# from training import ddp_train_trans, ddp_eval_trans
+from ddp_training import ddp_pretrain, ddp_preeval
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
@@ -162,20 +163,23 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
             print(f'[INFO] traing at epoch {ep + 1}')
 
         train_sampler.set_epoch(ep)
-        train_loss = ddp_train_trans(
-            train_loader, model, optimizer, device, tokenizer,
-            verbose=verbose, warmup=(ep < args.warmup), accu=args.accu,
+        train_loss = ddp_pretrain(
+            loader=train_loader, model=model, optimizer=optimizer,
+            tokenizer=tokenizer, device=device, pad_token='<PAD>',
+            warmup=(ep < args.warmup), accu=args.accu, verbose=verbose,
             label_smoothing=args.label_smoothing
         )
 
-        valid_result = ddp_eval_trans(
-            valid_loader, model, device, tokenizer,
-            verbose=verbose, pad='<PAD>', end='<END>'
+        valid_result = ddp_preeval(
+            loader=valid_loader, model=model, tokenizer=tokenizer,
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=verbose
         )
 
-        test_result = eval_trans(
-            test_loader, model, device, tokenizer,
-            verbose=verbose, pad='<PAD>', end='<END>'
+        test_result = ddp_preeval(
+            loader=test_loader, model=model, tokenizer=tokenizer,
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=verbose
         )
 
         torch_dist.barrier()

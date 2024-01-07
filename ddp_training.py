@@ -175,8 +175,8 @@ def ddp_train_trans(
 
 
 def ddp_pretrain(
-    loader, model, optimizer, device, tokenizer,
-    pad_token, warmup, accu=1, verbose=False
+    loader, model, optimizer, device, tokenizer, pad_token, 
+    warmup, accu=1, verbose=False, label_smoothing=0
 ):
     model = model.train()
     losses = MetricCollector('loss', type_fmt=':.3f')
@@ -207,7 +207,10 @@ def ddp_pretrain(
             tgt_pad_mask=trans_op_mask
         )
 
-        loss = calc_trans_loss(trans_logs, trans_dec_op, ignore_idx)
+        loss = calc_trans_loss(
+            trans_logs, trans_dec_op, ignore_idx,
+            lbsm=label_smoothing
+        )
 
         if not warmup and accu > 1:
             loss = loss / accu
