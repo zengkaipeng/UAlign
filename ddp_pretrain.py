@@ -194,7 +194,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
                 json.dump(log_info, Fout, indent=4)
             if best_cov is None or test_tacc > best_cov:
                 best_cov, best_ep = test_tacc, ep
-                torch.save(model.state_dict(), model_dir)
+                torch.save(model.module.state_dict(), model_dir)
 
         if ep >= args.warmup:
             lr_scher.step()

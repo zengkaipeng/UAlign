@@ -142,7 +142,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO {worker_idx}] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight, strict=False)
+        model.load_state_dict(weight, strict=True)
 
     model = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[worker_idx], output_device=worker_idx,
@@ -207,7 +207,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
             if best_perf is None or this_valid['trans_acc'] > best_perf:
                 best_perf, best_ep = this_valid['trans_acc'], ep
-                torch.save(model.state_dict(), model_dir)
+                torch.save(model.module.state_dict(), model_dir)
 
         if ep >= args.warmup and ep >= args.step_start:
             lr_sh.step()
