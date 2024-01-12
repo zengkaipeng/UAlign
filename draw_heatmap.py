@@ -1,3 +1,4 @@
+import os
 import argparse
 import pickle
 from sparse_backBone import GATBase
@@ -80,7 +81,21 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', required=True)
     parser.add_argument('--token_path', required=True)
     parser.add_argument('--device', type=int, default=0)
+    parser.add_argument('--output_dir', type=str, required=True)
     args = parser.parse_args()
+
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    fidx = 0
+
+    while True:
+        f_name = f'sample_{fidx}.pkl'
+        if not os.path.exists(os.path.join(args.output_dir, f_name)):
+            break
+        fidx += 1
+
+    out_dir = os.path.join(args.output_dir, f'sample_{fidx}.pkl')
 
     if torch.cuda.is_available() and args.device > 0:
         device = torch.device(f'cuda:{args.device}')
@@ -116,8 +131,8 @@ if __name__ == '__main__':
 
     model = model.eval().to(device)
 
-    ft_ips = []
-    ft_ops = []
+    crs_ips = []
+    crs_ops = []
 
     for i in range(LAY):
         model.decoder.layers[i].multihead_attn.register_forward_hook(
@@ -146,3 +161,14 @@ if __name__ == '__main__':
         graphs=graph, tgt=token_ip, tgt_mask=sub_mask,
         tgt_pad_mask=pad_mask,
     )
+
+    crs_map = []
+    for i in range(LAY):
+        crs = generate_cross_attnw_layer(
+            model.decoder.layers[i], ft_ips[i]
+        )
+        print(crs.shape)
+        crs_map.append(crs.tolist()[0])
+
+    with open(out_dir, 'wb') as Fout:
+        pickle.dump({'query': rxn, 'crs_map': crs_map}, Fout)
