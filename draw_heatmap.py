@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
     for i in range(LAY):
         model.decoder.layers[i].multihead_attn.register_forward_hook(
-            lambda x, y, z: fwd_hood(x, y, z, ft_ips, ft_ops)
+            lambda x, y, z: fwd_hood(x, y, z, crs_ips, crs_ops)
         )
 
     rxn = '[CH:2](=[O:3])[N:10]([CH3:11])[CH3:12].[c:1]1([Br:13])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1>>[c:1]1([CH:2]=[O:3])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1'
@@ -165,10 +165,13 @@ if __name__ == '__main__':
     crs_map = []
     for i in range(LAY):
         crs = generate_cross_attnw_layer(
-            model.decoder.layers[i], ft_ips[i]
+            model.decoder.layers[i], crs_ips[i]
         )
-        print(crs.shape)
         crs_map.append(crs.tolist()[0])
 
     with open(out_dir, 'wb') as Fout:
-        pickle.dump({'query': rxn, 'crs_map': crs_map}, Fout)
+        pickle.dump({
+            'query': rxn, 'crs_map': crs_map,
+            'prod': x_prod, 'reac': reac,
+            'reac_tokens': reac_tokens
+        }, Fout)
