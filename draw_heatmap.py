@@ -139,8 +139,9 @@ if __name__ == '__main__':
             lambda x, y, z: fwd_hood(x, y, z, crs_ips, crs_ops)
         )
 
-    rxn = '[CH:2](=[O:3])[N:10]([CH3:11])[CH3:12].[c:1]1([Br:13])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1>>[c:1]1([CH:2]=[O:3])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1'
-
+    # rxn = '[CH:2](=[O:3])[N:10]([CH3:11])[CH3:12].[c:1]1([Br:13])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1>>[c:1]1([CH:2]=[O:3])[cH:4][cH:5][c:6]([Br:7])[n:8][cH:9]1'
+    # rxn = '[Br:1][N:12]1[C:13](=[O:14])[CH2:15][CH2:16][C:17]1=[O:18].[CH3:2]/[CH:3]=[CH:4]/[C:5](=[O:6])[O:7][Si:8]([CH3:9])([CH3:10])[CH3:11]>>[Br:1][CH2:2]/[CH:3]=[CH:4]/[C:5](=[O:6])[O:7][Si:8]([CH3:9])([CH3:10])[CH3:11]'
+    rxn = '[C:1](=[S:2])([Cl:16])[Cl:17].[NH2:3][c:4]1[c:5]([CH3:6])[c:7]2[c:8]([c:9]([F:10])[cH:11]1)[cH:12][cH:13][cH:14][n:15]2>>[C:1](=[S:2])=[N:3][c:4]1[c:5]([CH3:6])[c:7]2[c:8]([c:9]([F:10])[cH:11]1)[cH:12][cH:13][cH:14][n:15]2'
     reac, prod = rxn.split('>>')
 
     x_prod = cano_with_am(prod)
@@ -173,5 +174,6 @@ if __name__ == '__main__':
         pickle.dump({
             'query': rxn, 'crs_map': crs_map,
             'prod': x_prod, 'reac': reac,
-            'reac_tokens': reac_tokens
+            'reac_tokens': reac_tokens,
+            'prod_order': find_all_amap(x_prod)
         }, Fout)
