@@ -115,6 +115,10 @@ if __name__ == '__main__':
         '--output_folder', default='results', type=str,
         help='the path containing results'
     )
+    parser.add_argument(
+        "--save_every", type=int, default=1000,
+        help='the step for saving results into files'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -220,8 +224,15 @@ if __name__ == '__main__':
             'answer': preds, 'prob': probs
         })
 
-        with open(out_file, 'w') as Fout:
-            json.dump({
-                'args': args.__dict__,
-                'answer': answers
-            }, Fout, indent=4)
+        if idx % args.save_every == 0:
+            with open(out_file, 'w') as Fout:
+                json.dump({
+                    'args': args.__dict__,
+                    'answer': answers
+                }, Fout, indent=4)
+
+    with open(out_file, 'w') as Fout:
+        json.dump({
+            'args': args.__dict__,
+            'answer': answers
+        }, Fout, indent=4)

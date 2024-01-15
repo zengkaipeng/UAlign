@@ -3,7 +3,7 @@ import json
 import numpy as np
 import argparse
 from tqdm import tqdm
-
+import os
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

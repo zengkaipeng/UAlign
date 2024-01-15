@@ -115,6 +115,10 @@ if __name__ == '__main__':
         '--output_folder', default='results', type=str,
         help='the path containing results'
     )
+    parser.add_argument(
+        '--save_every', type=int, default=1000,
+        'the step to save result into file'
+    )
 
     parser.add_argument('--start', type=int, default=0)
     parser.add_argument('--len', type=int, default=-1)
@@ -229,9 +233,15 @@ if __name__ == '__main__':
             'query': resu, 'idx': idx, 'rxn_class': rxn_class,
             'answer': preds, 'prob': probs
         })
+        if idx % args.save_every == 0:
+            with open(out_file, 'w') as Fout:
+                json.dump({
+                    'args': args.__dict__,
+                    'answer': answers
+                }, Fout, indent=4)
 
-        with open(out_file, 'w') as Fout:
-            json.dump({
-                'args': args.__dict__,
-                'answer': answers
-            }, Fout, indent=4)
+    with open(out_file, 'w') as Fout:
+        json.dump({
+            'args': args.__dict__,
+            'answer': answers
+        }, Fout, indent=4)
