@@ -117,7 +117,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--save_every', type=int, default=1000,
-        'the step to save result into file'
+        help='the step to save result into file'
     )
 
     parser.add_argument('--start', type=int, default=0)
