@@ -134,6 +134,7 @@ def beam_search_one(
     for y, x in answer[:size]:
         r_smiles = tokenizer.decode1d(x)
         r_smiles = r_smiles.replace(end_token, "").replace(begin_token, "")
+        r_smiles = r_smiles.replace('<UNK>', '')
         if validate and not check_valid(r_smiles):
             continue
         real_answer.append(r_smiles)

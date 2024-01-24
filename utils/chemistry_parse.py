@@ -249,3 +249,4 @@ def remove_am_wo_cano(smi):
 
 def find_all_amap(smi):
     return list(map(int, re.findall(r"(?<=:)\d+", smi)))
+

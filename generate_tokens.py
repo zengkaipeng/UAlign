@@ -8,17 +8,30 @@ from rdkit import Chem
 import sys
 import multiprocessing
 
+def get_all_smiles(mol):
+    atms, answer = [x.GetIdx() for x in mol.GetAtoms()], []
+    for x in atms:
+        px = Chem.MolToSmiles(mol, rootedAtAtom=x, canonical=True)
+        answer.append(px)
+    return answer
+
 
 def get_tokens(pid, rxns, Q):
     all_tokens = set()
     for idx, x in enumerate(rxns):
         reac, prod = x.split('>>')
-        token_reac = smi_tokenizer(clear_map_number(reac))
-        token_prod = smi_tokenizer(clear_map_number(prod))
+        prod_mol = Chem.MolFromSmiles(clear_map_number(prod))
+        for y in get_all_smiles(prod_mol):
+            all_tokens.update(smi_tokenizer(y))
 
-        all_tokens.update(token_prod)
-        all_tokens.update(token_reac)
-        if (idx + 1) % 25000 == 0:
+        for y in reac.split('.'):
+            reac_mol = Chem.MolFromSmiles(clear_map_number(y))
+            for z in get_all_smiles(reac_mol):
+                all_tokens.update(smi_tokenizer(z))
+
+        all_tokens.update(smi_tokenizer(clear_map_number(reac)))
+
+        if (idx + 1) % 5000 == 0:
             print(f'[Pid {pid}] {idx + 1} / {len(rxns)}')
     Q.put(all_tokens)
 
@@ -31,7 +44,8 @@ if __name__ == '__main__':
         )
 
     output_file, all_tokens = sys.argv[-1], set()
-    batch_step, num_proc = 100000, os.cpu_count() - 1
+    batch_step, num_proc = 20000, os.cpu_count() - 2
+
 
     pool = multiprocessing.Pool(processes=num_proc)
     MpQ = multiprocessing.Manager().Queue()
@@ -43,6 +57,8 @@ if __name__ == '__main__':
         for idx in range(0, len(all_data), batch_step):
             ppargs.append([pid_cnt, all_data[idx: idx + batch_step], MpQ])
             pid_cnt += 1
+
+
 
     pool.starmap(get_tokens, ppargs)
     pool.close()
