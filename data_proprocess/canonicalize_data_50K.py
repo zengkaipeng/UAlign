@@ -33,6 +33,12 @@ def add_all_amap(rxn_smi):
     return f"{r_update}>>{p}"
 
 
+
+def get_cano_atoms(xmi):
+    mol = Chem.MolFromSmiles(xmi)
+    
+
+
 def remap_amap(rxn_smi):
     r, p = rxn_smi.split('>>')
     amap_remap = {}
