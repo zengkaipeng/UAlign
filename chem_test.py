@@ -2,6 +2,26 @@ from rdkit import Chem
 from copy import deepcopy
 import numpy as np
 
+
+
+def canonical_smiles(smi):
+    """Canonicalize a SMILES without atom mapping"""
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return smi
+    else:
+        canonical_smi = Chem.MolToSmiles(mol)
+        # print('>>', canonical_smi)
+        if '.' in canonical_smi:
+            canonical_smi_list = canonical_smi.split('.')
+            canonical_smi_list = sorted(
+                canonical_smi_list, key=lambda x: (len(x), x)
+            )
+            canonical_smi = '.'.join(canonical_smi_list)
+        return canonical_smi
+
+
+
 def get_cano_ams(x):
     mol = Chem.MolFromSmiles(x)
     idx2am = {p.GetIdx(): p.GetAtomMapNum() for p in mol.GetAtoms()}
@@ -61,6 +81,16 @@ for t in mol.GetAtoms():
 
 y = Chem.MolToSmiles(mol)
 
+z = cano_with_am(y)
+
 print(cano_with_am(x))
 print(cano_with_am(y))
 print(clear_map_number(x))
+print(remove_am_wo_cano(z))
+
+mol = Chem.MolFromSmiles(x)
+
+
+for _ in range(20):
+	print(Chem.MolToSmiles(mol, doRandom=True))
+
