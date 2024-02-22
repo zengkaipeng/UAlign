@@ -84,7 +84,9 @@ y = Chem.MolToSmiles(mol)
 z = cano_with_am(y)
 
 print(cano_with_am(x))
-print(cano_with_am(y))
+print(y)
+print(z)
+
 print(clear_map_number(x))
 print(remove_am_wo_cano(z))
 

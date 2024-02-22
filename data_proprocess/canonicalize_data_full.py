@@ -33,17 +33,30 @@ def add_all_amap(rxn_smi):
     return f"{r_update}>>{p}"
 
 
+def get_cano_ams(x):
+    mol = Chem.MolFromSmiles(x)
+    idx2am = {p.GetIdx(): p.GetAtomMapNum() for p in mol.GetAtoms()}
+    for atom in mol.GetAtoms():
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+    ranks = list(Chem.CanonicalRankAtoms(mol))
+    y = list(range(len(ranks)))
+    y.sort(key=lambda t: ranks[t])
+    return [idx2am[t] for t in y]
+
+
+def remap_using_cano(x):
+    cano_ranks = get_cano_ams(x)
+    remap = {v: idx + 1 for idx, v in enumerate(cano_ranks)}
+    return remap
+
+
 def remap_amap(rxn_smi):
     r, p = rxn_smi.split('>>')
-    amap_remap = {}
     pmol = Chem.MolFromSmiles(p)
     rmol = Chem.MolFromSmiles(r)
 
-    for atom in pmol.GetAtoms():
-        xnum = atom.GetAtomMapNum()
-        if xnum not in amap_remap:
-            amap_remap[xnum] = len(amap_remap) + 1
-
+    amap_remap = remap_using_cano(p)
     for atom in rmol.GetAtoms():
         xnum = atom.GetAtomMapNum()
         if xnum not in amap_remap:

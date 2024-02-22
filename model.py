@@ -6,7 +6,7 @@ from sparse_backBone import GINBase, GATBase
 from ogb.graphproppred.mol_encoder import AtomEncoder
 from utils.chemistry_parse import(
     clear_map_number, get_synthon_edits, BOND_FLOAT_TO_IDX,
-    cano_with_am, find_all_amap, remove_am_wo_cano
+    find_all_amap, remove_am_wo_cano
 )
 from utils.graph_utils import smiles2graph
 
@@ -36,10 +36,7 @@ class TransDataset(torch.utils.data.Dataset):
                 return f'{smi}.{k}'
             else:
                 mol = Chem.MolFromSmiles(smi)
-                atms = [x.GetIdx() for x in mol.GetAtoms()]
-                return Chem.MolToSmiles(
-                    mol, rootedAtAtom=random.choice(atms), canonical=True
-                )
+                return Chem.MolToSmiles(mol, doRandom=True)
         else:
             return smi
 
@@ -105,15 +102,39 @@ class OnFlyDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.reat_sm)
 
-    def process_prod(self, smi):
+    def remap_reac_prod(self, reac, prod):
         if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
-            mol = Chem.MolFromSmiles(smi)
-            atms = [x.GetIdx() for x in mol.GetAtoms()]
-            return Chem.MolToSmiles(
-                mol, rootedAtAtom=random.choice(atms), canonical=True
-            )
+            # randomize the smiles and remap the reaction according to the
+            # randomized result, have to make sure the amap number of
+            # prod is int the range of 1 -> num atoms
+            mol = Chem.MolFromSmiles(prod)
+            temp_x = Chem.MolToSmiles(mol, doRandom=True)
+            all_ams = find_all_amap(temp_x)
+            remap = {v: idx + 1 for idx, v in enumerate(all_ams)}
+
+            r_mol = Chem.MolFromSmiles(reac)
+
+            for x in mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+
+            for x in r_mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+            return Chem.MolToSmiles(r_mol), Chem.MolToSmiles(mol)
         else:
-            return cano_with_am(smi)
+            # the data is canonicalized in data_proprecess
+            return reac, prod
+
+    # def process_prod(self, smi):
+    #     if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+    #         mol = Chem.MolFromSmiles(smi)
+    #         atms = [x.GetIdx() for x in mol.GetAtoms()]
+    #         return Chem.MolToSmiles(
+    #             mol, rootedAtAtom=random.choice(atms), canonical=True
+    #         )
+    #     else:
+    #         return smi
 
     def process_reac_via_prod(self, prod, reac):
         pro_atom_maps = find_all_amap(prod)
@@ -140,8 +161,11 @@ class OnFlyDataset(torch.utils.data.Dataset):
         return '.'.join(x[0] for x in aligned_reactants)
 
     def __getitem__(self, index):
-        this_prod = self.process_prod(self.prod_sm[index])
-        this_reac = self.process_reac_via_prod(this_prod, self.reat_sm[index])
+        this_reac, this_prod = self.remap_reac_prod(
+            reac=self.reat_sm[index], prod=self.prod_sm[index]
+        )
+        # this_prod = self.process_prod(self.prod_sm[index])
+        this_reac = self.process_reac_via_prod(this_prod, this_reac)
 
         rxn = None if self.rxn_cls is None else self.rxn_cls[index]
         ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
