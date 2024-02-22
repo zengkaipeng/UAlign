@@ -8,10 +8,15 @@ from rdkit import Chem
 import sys
 import multiprocessing
 
-def get_all_smiles(mol):
+
+def get_all_smiles(mol, random_time=20):
     atms, answer = [x.GetIdx() for x in mol.GetAtoms()], []
     for x in atms:
         px = Chem.MolToSmiles(mol, rootedAtAtom=x, canonical=True)
+        answer.append(px)
+
+    for x in range(random_time):
+        px = Chem.MolToSmiles(mol, doRandom=True)
         answer.append(px)
     return answer
 
@@ -46,7 +51,6 @@ if __name__ == '__main__':
     output_file, all_tokens = sys.argv[-1], set()
     batch_step, num_proc = 20000, os.cpu_count() - 2
 
-
     pool = multiprocessing.Pool(processes=num_proc)
     MpQ = multiprocessing.Manager().Queue()
 
@@ -57,8 +61,6 @@ if __name__ == '__main__':
         for idx in range(0, len(all_data), batch_step):
             ppargs.append([pid_cnt, all_data[idx: idx + batch_step], MpQ])
             pid_cnt += 1
-
-
 
     pool.starmap(get_tokens, ppargs)
     pool.close()
