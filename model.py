@@ -161,11 +161,15 @@ class OnFlyDataset(torch.utils.data.Dataset):
         return '.'.join(x[0] for x in aligned_reactants)
 
     def __getitem__(self, index):
+        # print('[org]\n{}\n{}'.format(self.reat_sm[index], self.prod_sm[index]))
         this_reac, this_prod = self.remap_reac_prod(
             reac=self.reat_sm[index], prod=self.prod_sm[index]
         )
+        # print('[rem]\n{}\n{}'.format(this_reac, this_prod))
         # this_prod = self.process_prod(self.prod_sm[index])
         this_reac = self.process_reac_via_prod(this_prod, this_reac)
+
+        # print('[fin]\n{}\n{}'.format(this_reac, this_prod))
 
         rxn = None if self.rxn_cls is None else self.rxn_cls[index]
         ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']

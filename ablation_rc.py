@@ -206,6 +206,11 @@ if __name__ == '__main__':
         train_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=True,
     )
+
+    # train_loader = DataLoader(
+    #     train_set, collate_fn=edit_col_fn,
+    #     batch_size=args.bs, shuffle=False,
+    # )
     valid_loader = DataLoader(
         valid_set, collate_fn=edit_col_fn,
         batch_size=args.bs, shuffle=False
