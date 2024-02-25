@@ -54,35 +54,29 @@ def remap_using_cano(x):
 def remap_amap(rxn_smi):
     r, p = rxn_smi.split('>>')
     pmol = Chem.MolFromSmiles(p)
-    rmol = Chem.MolFromSmiles(r)
-
     amap_remap = remap_using_cano(p)
-    r_idx_amap = {x.GetIdx(): x.GetAtomMapNum() for x in rmol.GetAtoms()}
-    for atom in rmol.GetAtoms():
-        if atom.HasProp('molAtomMapNumber'):
-            atom.ClearProp('molAtomMapNumber')
-
-    ranks = list(Chem.CanonicalRankAtoms(mol))
-    y = sorted(list(range(len(ranks))), key=lambda t: ranks[t])
-    for t in y:
-        xnum = r_idx_amap[t]
-        if xnum not in amap_remap:
-            amap_remap[xnum] = len(amap_remap) + 1
-
-    # for atom in rmol.GetAtoms():
-    #     xnum = atom.GetAtomMapNum()
-    #     if xnum not in amap_remap:
-    #         amap_remap[xnum] = len(amap_remap) + 1
 
     for atom in pmol.GetAtoms():
         xnum = atom.GetAtomMapNum()
         atom.SetAtomMapNum(amap_remap[xnum])
 
-    for atom in rmol.GetAtoms():
-        xnum = r_idx_amap[atom.GetIdx()]
-        atom.SetAtomMapNum(amap_remap[xnum])
-
-    r_update = Chem.MolToSmiles(rmol)
+    r_update = []
+    for reac in r.split('.'):
+        mol = Chem.MolFromSmiles(reac)
+        idx_amap = {x.GetIdx(): x.GetAtomMapNum() for x in mol.GetAtoms()}
+        for atom in mol.GetAtoms():
+            if atom.HasProp('molAtomMapNumber'):
+                atom.ClearProp('molAtomMapNumber')
+        ranks = list(Chem.CanonicalRankAtoms(mol))
+        y = sorted(list(range(len(ranks))), key=lambda t: ranks[t])
+        for t in y:
+            xnum = idx_amap[t]
+            if xnum not in amap_remap:
+                amap_remap[xnum] = len(amap_remap) + 1
+            atom = mol.GetAtomWithIdx(t)
+            atom.SetAtomMapNum(amap_remap[xnum])
+        r_update.append(Chem.MolToSmiles(mol))
+    r_update = '.'.join(r_update)
     p_update = Chem.MolToSmiles(pmol)
     return f"{r_update}>>{p_update}"
 
