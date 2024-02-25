@@ -57,17 +57,29 @@ def remap_amap(rxn_smi):
     rmol = Chem.MolFromSmiles(r)
 
     amap_remap = remap_using_cano(p)
+    r_idx_amap = {x.GetIdx(): x.GetAtomMapNum() for x in rmol.GetAtoms()}
     for atom in rmol.GetAtoms():
-        xnum = atom.GetAtomMapNum()
+        if atom.HasProp('molAtomMapNumber'):
+            atom.ClearProp('molAtomMapNumber')
+
+    ranks = list(Chem.CanonicalRankAtoms(mol))
+    y = sorted(list(range(len(ranks))), key=lambda t: ranks[t])
+    for t in y:
+        xnum = r_idx_amap[t]
         if xnum not in amap_remap:
             amap_remap[xnum] = len(amap_remap) + 1
+
+    # for atom in rmol.GetAtoms():
+    #     xnum = atom.GetAtomMapNum()
+    #     if xnum not in amap_remap:
+    #         amap_remap[xnum] = len(amap_remap) + 1
 
     for atom in pmol.GetAtoms():
         xnum = atom.GetAtomMapNum()
         atom.SetAtomMapNum(amap_remap[xnum])
 
     for atom in rmol.GetAtoms():
-        xnum = atom.GetAtomMapNum()
+        xnum = r_idx_amap[atom.GetIdx()]
         atom.SetAtomMapNum(amap_remap[xnum])
 
     r_update = Chem.MolToSmiles(rmol)
