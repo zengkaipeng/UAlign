@@ -507,7 +507,6 @@ class NoPE(torch.nn.Module):
         return edge_logs, AH_logs, AE_logs, AC_logs, result
 
 
-
 def make_edit_dataset(reacs, prods, rxn):
     graphs, Eas, Has, Cas, edge_labels = [[] for i in range(5)]
     for idx, reac in enumerate(tqdm(reacs)):
@@ -566,3 +565,121 @@ class EditDataset(torch.utils.data.Dataset):
         return self.graphs[idx], self.Eas[idx], self.Has[idx],\
             self.Cas[idx], self.edge_labels[idx],\
             None if self.rxn is None else self.rxn[idx]
+
+
+class RetroDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, prod_sm: List[str], reat_sm: List[str],
+        rxn_cls: Optional[List[int]] = None, aug_prob: float = 0,
+    ):
+        super(RetroDataset, self).__init__()
+        self.prod_sm = prod_sm
+        self.reat_sm = reat_sm
+        self.rxn_cls = rxn_cls
+        self.aug_prob = aug_prob
+
+    def __len__(self):
+        return len(self.reat_sm)
+
+    def remove_am_cano(self, mol, rootedAtAtom=-1):
+        for atom in mol.GetAtoms():
+            if atom.HasProp('molAtomMapNumber'):
+                atom.ClearProp('molAtomMapNumber')
+        return Chem.MolToSmiles(mol, rootedAtAtom=rootedAtAtom, canonical=True)
+
+    def process_reac_prod(self, reac, prod):
+        reac_mols = [Chem.MolFromSmiles(x) for x in reac.split('.')]
+        reac_ams = [
+            set(x.GetAtomMapNum() for x in y.GetAtoms())
+            for y in reac_mols
+        ]
+        prod_mol = Chem.MolFromSmiles(prod)
+        prod_atom_idx = [x.GetIdx() for x in prod_mol.GetAtoms()]
+        prod_root = random.choice(prod_atom_idx) if 0 < self.aug_prob <= 1\
+            and random.random() < self.aug_prob else -1
+
+        cano_prod_ams = get_cano_am_order(prod, rootedAtAtom=prod_root)
+        aligned_reactants = []
+        for i, rea_map_num in enumerate(reac_ams):
+            for j, mapnum in enumerate(cano_prod_ams):
+                if mapnum in rea_map_num:
+                    reac_root = None
+                    for x in reac_mols[i].GetAtoms():
+                        if x.GetAtomMapNum() == mapnum:
+                            reac_root = x.GetIdx()
+                            break
+                    assert reac_root is not None, 'Invalid AM FIND'
+                    y_smi = self.remove_am_cano(reac_mols[i], reac_root)
+                    aligned_reactants.append((y_smi, j))
+                    break
+
+        aligned_reactants.sort(key=lambda x: x[1])
+        prod_smi = self.remove_am_cano(prod_mol, prod_root)
+        return '.'.join(x[0] for x in aligned_reactants), prod_smi
+
+    def __getitem__(self, index):
+
+        this_reac, this_prod = self.process_reac_prod(
+            reac=self.reat_sm[index], prod=self.prod_sm[index]
+        )
+
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+        ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
+        ret.extend(smi_tokenizer(this_reac))
+        ret.append('<END>')
+        # print('[prod]', this_prod)
+        # print('[reac]', this_reac)
+        # print('[ret]', ret)
+
+        graph = smiles2graph(this_prod)
+        return graph, ret, rxn
+
+
+def col_fn_retro(data_batch):
+    batch_size, max_node = len(data_batch), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, reats, node_per_graph = [], [0], [], []
+    node_rxn, edge_rxn = [], []
+    for idx, data in enumerate(data_batch):
+        graph, ret, rxn = data
+        num_nodes = graph['num_nodes']
+        num_edges = graph['edge_index'].shape[1]
+        reats.append(ret)
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
+        ptr.append(lstnode)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0),
+        'ptr': np.array(ptr, dtype=np.int64)
+    }
+
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    result['batch_mask'] = all_batch_mask.bool()
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result), reats
