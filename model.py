@@ -505,3 +505,64 @@ class NoPE(torch.nn.Module):
         edge_logs = self.edge_cls(edge_feat)
 
         return edge_logs, AH_logs, AE_logs, AC_logs, result
+
+
+
+def make_edit_dataset(reacs, prods, rxn):
+    graphs, Eas, Has, Cas, edge_labels = [[] for i in range(5)]
+    for idx, reac in enumerate(tqdm(reacs)):
+        Eatom, Hatom, Catom, deltaE, org_type = get_synthon_edits(
+            reac, prods[idx], consider_inner_bonds=True,
+            return_org_type=True
+        )
+        graph, amap = smiles2graph(prods[idx], with_amap=True)
+
+        Ea = torch.zeros(graph['num_nodes']).long()
+        Ha = torch.zeros(graph['num_nodes']).long()
+        Ca = torch.zeros(graph['num_nodes']).long()
+
+        Ea[[amap[t] for t in Eatom]] = 1
+        Ha[[amap[t] for t in Hatom]] = 1
+        Ca[[amap[t] for t in Catom]] = 1
+
+        num_edges = graph['edge_feat'].shape[0]
+        edge_label = torch.zeros(num_edges).long()
+
+        new_type = {k: v[0] for k, v in org_type.items()}
+        new_type.update({k: v[1] for k, v in deltaE.items()})
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
+            src, dst = amap[src], amap[dst]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
+
+        for i in range(num_edges):
+            src, dst = graph['edge_index'][:, i].tolist()
+            edge_label[i] = new_edge[(src, dst)]
+
+        graphs.append(graph)
+        Eas.append(Ea)
+        Has.append(Ha)
+        Cas.append(Ca)
+        edge_labels.append(edge_label)
+
+    return EditDataset(graphs, Eas, Has, Cas, edge_labels, rxn)
+
+
+class EditDataset(torch.utils.data.Dataset):
+    def __init__(self, graphs, Eas, Has, Cas, edge_labels, rxn):
+        super(EditDataset, self).__init__()
+        self.graphs = graphs
+        self.Eas = Eas
+        self.Has = Has
+        self.Cas = Cas
+        self.edge_labels = edge_labels
+        self.rxn = rxn
+
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, idx):
+        return self.graphs[idx], self.Eas[idx], self.Has[idx],\
+            self.Cas[idx], self.edge_labels[idx],\
+            None if self.rxn is None else self.rxn[idx]
