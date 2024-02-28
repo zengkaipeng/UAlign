@@ -581,58 +581,67 @@ class RetroDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.reat_sm)
 
-    def remove_am_cano(self, mol, rootedAtAtom=-1):
-        for atom in mol.GetAtoms():
-            if atom.HasProp('molAtomMapNumber'):
-                atom.ClearProp('molAtomMapNumber')
-        return Chem.MolToSmiles(mol, rootedAtAtom=rootedAtAtom, canonical=True)
+    def remap_reac_prod(self, reac, prod):
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+            # randomize the smiles and remap the reaction according to the
+            # randomized result, have to make sure the amap number of
+            # prod is int the range of 1 -> num atoms
+            mol = Chem.MolFromSmiles(prod)
+            temp_x = Chem.MolToSmiles(mol, doRandom=True)
+            all_ams = find_all_amap(temp_x)
+            remap = {v: idx + 1 for idx, v in enumerate(all_ams)}
 
-    def process_reac_prod(self, reac, prod):
-        reac_mols = [Chem.MolFromSmiles(x) for x in reac.split('.')]
-        reac_ams = [
-            set(x.GetAtomMapNum() for x in y.GetAtoms())
-            for y in reac_mols
-        ]
-        prod_mol = Chem.MolFromSmiles(prod)
-        prod_atom_idx = [x.GetIdx() for x in prod_mol.GetAtoms()]
-        prod_root = random.choice(prod_atom_idx) if 0 < self.aug_prob <= 1\
-            and random.random() < self.aug_prob else -1
+            r_mol = Chem.MolFromSmiles(reac)
 
-        cano_prod_ams = get_cano_am_order(prod, rootedAtAtom=prod_root)
+            for x in mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+
+            for x in r_mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+            return Chem.MolToSmiles(r_mol), Chem.MolToSmiles(mol)
+        else:
+            # the data is canonicalized in data_proprecess
+            return reac, prod
+
+    def process_reac_via_prod(self, prod, reac):
+        pro_atom_maps = find_all_amap(prod)
+        reacts = reac.split('.')
+        rea_atom_maps = [find_all_amap(x) for x in reacts]
+
         aligned_reactants = []
-        for i, rea_map_num in enumerate(reac_ams):
-            for j, mapnum in enumerate(cano_prod_ams):
+        for i, rea_map_num in enumerate(rea_atom_maps):
+            for j, mapnum in enumerate(pro_atom_maps):
                 if mapnum in rea_map_num:
-                    reac_root = None
-                    for x in reac_mols[i].GetAtoms():
-                        if x.GetAtomMapNum() == mapnum:
-                            reac_root = x.GetIdx()
-                            break
-                    assert reac_root is not None, 'Invalid AM FIND'
-                    y_smi = self.remove_am_cano(reac_mols[i], reac_root)
+                    mol = Chem.MolFromSmiles(reacts[i])
+                    amap = {
+                        x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()
+                    }
+
+                    y_smi = Chem.MolToSmiles(
+                        mol, rootedAtAtom=amap[mapnum], canonical=True
+                    )
+
                     aligned_reactants.append((y_smi, j))
                     break
 
         aligned_reactants.sort(key=lambda x: x[1])
-        prod_smi = self.remove_am_cano(prod_mol, prod_root)
-        return '.'.join(x[0] for x in aligned_reactants), prod_smi
+        return '.'.join(x[0] for x in aligned_reactants)
 
     def __getitem__(self, index):
-
-        this_reac, this_prod = self.process_reac_prod(
+        this_reac, this_prod = self.remap_reac_prod(
             reac=self.reat_sm[index], prod=self.prod_sm[index]
         )
-
+        this_reac = self.process_reac_via_prod(this_prod, this_reac)
         rxn = None if self.rxn_cls is None else self.rxn_cls[index]
         ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
-        ret.extend(smi_tokenizer(this_reac))
+        ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
         ret.append('<END>')
-        # print('[prod]', this_prod)
-        # print('[reac]', this_reac)
-        # print('[ret]', ret)
 
-        graph = smiles2graph(this_prod)
-        return graph, ret, rxn
+        graph = smiles2graph(this_prod, with_amap=False)
+
+        return graph,  ret, rxn
 
 
 def col_fn_retro(data_batch):

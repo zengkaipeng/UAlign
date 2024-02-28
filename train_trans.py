@@ -261,13 +261,13 @@ if __name__ == '__main__':
     ).to(device)
 
     if args.encoder != '':
-        assert args.checkpoint != '', "encoder will be covered by total ckpt"
+        assert args.checkpoint == '', "encoder will be covered by total ckpt"
         print(f'[INFO] Loading encoder weight in {args.encoder}')
         weight = torch.load(args.encoder, map_location=device)
         weight = {k: v for k, v in weight.items() if k.startswith('encoder')}
         model.load_state_dict(weight, strict=False)
     if args.decoder != '':
-        assert args.checkpoint != '', "encoder will be covered by total ckpt"
+        assert args.checkpoint == '', "encoder will be covered by total ckpt"
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading decoder weight in {args.decoder}')
         weight = torch.load(args.decoder, map_location=device)
