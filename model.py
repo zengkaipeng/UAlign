@@ -19,6 +19,66 @@ from tokenlizer import smi_tokenizer
 from rdkit import Chem
 
 
+def synthon_col_fn(batch):
+    Eatom, Hatom, Catom = [], [], []
+    batch_size, all_new, lstnode, lstedge = len(batch), [], 0, 0
+    edge_idx, node_feat, edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn = [], []
+    max_node = max(x[0]['num_nodes'] for x in batch)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
+
+    for idx, data in enumerate(batch):
+        gp, Ea, Ha, Ca, elb, rxn = data
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_new.append(elb)
+        Eatom.append(Ea)
+        Hatom.append(Ha)
+        Catom.append(Ca)
+
+        batch_mask[idx, :node_cnt] = True
+
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+    result = {
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'new_edge_types': torch.cat(all_new, dim=0),
+        'EdgeChange': torch.cat(Eatom, dim=0),
+        "ChargeChange": torch.cat(Catom, dim=0),
+        "HChange": torch.cat(Hatom, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
+    }
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result)
+
+
 class TransDataset(torch.utils.data.Dataset):
     def __init__(self, smiles, random_prob=0.0):
         super(TransDataset, self).__init__()

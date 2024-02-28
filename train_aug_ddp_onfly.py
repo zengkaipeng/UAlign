@@ -8,13 +8,15 @@ import pickle
 
 from tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from model import Graph2Seq, edit_col_fn, PositionalEncoding, PretrainModel
+from model import (
+    PositionalEncoding, PretrainModel, RetroDataset,
+    col_fn_retro
+)
 # from training import ddp_train_trans, ddp_eval_trans
 from ddp_training import ddp_pretrain, ddp_preeval
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
-from model import OnFlyDataset
 from sparse_backBone import GINBase, GATBase
 from Mix_backbone import MixFormer
 
@@ -53,15 +55,15 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
     print(f'[INFO] worker {worker_idx} Data Loaded')
 
-    train_set = OnFlyDataset(
+    train_set = RetroDataset(
         prod_sm=train_prod, reat_sm=train_rec, aug_prob=args.aug_prob,
         rxn_cls=train_rxn if args.use_class else None
     )
-    valid_set = OnFlyDataset(
+    valid_set = RetroDataset(
         prod_sm=val_prod, reat_sm=val_rec, aug_prob=0,
         rxn_cls=val_rxn if args.use_class else None
     )
-    test_set = OnFlyDataset(
+    test_set = RetroDataset(
         prod_sm=test_prod, reat_sm=test_rec, aug_prob=0,
         rxn_cls=test_rxn if args.use_class else None
     )
@@ -71,17 +73,17 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
     test_sampler = DistributedSampler(test_set, shuffle=False)
 
     train_loader = DataLoader(
-        train_set, collate_fn=edit_col_fn, sampler=train_sampler,
+        train_set, collate_fn=col_fn_retro, sampler=train_sampler,
         batch_size=args.bs, shuffle=False, pin_memory=True,
         num_workers=args.num_workers
     )
     valid_loader = DataLoader(
-        valid_set, collate_fn=edit_col_fn, sampler=valid_sampler,
+        valid_set, collate_fn=col_fn_retro, sampler=valid_sampler,
         batch_size=args.bs, shuffle=False, pin_memory=True,
         num_workers=args.num_workers
     )
     test_loader = DataLoader(
-        test_set, collate_fn=edit_col_fn, sampler=test_sampler,
+        test_set, collate_fn=col_fn_retro, sampler=test_sampler,
         batch_size=args.bs, shuffle=False, pin_memory=True,
         num_workers=args.num_workers
     )
