@@ -40,12 +40,23 @@ if __name__ == '__main__':
             if len(INFO['valid_metric']) == 0:
                 continue
 
-            best_idx = np.argmax([x['trans'] for x in INFO['valid_metric']])
-            curr_perf = INFO['test_metric'][best_idx]
+            try:
+                best_idx = np.argmax([
+                    x['trans'] for x in INFO['valid_metric']
+                ])
+                curr_perf = INFO['test_metric'][best_idx]
+                all_pfs.append((INFO['args'], best_idx, timestamp, curr_perf))
+            except KeyError:
+                best_idx = np.argmax([
+                    x['trans_acc'] for x in INFO['valid_metric']
+                ])
+                curr_perf = INFO['test_metric'][best_idx]
+                all_pfs.append((INFO['args'], best_idx, timestamp, curr_perf))
 
-            all_pfs.append((INFO['args'], best_idx, timestamp, curr_perf))
-
-    all_pfs.sort(key=lambda x: -x[-1]['trans'])
+    all_pfs.sort(
+        key=lambda x: -x[-1]['trans']
+        if 'trans' in x[-1] else -x[-1]['trans_acc']
+    )
     for arg, ep, ts, pf in all_pfs[:args.topk]:
         print('=====================================================')
         print(f'[args]\n{arg}')

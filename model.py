@@ -726,8 +726,8 @@ def col_fn_retro(data_batch):
         ptr.append(lstnode)
 
         if rxn is not None:
-            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
-            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+            node_rxn.append(np.ones(num_nodes, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(num_edges, dtype=np.int64) * rxn)
 
     result = {
         'edge_index': np.concatenate(edge_idxes, axis=-1),
