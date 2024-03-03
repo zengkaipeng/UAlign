@@ -30,7 +30,8 @@ class Model(torch.nn.Module):
             dim_feedforward=n_dim << 1, dropout=dropout
         )
         self.decoder = TransformerDecoder(decode_layer, n_layer)
-        
+
+    
 
 
 def create_log_model(args):
