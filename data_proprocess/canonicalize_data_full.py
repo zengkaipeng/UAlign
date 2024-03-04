@@ -93,10 +93,16 @@ def check_valid(rxn_smi):
     prod_amap = [x.GetAtomMapNum() for x in prod_mol.GetAtoms()]
     pre_len = len(prod_amap)
     prod_amap = set(prod_amap)
-    reac_amap = set(x.GetAtomMapNum() for x in reac_mol.GetAtoms()) - {0}
+    reac_amap = [x.GetAtomMapNum() for x in reac_mol.GetAtoms()]
+    reac_amap = [x for x in reac_amap if x != 0]
+    pre_reac_len = len(reac_amap)
+    reac_amap = set(reac_amap)
 
     if 0 in prod_amap or len(prod_amap - reac_amap) > 0:
         return False, "Invalid atom mapping"
+
+    if len(reac_amap) != pre_reac_len:
+        return False, "Duplicate Amap in reac"
 
     if len(prod_amap) != pre_len:
         return False, "Duplicate Amap in prod"
