@@ -80,7 +80,6 @@ def remap_amap(rxn_smi):
     p_update = Chem.MolToSmiles(pmol)
     return f"{r_update}>>{p_update}"
 
-
 def check_valid(rxn_smi):
     reac, prod = rxn_smi.split('>>')
     if reac == '' or prod == '':
@@ -93,10 +92,16 @@ def check_valid(rxn_smi):
     prod_amap = [x.GetAtomMapNum() for x in prod_mol.GetAtoms()]
     pre_len = len(prod_amap)
     prod_amap = set(prod_amap)
-    reac_amap = set(x.GetAtomMapNum() for x in reac_mol.GetAtoms()) - {0}
+    reac_amap = [x.GetAtomMapNum() for x in reac_mol.GetAtoms()]
+    reac_amap = [x for x in reac_amap if x != 0]
+    pre_reac_len = len(reac_amap)
+    reac_amap = set(reac_amap)
 
     if 0 in prod_amap or len(prod_amap - reac_amap) > 0:
         return False, "Invalid atom mapping"
+
+    if len(reac_amap) != pre_reac_len:
+        return False, "Duplicate Amap in reac"
 
     if len(prod_amap) != pre_len:
         return False, "Duplicate Amap in prod"
