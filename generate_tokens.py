@@ -47,6 +47,7 @@ if __name__ == '__main__':
             'generate tokenizer for given files and the last '
             'position should be the output file for tokens'
         )
+        exit()
 
     output_file, all_tokens = sys.argv[-1], set()
     batch_step, num_proc = 20000, os.cpu_count() - 2
