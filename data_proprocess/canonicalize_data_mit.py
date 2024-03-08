@@ -167,12 +167,13 @@ def main():
                 rxn_new = clear_useless_part(reaction)
                 rxn_new = remap_amap(rxn_new)
                 id_marker += 1
-                new_dict['id'].append(f'{mit}_{id_marker}')
+                new_dict['id'].append(f'mit_{id_marker}')
                 new_dict['class'].append(-1)
                 new_dict['reactants>reagents>production'].append(rxn_new)
 
         new_df = pd.DataFrame.from_dict(new_dict)
         new_df.to_csv(outfile, index=False)
+        print('[INFO] processed part:', part)
         print('[INFO] file size befoer process:', raw_len)
         print('[INFO] file size after process:', len(new_df))
 
