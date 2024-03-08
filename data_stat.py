@@ -36,7 +36,7 @@ if __name__ == '__main__':
     table = [['', 'single', 'double', 'multiple']]
     for part in ['train', 'val', 'test', 'total']:
         line, sm = [part], sum(cnts[part])
-        line.extend('{}/{}={:.3f}'.format(x, sm, x / sm) for x in cnts[part])
+        line.extend('{} / {}={:.3f}'.format(x, sm, x / sm) for x in cnts[part])
         table.append(line)
 
     split_line, line_format = [], []
@@ -51,4 +51,3 @@ if __name__ == '__main__':
     for line in table:
         print(line_format.format(*line))
         print(split_line)
-
