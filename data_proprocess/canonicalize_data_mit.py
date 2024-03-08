@@ -85,6 +85,9 @@ def check_valid(rxn_smi):
     reac, prod = rxn_smi.split('>>')
     if reac == '' or prod == '':
         return False, "empty_mol"
+    if '.' in prod:
+        return False, 'multiple product moles'
+
     reac_mol = Chem.MolFromSmiles(reac)
     prod_mol = Chem.MolFromSmiles(prod)
     if reac_mol is None or prod_mol is None:
@@ -143,7 +146,8 @@ def main():
     for part in ['train', 'valid', 'test']:
         new_dict = {'id': [], 'class': [], 'reactants>reagents>production': []}
         filename = os.path.join(args.dir, f'{part}.txt')
-        outfile = os.path.join(args.output_dir, f'canonicalized_raw_{part}.csv')
+        out_name = f'canonicalized_raw_{part if part != "valid" else "val"}.csv'
+        outfile = os.path.join(args.output_dir, out_name)
         raw_len = 0
         with open(filename) as Fin:
             for lin in Fin:

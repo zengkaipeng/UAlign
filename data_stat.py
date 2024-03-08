@@ -1,92 +1,54 @@
-import rdkit
-from rdkit import Chem
-from data_utils import load_data
-from tqdm import tqdm
-
-
-def count_candidate(reactant, product):
-    mol1 = Chem.MolFromSmiles(reactant)
-    mol2 = Chem.MolFromSmiles(product)
-
-    amap_set1 = set({x.GetAtomMapNum() for x in mol1.GetAtoms()})
-    amap_set2 = set({x.GetAtomMapNum() for x in mol2.GetAtoms()})
-
-    return len(amap_set1 - amap_set2)
-
-
-def count_dist(candidate):
-    curr_step, answer = 5, []
-    for idx, x in enumerate(candidate):
-        if x > curr_step:
-            answer.append(idx)
-            curr_step += 5
-
-    return answer
-
+import os
+import argparse
+import pandas
 
 if __name__ == '__main__':
-    train_rec, train_prod, _ = load_data('../data/UTPSO-50K', 'train')
-    valid_rec, valid_prod, _ = load_data('../data/UTPSO-50K', 'val')
-    test_rec, test_prod, _ = load_data('../data/UTPSO-50K', 'test')
+    parser = argparse.ArgumentParser('Parser for data stat')
+    parser.add_argument(
+        '--dir', required=True,
+        help='the path containing the dataset'
+    )
+    args = parser.parse_args()
 
-    train_candidate = [
-        count_candidate(x, train_prod[idx])
-        for idx, x in enumerate(tqdm(train_rec))
-    ]
+    file_names = [f'canonicalized_raw_{p}.csv' for p in ['train', 'val', 'test']]
 
-    valid_candidate = [
-        count_candidate(x, valid_prod[idx])
-        for idx, x in enumerate(tqdm(valid_rec))
-    ]
-
-    test_candidate = [
-        count_candidate(x, test_prod[idx])
-        for idx, x in enumerate(tqdm(test_rec))
-    ]
-
-    candidate = train_candidate + valid_candidate + test_candidate
-
-    train_candidate.sort()
-    valid_candidate.sort()
-    test_candidate.sort()
-    candidate.sort()
-
-    cnt = {
-        'train': count_dist(train_candidate),
-        'valid': count_dist(valid_candidate),
-        'test': count_dist(test_candidate),
-        'total': count_dist(candidate)
+    cnts = {
+        'train': [0, 0, 0], 'val': [0, 0, 0],
+        'test': [0, 0, 0], 'total': [0, 0, 0]
     }
 
+    for f in file_names:
+        df = pandas.read_csv(os.path.join(args.dir, f))
+        part = f.split('.')[0].split('_')[-1]
+        for rxn in df['reactants>reagents>production']:
+            reac, prod = rxn.strip().split('>>')
+            reac = reac.split('.')
+            if len(reac) == 1:
+                cnts[part][0] += 1
+                cnts['total'][0] += 1
+            elif len(reac) == 2:
+                cnts[part][1] += 1
+                cnts['total'][1] += 1
+            else:
+                cnts[part][2] += 1
+                cnts['total'][2] += 1
 
-    print('+-------' + '+-------' * 7 + '+')
-    print('|       ', end='')
-    for i in range(7):
-    	print("|{:^7}".format((i + 1) * 5), end='')
+    table = [['', 'single', 'double', 'multiple']]
+    for part in ['train', 'val', 'test', 'total']:
+        line, sm = [part], sum(cnts[part])
+        line.extend('{}/{}={:.3f}'.format(x, sm, x / sm) for x in cnts[part])
+        table.append(line)
 
-    print('|\n+-------' + '+-------' * 7 + '+')
+    split_line, line_format = [], []
+    for i in range(4):
+        max_len = max(len(table[x][i]) for x in range(len(table)))
+        split_line.append('-' * (max_len + 2))
+        line_format.append('{:^%d}' % (max_len + 2))
 
-    print('|{:^7}|'.format('train'), end='')
-    for i in range(7):
-    	if i >= len(cnt['train']):
-    		print('100.00%|', end='')
-    	else:
-    		print('{:>6.2f}%|'.format(cnt['train'][i] * 100 / len(train_rec)), end='')
-
-    print('\n|{:^7}|'.format('valid'), end='')
-    for i in range(7):
-    	if i >= len(cnt['valid']):
-    		print('100.00%|', end='')
-    	else:
-    		print('{:>6.2f}%|'.format(cnt['valid'][i] * 100 / len(valid_rec)), end='')
-
-    print('\n|{:^7}|'.format('test'), end='')
-    for i in range(7):
-    	if i >= len(cnt['test']):
-    		print('100.00%|', end='')
-    	else:
-    		print('{:>6.2f}%|'.format(cnt['test'][i] * 100 / len(test_rec)), end='')
-    print('\n+-------' + '+-------' * 7 + '+')
-
-
+    split_line = '+{}+'.format('+'.join(split_line))
+    line_format = '|{}|'.format('|'.join(line_format))
+    print(split_line)
+    for line in table:
+        print(line_format.format(*line))
+        print(split_line)
 
