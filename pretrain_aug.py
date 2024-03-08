@@ -11,10 +11,11 @@ from Mix_backbone import MixFormer
 from model import col_fn_pretrain, PositionalEncoding, PretrainModel
 from training import pretrain, preeval
 from data_utils import fix_seed, check_early_stop
-from tokenlizer import DEFAULT_SP, Tokenizer
+from tokenlizer import DEFAULT_SP, Tokenizer, smi_tokenizer
 from torch.optim.lr_scheduler import ExponentialLR
 from utils.chemistry_parse import clear_map_number
 import pandas
+from utils.graph_utils import smiles2graph
 
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from rdkit import Chem
@@ -71,9 +72,9 @@ class AugDataset(torch.utils.data.Dataset):
 
     def randomize_react(self, react):
         if random.random() < 0.3:
-            return smi
+            return react
         else:
-            x, res = smi.split('.'), []
+            x, res = react.split('.'), []
             for y in x:
                 mol = Chem.MolFromSmiles(y)
                 res.append(Chem.MolToSmiles(mol, doRandom=True))
