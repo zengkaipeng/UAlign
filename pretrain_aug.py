@@ -51,10 +51,11 @@ def load_moles(data_dir, part):
 
 
 class AugDataset(torch.utils.data.Dataset):
-    def __init__(self, smiles, reacts):
+    def __init__(self, smiles, reacts, mode='train'):
         super(AugDataset, self).__init__()
         self.smiles = smiles
         self.reacts = reacts
+        self.mode = mode
 
     def __len__(self):
         return len(self.smiles) + len(self.reacts)
@@ -81,10 +82,20 @@ class AugDataset(torch.utils.data.Dataset):
             random.shuffle(res)
             return '.'.join(res)
 
+    def random_only(self, smi):
+        if random.random() < 0.7:
+            mol = Chem.MolFromSmiles(smi)
+            return Chem.MolToSmiles(mol, doRandom=True)
+        else:
+            return smi
+
     def __getitem__(self, index):
         ret = ['<CLS>']
         if index < len(self.smiles):
-            out_smi = self.randomize_smiles(self.smiles[index])
+            if self.mode == 'train':
+                out_smi = self.randomize_smiles(self.smiles[index])
+            else:
+                out_smi = self.random_only(self.smiles[index])
         else:
             offset = index - len(self.smiles)
             out_smi = self.randomize_react(self.reacts[offset])
@@ -191,6 +202,10 @@ if __name__ == '__main__':
         '--accu', type=int, default=1,
         help='the gradient accumulation step'
     )
+    parser.add_argument(
+        '--num_worker', type=int, default=0,
+        help='the number of worker for dataloader'
+    )
 
     # training
 
@@ -221,16 +236,16 @@ if __name__ == '__main__':
     train_moles, train_reacts = load_moles(args.data_path, 'train')
     test_moles, test_reacts = load_moles(args.data_path, 'val')
 
-    train_set = AugDataset(train_moles, train_reacts)
-    test_set = AugDataset(test_moles, test_reacts)
+    train_set = AugDataset(train_moles, train_reacts, 'train')
+    test_set = AugDataset(test_moles, test_reacts, 'test')
 
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=True
+        train_set, collate_fn=col_fn_pretrain, batch_size=args.bs,
+        shuffle=True, num_workers=args.num_worker
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=False
+        test_set, collate_fn=col_fn_pretrain, batch_size=args.bs,
+        shuffle=False, num_workers=args.num_worker
     )
 
     if args.transformer:
