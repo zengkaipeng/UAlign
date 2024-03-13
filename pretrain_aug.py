@@ -83,7 +83,7 @@ class AugDataset(torch.utils.data.Dataset):
             return '.'.join(res)
 
     def random_only(self, smi):
-        if random.random() < 0.7:
+        if random.randint(0, 1) == 1:
             mol = Chem.MolFromSmiles(smi)
             return Chem.MolToSmiles(mol, doRandom=True)
         else:
