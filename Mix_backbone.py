@@ -45,15 +45,25 @@ class DotMhAttn(torch.nn.Module):
             attn_w[key_padding_mask] = 1 - (1 << 32)
 
         if attn_mask is not None:
-            assert attn_mask.shape == (BS, Q_len, K_len, self.heads),\
-                "The attn mask should be (BS, Query, Key, heads)"
-            attn_w[attn_mask] = 1 - (1 << 32)
+            if attn_mask.ndim == 4:
+                assert attn_mask.shape == (BS, Q_len, K_len, self.heads),\
+                    "The attn mask should be (BS, Query, Key, heads)"
+                attn_w[torch.transpose(attn_mask, 1, 2)] = 1 - (1 << 32)
+            else:
+                assert attn_mask.shape == (Q_len, K_len),\
+                    "The attn mask should be two dim (Query, Key) or " + \
+                    "four dim (BS, Query, Key, heads)"
+                attn_w[:, torch.transpose(attn_mask, 0, 1)] = 1 - (1 << 32)
 
         attn_w = self.drop_fun(torch.softmax(attn_w, dim=1))
         attn_o = torch.einsum('acbd,aced->abed', attn_w, Vp)
         attn_o = self.Oproj(attn_o.reshape(BS, Q_len, -1))
 
+        # return shape:
+        # attn_o: [BS, query_len, dim]
+        # attn_w: [BS, query_len, key_len, dim]
         return attn_o, attn_w.transpose(1, 2)
+
 
 
 class MixConv(torch.nn.Module):
