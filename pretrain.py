@@ -21,14 +21,11 @@ from torch.nn import TransformerDecoderLayer, TransformerDecoder
 
 def create_log_model(args):
     timestamp = time.time()
-    detail_log_folder = os.path.join(
-        args.base_log, ('Gtrans_' if args.transformer else '') + args.gnn_type
-    )
-    if not os.path.exists(detail_log_folder):
-        os.makedirs(detail_log_folder)
-    detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
+    if not os.path.exists(args.base_log):
+        os.makedirs(args.base_log)
+    detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
+    detail_model_dir = os.path.join(args.base_log, f'mod-{timestamp}.pth')
+    token_path = os.path.join(args.base_log, f'token-{timestamp}.pkl')
     return detail_log_dir, detail_model_dir, token_path
 
 
@@ -49,7 +46,7 @@ def load_moles(data_dir, part):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    parser = argparse.ArgumentParser('Training First Stage')
     # public setting
     parser.add_argument(
         '--dim', default=256, type=int,
