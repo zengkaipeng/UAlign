@@ -1,20 +1,6 @@
-from numpy import concatenate as npcat
-import random
 import torch
 from sparse_backBone import GATBase
-
-from ogb.graphproppred.mol_encoder import AtomEncoder
-from utils.chemistry_parse import(
-    clear_map_number, get_synthon_edits, BOND_FLOAT_TO_IDX,
-    find_all_amap, remove_am_wo_cano
-)
-
-from typing import Any, Dict, List, Tuple, Optional, Union
-from torch_geometric.data import Data as GData
 import math
-import numpy as np
-import multiprocessing
-from rdkit import Chem
 
 
 class PositionalEncoding(torch.nn.Module):

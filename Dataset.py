@@ -3,6 +3,9 @@ from tokenlizer import smi_tokenizer
 from utils.graph_utils import smiles2graph
 import numpy as np
 from typing import Any, Dict, List, Tuple, Optional, Union
+from torch_geometric.data import Data as GData
+from utils.chemistry_parse import find_all_amap, remove_am_wo_cano
+import random
 
 
 class TransDataset(torch.utils.data.Dataset):
