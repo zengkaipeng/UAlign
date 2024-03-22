@@ -1,8 +1,8 @@
 import torch
-
 from tokenlizer import smi_tokenizer
 from utils.graph_utils import smiles2graph
 import numpy as np
+from typing import Any, Dict, List, Tuple, Optional, Union
 
 
 class TransDataset(torch.utils.data.Dataset):
