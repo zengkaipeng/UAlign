@@ -43,7 +43,7 @@ def make_graph_batch(smi, rxn=None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Inference part')
+    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
@@ -59,10 +59,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--negative_slope', type=float, default=0.2,
         help='negative slope for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--data_path', required=True, type=str,
-        help='the path containing dataset'
     )
     parser.add_argument(
         '--seed', type=int, default=2023,
@@ -94,16 +90,14 @@ if __name__ == '__main__':
         help='the number of beams '
     )
     parser.add_argument(
-        '--output_folder', default='results', type=str,
-        help='the path containing results'
+        '--product_smiles', type=str, required=True,
+        help='the SMILES of product, containing only one mole'
     )
     parser.add_argument(
-        '--save_every', type=int, default=1000,
-        help='the step to save result into file'
+        '--input_class', type=int, default=-1,
+        help='the input class for reaction, required when' +
+        ' use_class option is chosen'
     )
-
-    parser.add_argument('--start', type=int, default=0)
-    parser.add_argument('--len', type=int, default=-1)
 
     args = parser.parse_args()
     print(args)
@@ -139,58 +133,25 @@ if __name__ == '__main__':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight, strict=True)
+        model.load_state_dict(weight, strict=False)
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
-
-    if not os.path.exists(args.output_folder):
-        os.makedirs(args.output_folder)
-
-    meta_df = pandas.read_csv(args.data_path)
-
-    if args.len > 0:
-        end_pos = min(len(meta_df), args.start + args.len)
-        file_name = f'{args.start}-{end_pos}.json'
-        out_file = os.path.join(args.output_folder, file_name)
-        meta_df = meta_df[args.start: end_pos]
+    if args.use_class:
+        assert args.input_class != -1, 'require reaction class!'
+        start_token = f'<RXN>_{args.input_class}'
     else:
-        file_name = f'{args.start}-{len(meta_df)}.json'
-        out_file = os.path.join(args.output_folder, file_name)
+        start_token = '<CLS>'
 
-    answers = []
+    g_ip = make_graph_batch(prd, rxn_class).to(device)
 
-    for idx, resu in enumerate(tqdm(meta_df['reactants>reagents>production'])):
-        rea, prd = resu.strip().split('>>')
-        prd = clear_map_number(prd)
-        rea = clear_map_number(rea)
-        if args.use_class:
-            rxn_class = int(meta_df['class'][idx])
-            start_token = f'<RXN>_{rxn_class}'
-        else:
-            rxn_class = None
-            start_token = '<CLS>'
+    preds, probs = beam_search_one(
+        model, tokenizer, g_ip, device, max_len=args.max_len,
+        size=args.beams, begin_token=start_token, end_token='<END>',
+        pen_para=0, validate=False
+    )
 
-        g_ip = make_graph_batch(prd, rxn_class).to(device)
-
-        preds, probs = beam_search_one(
-            model, tokenizer, g_ip, device, max_len=args.max_len,
-            size=args.beams, begin_token=start_token, end_token='<END>',
-            pen_para=0, validate=False
-        )
-
-        answers.append({
-            'query': resu, 'idx': idx, 'rxn_class': rxn_class,
-            'answer': preds, 'prob': probs
-        })
-        if idx % args.save_every == 0:
-            with open(out_file, 'w') as Fout:
-                json.dump({
-                    'args': args.__dict__,
-                    'answer': answers
-                }, Fout, indent=4)
-
-    with open(out_file, 'w') as Fout:
-        json.dump({
-            'args': args.__dict__,
-            'answer': answers
-        }, Fout, indent=4)
+    print('[RESULT]')
+    print(json.dumps({
+        "answers": preds, 'probs': probs,
+        'rxn_class': args.input_class
+    }, indent=4))
