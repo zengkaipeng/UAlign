@@ -116,9 +116,12 @@ if __name__ == '__main__':
         help='the path containing results'
     )
     parser.add_argument(
-        "--save_every", type=int, default=1000,
-        help='the step for saving results into files'
+        '--save_every', type=int, default=1000,
+        help='the step to save result into file'
     )
+
+    parser.add_argument('--start', type=int, default=0)
+    parser.add_argument('--len', type=int, default=-1)
 
     args = parser.parse_args()
     print(args)
@@ -194,9 +197,16 @@ if __name__ == '__main__':
     if not os.path.exists(args.output_folder):
         os.makedirs(args.output_folder)
 
-    out_file = os.path.join(args.output_folder, f'answer-{time.time()}.json')
-
     meta_df = pandas.read_csv(args.data_path)
+
+    if args.len > 0:
+        end_pos = min(len(meta_df), args.start + args.len)
+        file_name = f'{args.start}-{end_pos}.json'
+        out_file = os.path.join(args.output_folder, file_name)
+        meta_df = meta_df[args.start: end_pos]
+    else:
+        file_name = f'{args.start}-{len(meta_df)}.json'
+        out_file = os.path.join(args.output_folder, file_name)
 
     answers = []
 
@@ -223,7 +233,6 @@ if __name__ == '__main__':
             'query': resu, 'idx': idx, 'rxn_class': rxn_class,
             'answer': preds, 'prob': probs
         })
-
         if idx % args.save_every == 0:
             with open(out_file, 'w') as Fout:
                 json.dump({

@@ -59,18 +59,11 @@ class SelfLoopGATConv(MessagePassing):
         self_edges = torch.Tensor([(i, i) for i in range(num_nodes)])
         self_edges = self_edges.T.to(edge_index)
 
-        # print(org_mask)
-
-        # print('[before]', edge_index.shape, real_edge_attr.shape)
-
         edge_index = torch.cat([edge_index, self_edges], dim=1)
         real_edge_attr = torch.cat([
             edge_attr, self.self_edge.repeat(num_nodes, 1)
         ], dim=0)
 
-        # print('[after]', edge_index.shape, real_edge_attr.shape)
-        # print(num_nodes)
-        # exit()
 
         # old prop
 

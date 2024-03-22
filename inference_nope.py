@@ -8,7 +8,7 @@ import pickle
 
 
 from torch.utils.data import DataLoader
-from model import Graph2Seq, PositionalEncoding
+from model import NoPE, PositionalEncoding
 from training import train_trans, eval_trans
 from data_utils import fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
@@ -115,10 +115,6 @@ if __name__ == '__main__':
         '--output_folder', default='results', type=str,
         help='the path containing results'
     )
-    parser.add_argument(
-        "--save_every", type=int, default=1000,
-        help='the step for saving results into files'
-    )
 
     args = parser.parse_args()
     print(args)
@@ -178,7 +174,7 @@ if __name__ == '__main__':
     Decoder = TransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, 0.1, maxlen=2000)
 
-    model = Graph2Seq(
+    model = NoPE(
         token_size=tokenizer.get_token_size(), encoder=GNN,
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
@@ -224,15 +220,8 @@ if __name__ == '__main__':
             'answer': preds, 'prob': probs
         })
 
-        if idx % args.save_every == 0:
-            with open(out_file, 'w') as Fout:
-                json.dump({
-                    'args': args.__dict__,
-                    'answer': answers
-                }, Fout, indent=4)
-
-    with open(out_file, 'w') as Fout:
-        json.dump({
-            'args': args.__dict__,
-            'answer': answers
-        }, Fout, indent=4)
+        with open(out_file, 'w') as Fout:
+            json.dump({
+                'args': args.__dict__,
+                'answer': answers
+            }, Fout, indent=4)

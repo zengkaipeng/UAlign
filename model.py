@@ -1,113 +1,336 @@
+from numpy import concatenate as npcat
+import random
 import torch
-from sparse_backBone import (
-    GINBase, GATBase, SparseAtomEncoder, SparseBondEncoder
+from sparse_backBone import GINBase, GATBase
+
+from ogb.graphproppred.mol_encoder import AtomEncoder
+from utils.chemistry_parse import(
+    clear_map_number, get_synthon_edits, BOND_FLOAT_TO_IDX,
+    find_all_amap, remove_am_wo_cano
 )
-from itertools import combinations, permutations
-from torch_geometric.data import Data
+from utils.graph_utils import smiles2graph
+
 from typing import Any, Dict, List, Tuple, Optional, Union
-import numpy as np
-from torch.nn.functional import binary_cross_entropy_with_logits
-from torch.nn.functional import cross_entropy
-from scipy.optimize import linear_sum_assignment
-from data_utils import (
-    convert_log_into_label, convert_edge_log_into_labels,
-    seperate_dict, extend_label_by_edge, filter_label_by_node,
-    seperate_encoder_graphs, seperate_pred
-)
+from torch_geometric.data import Data as GData
 import math
-from Mix_backbone import DotMhAttn
+import numpy as np
+import multiprocessing
+from tokenlizer import smi_tokenizer
+from rdkit import Chem
 
 
-def make_memory_from_feat(node_feat, batch_mask):
-    batch_size, max_node = batch_mask.shape
-    memory = torch.zeros(batch_size, max_node, node_feat.shape[-1])
-    memory = memory.to(node_feat.device)
-    memory[batch_mask] = node_feat
-    return memory, ~batch_mask
+def synthon_col_fn(batch):
+    Eatom, Hatom, Catom = [], [], []
+    batch_size, all_new, lstnode, lstedge = len(batch), [], 0, 0
+    edge_idx, node_feat, edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn = [], []
+    max_node = max(x[0]['num_nodes'] for x in batch)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
+
+    for idx, data in enumerate(batch):
+        gp, Ea, Ha, Ca, elb, rxn = data
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_new.append(elb)
+        Eatom.append(Ea)
+        Hatom.append(Ha)
+        Catom.append(Ca)
+
+        batch_mask[idx, :node_cnt] = True
+
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+    result = {
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'new_edge_types': torch.cat(all_new, dim=0),
+        'EdgeChange': torch.cat(Eatom, dim=0),
+        "ChargeChange": torch.cat(Catom, dim=0),
+        "HChange": torch.cat(Hatom, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
+    }
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result)
 
 
-class SynthonPredictionModel(torch.nn.Module):
-    def __init__(self, base_model, node_dim, edge_dim, dropout=0.1):
-        super(SynthonPredictionModel, self).__init__()
-        self.base_model = base_model
-        self.edge_predictor = torch.nn.Sequential(
-            torch.nn.Linear(edge_dim, edge_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 5)
-        )
-        self.Echange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
-        )
-        self.Hchange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
-        )
-        self.Cchange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
-        )
+class TransDataset(torch.utils.data.Dataset):
+    def __init__(self, smiles, random_prob=0.0):
+        super(TransDataset, self).__init__()
 
-    def calc_loss(
-        self, edge_logits, edge_label, edge_batch, AE_log, AE_label,
-        AC_log, AC_label, AH_log, AH_label, batch,
-    ):
-        edge_loss = self.scatter_loss_by_batch(
-            edge_logits, edge_label, edge_batch, cross_entropy
-        )
+        self.smiles = smiles
+        self.aug_prob = random_prob
 
-        AC_loss = self.scatter_loss_by_batch(
-            AC_log, AC_label, batch, binary_cross_entropy_with_logits
-        )
+    def __len__(self):
+        return len(self.smiles)
 
-        AH_loss = self.scatter_loss_by_batch(
-            AH_log, AH_label, batch, binary_cross_entropy_with_logits
-        )
-
-        AE_loss = self.scatter_loss_by_batch(
-            AE_log, AE_label, batch, binary_cross_entropy_with_logits
-        )
-        return edge_loss, AE_loss, AH_loss, AC_loss
-
-    def scatter_loss_by_batch(self, logits, label, batch, lfn):
-        max_batch = batch.max().item() + 1
-        losses = torch.zeros(max_batch).to(logits)
-        org_loss = lfn(logits, label, reduction='none')
-        losses.index_add_(0, batch, org_loss)
-        return losses.mean()
-
-    def forward(self, graph):
-        node_feat, edge_feat = self.base_model(graph)
-        edge_logits = self.edge_predictor(edge_feat)
-
-        AE_logits = self.Echange(node_feat).squeeze(dim=-1)
-        AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
-        AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
-
-        e_loss, AE_loss, AH_loss, AC_loss = self.calc_loss(
-            edge_logits=edge_logits, edge_label=graph.new_edge_types,
-            edge_batch=graph.e_batch, AE_log=AE_logits,
-            AE_label=graph.EdgeChange, AC_log=AC_logits,
-            AC_label=graph.ChargeChange, AH_log=AH_logits,
-            AH_label=graph.HChange, batch=graph.batch,
-        )
-
-        return e_loss, AE_loss, AH_loss, AC_loss
-
-    def eval_forward(self, graph, return_all=False):
-        node_feat, edge_feat = self.base_model(graph)
-        edge_logits = self.edge_predictor(edge_feat)
-        if return_all:
-            AE_logits = self.Echange(node_feat).squeeze(dim=-1)
-            AH_logits = self.Hchange(node_feat).squeeze(dim=-1)
-            AC_logits = self.Cchange(node_feat).squeeze(dim=-1)
-
-            return edge_logits, AE_logits, AH_logits, AC_logits
+    def randomize_smiles(self, smi):
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+            if random.randint(0, 1) == 1:
+                k = random.choice(self.smiles)
+                return f'{smi}.{k}'
+            else:
+                mol = Chem.MolFromSmiles(smi)
+                return Chem.MolToSmiles(mol, doRandom=True)
         else:
-            return edge_logits
+            return smi
+
+    def __getitem__(self, index):
+        ret = ['<CLS>']
+        out_smi = self.randomize_smiles(self.smiles[index])
+        ret.extend(smi_tokenizer(out_smi))
+        ret.append('<END>')
+
+        return smiles2graph(out_smi, with_amap=False), ret
+
+
+def col_fn_pretrain(data_batch):
+    batch_size, max_node = len(data_batch), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, reats, node_per_graph = [], [0], [], []
+    for idx, data in enumerate(data_batch):
+        graph, ret = data
+        num_nodes = graph['num_nodes']
+        num_edges = graph['edge_index'].shape[1]
+        reats.append(ret)
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
+        ptr.append(lstnode)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0),
+        'ptr': np.array(ptr, dtype=np.int64)
+    }
+
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    result['batch_mask'] = all_batch_mask.bool()
+
+    return GData(**result), reats
+
+
+class OnFlyDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, prod_sm: List[str], reat_sm: List[str],
+        rxn_cls: Optional[List[int]] = None, aug_prob: float = 0,
+    ):
+        super(OnFlyDataset, self).__init__()
+        self.prod_sm = prod_sm
+        self.reat_sm = reat_sm
+        self.rxn_cls = rxn_cls
+        self.aug_prob = aug_prob
+
+    def __len__(self):
+        return len(self.reat_sm)
+
+    def remap_reac_prod(self, reac, prod):
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+            # randomize the smiles and remap the reaction according to the
+            # randomized result, have to make sure the amap number of
+            # prod is int the range of 1 -> num atoms
+            mol = Chem.MolFromSmiles(prod)
+            temp_x = Chem.MolToSmiles(mol, doRandom=True)
+            all_ams = find_all_amap(temp_x)
+            remap = {v: idx + 1 for idx, v in enumerate(all_ams)}
+
+            r_mol = Chem.MolFromSmiles(reac)
+
+            for x in mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+
+            for x in r_mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+            return Chem.MolToSmiles(r_mol), Chem.MolToSmiles(mol)
+        else:
+            # the data is canonicalized in data_proprecess
+            return reac, prod
+
+    # def process_prod(self, smi):
+    #     if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+    #         mol = Chem.MolFromSmiles(smi)
+    #         atms = [x.GetIdx() for x in mol.GetAtoms()]
+    #         return Chem.MolToSmiles(
+    #             mol, rootedAtAtom=random.choice(atms), canonical=True
+    #         )
+    #     else:
+    #         return smi
+
+    def process_reac_via_prod(self, prod, reac):
+        pro_atom_maps = find_all_amap(prod)
+        reacts = reac.split('.')
+        rea_atom_maps = [find_all_amap(x) for x in reacts]
+
+        aligned_reactants = []
+        for i, rea_map_num in enumerate(rea_atom_maps):
+            for j, mapnum in enumerate(pro_atom_maps):
+                if mapnum in rea_map_num:
+                    mol = Chem.MolFromSmiles(reacts[i])
+                    amap = {
+                        x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()
+                    }
+
+                    y_smi = Chem.MolToSmiles(
+                        mol, rootedAtAtom=amap[mapnum], canonical=True
+                    )
+
+                    aligned_reactants.append((y_smi, j))
+                    break
+
+        aligned_reactants.sort(key=lambda x: x[1])
+        return '.'.join(x[0] for x in aligned_reactants)
+
+    def __getitem__(self, index):
+        # print('[org]\n{}\n{}'.format(self.reat_sm[index], self.prod_sm[index]))
+        this_reac, this_prod = self.remap_reac_prod(
+            reac=self.reat_sm[index], prod=self.prod_sm[index]
+        )
+        # print('[rem]\n{}\n{}'.format(this_reac, this_prod))
+        # this_prod = self.process_prod(self.prod_sm[index])
+        this_reac = self.process_reac_via_prod(this_prod, this_reac)
+
+        # print('[fin]\n{}\n{}'.format(this_reac, this_prod))
+
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+        ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
+        ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
+        ret.append('<END>')
+        # print('[prod]', this_prod)
+        # print('[reac]', this_reac)
+        # print('[ret]', ret)
+
+        Eatom, Hatom, Catom, deltaE, org_type = get_synthon_edits(
+            this_reac, this_prod, consider_inner_bonds=True,
+            return_org_type=True
+        )
+
+        graph, amap = smiles2graph(this_prod, with_amap=True)
+
+        Ea = torch.zeros(graph['num_nodes']).long()
+        Ha = torch.zeros(graph['num_nodes']).long()
+        Ca = torch.zeros(graph['num_nodes']).long()
+
+        Ea[[amap[t] for t in Eatom]] = 1
+        Ha[[amap[t] for t in Hatom]] = 1
+        Ca[[amap[t] for t in Catom]] = 1
+
+        num_edges = graph['edge_feat'].shape[0]
+        edge_label = torch.zeros(num_edges).long()
+
+        new_type = {k: v[0] for k, v in org_type.items()}
+        new_type.update({k: v[1] for k, v in deltaE.items()})
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
+            src, dst = amap[src], amap[dst]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
+
+        for i in range(num_edges):
+            src, dst = graph['edge_index'][:, i].tolist()
+            edge_label[i] = new_edge[(src, dst)]
+
+        return graph, Ea, Ha, Ca, edge_label, ret, rxn
+
+
+def edit_col_fn(batch):
+    Eatom, Hatom, Catom, reats = [], [], [], []
+    batch_size, all_new, lstnode, lstedge = len(batch), [], 0, 0
+    edge_idx, node_feat, edge_feat = [], [], []
+    node_ptr, edge_ptr, node_batch, edge_batch = [0], [0], [], []
+    node_rxn, edge_rxn = [], []
+    max_node = max(x[0]['num_nodes'] for x in batch)
+    batch_mask = torch.zeros(batch_size, max_node).bool()
+
+    for idx, data in enumerate(batch):
+        gp, Ea, Ha, Ca, elb, ret, rxn = data
+        node_cnt, edge_cnt = gp['num_nodes'], gp['edge_index'].shape[1]
+
+        node_feat.append(gp['node_feat'])
+        edge_feat.append(gp['edge_feat'])
+        edge_idx.append(gp['edge_index'] + lstnode)
+        all_new.append(elb)
+        Eatom.append(Ea)
+        Hatom.append(Ha)
+        Catom.append(Ca)
+        reats.append(ret)
+
+        batch_mask[idx, :node_cnt] = True
+
+        lstnode += node_cnt
+        lstedge += edge_cnt
+        node_batch.append(np.ones(node_cnt, dtype=np.int64) * idx)
+        edge_batch.append(np.ones(edge_cnt, dtype=np.int64) * idx)
+        node_ptr.append(lstnode)
+        edge_ptr.append(lstedge)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(node_cnt, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(edge_cnt, dtype=np.int64) * rxn)
+
+    result = {
+        'x': torch.from_numpy(npcat(node_feat, axis=0)),
+        "edge_attr": torch.from_numpy(npcat(edge_feat, axis=0)),
+        'ptr': torch.LongTensor(node_ptr),
+        'e_ptr': torch.LongTensor(edge_ptr),
+        'batch': torch.from_numpy(npcat(node_batch, axis=0)),
+        'e_batch': torch.from_numpy(npcat(edge_batch, axis=0)),
+        'edge_index': torch.from_numpy(npcat(edge_idx, axis=-1)),
+        'new_edge_types': torch.cat(all_new, dim=0),
+        'EdgeChange': torch.cat(Eatom, dim=0),
+        "ChargeChange": torch.cat(Catom, dim=0),
+        "HChange": torch.cat(Hatom, dim=0),
+        'num_nodes': lstnode,
+        'num_edges': lstedge,
+        'batch_mask': batch_mask
+    }
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result), reats
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -129,311 +352,403 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(token_embedding + self.pos_embedding[:token_len])
 
 
-class OverallModel(torch.nn.Module):
-    def __init__(
-        self, GNN, trans_enc, trans_dec, node_dim, edge_dim, num_token,
-        use_sim=True, pre_graph=True, heads=1, dropout=0.0, maxlen=2000,
-        rxn_num=None
-    ):
-        super(OverallModel, self).__init__()
-        self.GNN, self.trans_enc, self.trans_dec = GNN, trans_enc, trans_dec
-        self.syn_e_pred = torch.nn.Sequential(
-            torch.nn.Linear(edge_dim, edge_dim),
+class Graph2Seq(torch.nn.Module):
+    def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
+        super(Graph2Seq, self).__init__()
+        self.word_emb = torch.nn.Embedding(token_size, d_model)
+        self.encoder, self.decoder = encoder, decoder
+        self.Hchange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
-            torch.nn.Linear(edge_dim, 5)
+            torch.nn.Linear(d_model, 2)
+        )
+
+        self.Cchange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
         )
         self.Echange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
+            torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
+            torch.nn.Linear(d_model, 2)
         )
-        self.Hchange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
+
+        self.edge_cls = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
+            torch.nn.Linear(d_model, 5)
         )
-        self.Cchange = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
+        self.pos_enc = pos_enc
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
-        )
-        self.lg_activate = torch.nn.Sequential(
-            torch.nn.Linear(node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 1)
-        )
-        self.conn_pred = torch.nn.Sequential(
-            torch.nn.Linear(node_dim + node_dim, node_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(node_dim, 4)
-        )
-        if rxn_num is None:
-            self.tpp_embs = torch.nn.ParameterDict({
-                'reac': torch.nn.Parameter(torch.randn(1, 1, node_dim)),
-                'prod': torch.nn.Parameter(torch.randn(1, 1, node_dim))
-            })
-        else:
-            self.tpp_embs = torch.nn.ModuleDict({
-                'reac': torch.nn.Embedding(rxn_num, node_dim),
-                'prod': torch.nn.Embedding(rxn_num, node_dim)
-            })
-        self.rxn_num = rxn_num
-        self.emb_trans = torch.nn.Linear(node_dim + node_dim, node_dim)
-        self.use_sim, self.pre_graph = use_sim, pre_graph
-        if self.use_sim:
-            self.SIM_G = SIM(node_dim, node_dim, heads, dropout)
-            self.SIM_L = SIM(node_dim, node_dim, heads, dropout)
-
-        self.token_embeddings = torch.nn.Embedding(num_token, node_dim)
-        self.PE = PositionalEncoding(node_dim, dropout, maxlen)
-        self.trans_pred = torch.nn.Linear(node_dim, num_token)
-
-    def add_type_emb(self, x, part, graph_rxn=None):
-        batch_size, max_len = x.shape[:2]
-        if self.rxn_num is None:
-            type_emb = self.tpp_embs[part].repeat(batch_size, max_len, 1)
-        else:
-            type_emb = self.tpp_embs[part](graph_rxn)
-
-        return self.emb_trans(torch.cat([x, type_emb], dim=-1)) + x
-
-    def trans_enc_forward(
-        self, word_emb, word_pad, graph_emb, graph_pad,
-        graph_rxn=None
-    ):
-        word_emb = self.add_type_emb(word_emb, 'reac', graph_rxn)
-        word_emb = self.PE(word_emb)
-        graph_emb = self.add_type_emb(graph_emb, 'prod', graph_rxn)
-
-        if word_pad is None:
-            word_pad = torch.zeros(word_emb.shape[:2]).bool()
-            word_pad = word_pad.to(word_emb.device)
-
-        if self.pre_graph:
-            trans_input = torch.cat([word_emb, graph_emb], dim=1)
-            memory_pad = torch.cat([word_pad, graph_pad], dim=1)
-            memory = self.trans_enc(
-                trans_input, src_key_padding_mask=memory_pad
-            )
-        else:
-            memory = self.trans_enc(word_emb, src_key_padding_mask=word_pad)
-            memory = torch.cat([memory, graph_emb], dim=1)
-            memory_pad = torch.cat([word_pad, graph_pad], dim=1)
-        return memory, memory_pad
-
-    def conn_forward(self, lg_emb, graph_emb, conn_edges, node_mask):
-        useful_edges_mask = node_mask[conn_edges[:, 1]]
-        useful_src, useful_dst = conn_edges[useful_edges_mask].T
-        conn_embs = [graph_emb[useful_src], lg_emb[useful_dst]]
-        conn_embs = torch.cat(conn_embs, dim=-1)
-        conn_logits = self.conn_pred(conn_embs)
-
-        return conn_logits, useful_edges_mask
-
-    def update_via_sim(self, graph_emb, graph_mask, lg_emb, lg_mask):
-        graph_emb, g_pad_mask = make_memory_from_feat(graph_emb, graph_mask)
-        lg_emb, l_pad_mask = make_memory_from_feat(lg_emb, lg_mask)
-
-        new_graph_emb = self.SIM_G(graph_emb, lg_emb, l_pad_mask)
-        new_lg_emb = self.SIM_L(lg_emb, graph_emb, g_pad_mask)
-        return new_graph_emb[graph_mask], new_lg_emb[lg_mask]
-
-    def forward(
-        self, prod_graph, lg_graph, trans_ip, conn_edges, conn_batch,
-        trans_op, graph_rxn=None, pad_idx=None, trans_ip_key_padding=None,
-        trans_op_key_padding=None, trans_op_mask=None, trans_label=None,
-        conn_label=None, mode='train', return_loss=False
-    ):
-        prod_n_emb, prod_e_emb = self.GNN(prod_graph)
-        lg_n_emb, lg_e_emb = self.GNN(lg_graph)
-
-        AE_logits = self.Echange(prod_n_emb).squeeze(dim=-1)
-        AH_logits = self.Hchange(prod_n_emb).squeeze(dim=-1)
-        AC_logits = self.Cchange(prod_n_emb).squeeze(dim=-1)
-        prod_e_logits = self.syn_e_pred(prod_e_emb)
-
-        trans_ip = self.token_embeddings(trans_ip)
-        trans_op = self.token_embeddings(trans_op)
-
-        batched_prod_emb, prod_padding_mask = \
-            make_memory_from_feat(prod_n_emb, prod_graph.batch_mask)
-        memory, memory_pad = self.trans_enc_forward(
-            trans_ip, trans_ip_key_padding, batched_prod_emb,
-            prod_padding_mask, graph_rxn
+            torch.nn.Linear(d_model, token_size)
         )
 
-        trans_pred = self.trans_pred(self.trans_dec(
-            tgt=self.PE(trans_op), memory=memory, tgt_mask=trans_op_mask,
-            memory_key_padding_mask=memory_pad,
-            tgt_key_padding_mask=trans_op_key_padding
-        ))
+    def graph2batch(
+        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, max_node = batch_mask.shape
+        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        answer = answer.to(node_feat.device)
+        answer[batch_mask] = node_feat
+        return answer
 
-        lg_act_logits = self.lg_activate(lg_n_emb).squeeze(dim=-1)
-        lg_useful = lg_graph.node_label > 0
+    def encode(self, graphs):
+        node_feat, edge_feat = self.encoder(graphs)
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
 
-        if self.use_sim:
-            n_prod_emb, n_lg_emb = self.update_via_sim(
-                prod_n_emb, prod_graph.batch_mask,
-                lg_n_emb, lg_graph.batch_mask
-            )
-        else:
-            n_prod_emb, n_lg_emb = prod_n_emb, lg_n_emb
-        conn_logits, conn_mask = self.conn_forward(
-            n_lg_emb, n_prod_emb,  conn_edges, lg_useful
-        )
-
-        if mode == 'train' or return_loss:
-            losses = self.loss_calc(
-                prod_e_log=prod_e_logits,
-                prod_e_label=prod_graph.edge_label,
-                AC_label=prod_graph.ChargeChange,
-                AC_log=AC_logits,
-                AH_label=prod_graph.HChange,
-                AH_log=AH_logits,
-                AE_label=prod_graph.EdgeChange,
-                AE_log=AE_logits,
-                prod_n_batch=prod_graph.batch,
-                prod_e_batch=prod_graph.e_batch,
-                lg_n_log=lg_act_logits,
-                lg_n_label=lg_graph.node_label,
-                lg_n_batch=lg_graph.batch,
-                conn_lg=conn_logits,
-                conn_lb=conn_label[conn_mask],
-                conn_batch=conn_batch[conn_mask],
-                trans_pred=trans_pred,
-                trans_lb=trans_label,
-                pad_idx=pad_idx
-            )
-        if mode == 'train':
-            return losses
-        else:
-            answer = (
-                AE_logits, AH_logits, AC_logits, prod_e_logits,
-                lg_act_logits, conn_logits, conn_mask, trans_pred
-            )
-            return (answer, losses) if return_loss else answer
-
-    def loss_calc(
-        self, prod_e_log, prod_e_label, AC_log, AC_label,
-        AH_log, AH_label, AE_log, AE_label,
-        prod_n_batch, prod_e_batch, lg_n_log, lg_n_label, lg_n_batch,
-        conn_lg, conn_lb, conn_batch, trans_pred, trans_lb, pad_idx
-    ):
-        AC_loss = self.scatter_loss_by_batch(
-            AC_log, AC_label, prod_n_batch,
-            binary_cross_entropy_with_logits
-        )
-
-        AH_loss = self.scatter_loss_by_batch(
-            AH_log, AH_label, prod_n_batch,
-            binary_cross_entropy_with_logits
-        )
-
-        AE_loss = self.scatter_loss_by_batch(
-            AE_log, AE_label, prod_n_batch,
-            binary_cross_entropy_with_logits
-        )
-        syn_edge_loss = self.scatter_loss_by_batch(
-            prod_e_log, prod_e_label, prod_e_batch, cross_entropy
-        )
-
-        lg_act_loss = self.scatter_loss_by_batch(
-            lg_n_log, lg_n_label, lg_n_batch,
-            binary_cross_entropy_with_logits
-        )
-
-        conn_loss = self.scatter_loss_by_batch(
-            conn_lg, conn_lb, conn_batch, cross_entropy
-        )
-
-        trans_loss = self.calc_trans_loss(trans_pred, trans_lb, pad_idx)
-
-        return AC_loss, AE_loss, AH_loss,  syn_edge_loss, \
-            lg_act_loss, conn_loss, trans_loss
-
-    def scatter_loss_by_batch(self, logits, label, batch, lfn):
-        max_batch = batch.max().item() + 1
-        losses = torch.zeros(max_batch).to(logits)
-        org_loss = lfn(logits, label, reduction='none')
-        losses.index_add_(0, batch, org_loss)
-        return losses.mean()
-
-    def calc_trans_loss(self, trans_pred, trans_lb, ignore_index):
-        batch_size, maxl, num_c = trans_pred.shape
-        trans_pred = trans_pred.reshape(-1, num_c)
-        trans_lb = trans_lb.reshape(-1)
-
-        losses = cross_entropy(
-            trans_pred, trans_lb, reduction='none',
-            ignore_index=ignore_index
-        )
-        losses = losses.reshape(batch_size, maxl)
-        loss = torch.mean(torch.sum(losses, dim=-1))
-        return loss
-
-    def synthon_forward(self, prod_graph):
-        prod_n_emb, prod_e_emb = self.GNN(prod_graph)
-        AC_logits = self.Cchange(prod_n_emb).squeeze(dim=-1)
-        prod_e_logits = self.syn_e_pred(prod_e_emb)
-
-        return AC_logits, prod_e_logits, prod_n_emb, prod_e_emb
+        return memory, torch.logical_not(graphs.batch_mask)
 
     def decode(
-        self, tgt, memory, trans_op_mask=None, memory_pad=None,
-        trans_op_key_padding=None
+        self, tgt, memory, memory_padding_mask=None,
+        tgt_mask=None, tgt_padding_mask=None
     ):
-        trans_op = self.PE(self.token_embeddings(tgt))
-        return self.trans_pred(self.trans_dec(
-            tgt=trans_op, memory=memory, tgt_mask=trans_op_mask,
-            memory_key_padding_mask=memory_pad,
-            tgt_key_padding_mask=trans_op_key_padding
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_padding_mask,
+            tgt_key_padding_mask=tgt_padding_mask
+        )
+        return self.output_layer(result)
+
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        node_feat, edge_feat = self.encoder(graphs)
+
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
+
+        result = self.output_layer(self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=torch.logical_not(graphs.batch_mask),
+            tgt_key_padding_mask=tgt_pad_mask
         ))
 
-    def encode(
-        self, trans_ip, graph_emb, batch_mask,
-        graph_rxn=None, trans_ip_key_padding=None,
-    ):
-        trans_ip = self.token_embeddings(trans_ip)
-        graph_mem, graph_pad = make_memory_from_feat(graph_emb, batch_mask)
-        return self.trans_enc_forward(
-            trans_ip, trans_ip_key_padding, graph_mem, graph_pad, graph_rxn
+        AH_logs = self.Hchange(node_feat)
+        AE_logs = self.Echange(node_feat)
+        AC_logs = self.Cchange(node_feat)
+
+        edge_logs = self.edge_cls(edge_feat)
+
+        return edge_logs, AH_logs, AE_logs, AC_logs, result
+
+
+class PretrainModel(torch.nn.Module):
+    def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
+        super(PretrainModel, self).__init__()
+        self.word_emb = torch.nn.Embedding(token_size, d_model)
+        self.encoder, self.decoder = encoder, decoder
+        self.pos_enc = pos_enc
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, token_size)
         )
 
-    def eval_conn_forward(
-        self, prod_feat, lg_feat, conn_edges,
-        prod_batch_mask=None, lg_batch_mask=None
-    ):
-        lg_act_logits = self.lg_activate(lg_feat).squeeze(dim=-1)
-        lg_useful = lg_act_logits > 0
+    def graph2batch(
+        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, max_node = batch_mask.shape
+        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        answer = answer.to(node_feat)
+        answer[batch_mask] = node_feat
+        return answer
 
-        if self.use_sim:
-            assert prod_batch_mask is not None and \
-                lg_batch_mask is not None, 'batch mask is required'
-            n_prod_emb, n_lg_emb = self.update_via_sim(
-                prod_feat, prod_batch_mask, lg_feat, lg_batch_mask
-            )
+    def encode(self, graphs):
+        node_feat, edge_feat = self.encoder(graphs)
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        memory = self.pos_enc(memory)
+
+        return memory, torch.logical_not(graphs.batch_mask)
+
+    def decode(
+        self, tgt, memory, memory_padding_mask=None,
+        tgt_mask=None, tgt_padding_mask=None
+    ):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_padding_mask,
+            tgt_key_padding_mask=tgt_padding_mask
+        )
+        return self.output_layer(result)
+
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask):
+
+        memory, memory_pad = self.encode(graphs)
+        result = self.decode(
+            tgt=tgt, memory=memory, memory_padding_mask=memory_pad,
+            tgt_padding_mask=tgt_pad_mask, tgt_mask=tgt_mask
+        )
+
+        return result
+
+
+class NoPE(torch.nn.Module):
+    def __init__(self, token_size, encoder, decoder, d_model, pos_enc):
+        super(NoPE, self).__init__()
+        self.word_emb = torch.nn.Embedding(token_size, d_model)
+        self.encoder, self.decoder = encoder, decoder
+        self.Hchange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
+
+        self.Cchange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
+        self.Echange = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 2)
+        )
+
+        self.edge_cls = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, 5)
+        )
+        self.pos_enc = pos_enc
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_model, token_size)
+        )
+
+    def graph2batch(
+        self, node_feat: torch.Tensor, batch_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, max_node = batch_mask.shape
+        answer = torch.zeros(batch_size, max_node, node_feat.shape[-1])
+        answer = answer.to(node_feat.device)
+        answer[batch_mask] = node_feat
+        return answer
+
+    def encode(self, graphs):
+        node_feat, edge_feat = self.encoder(graphs)
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        return memory, torch.logical_not(graphs.batch_mask)
+
+    def decode(
+        self, tgt, memory, memory_padding_mask=None,
+        tgt_mask=None, tgt_padding_mask=None
+    ):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        result = self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=memory_padding_mask,
+            tgt_key_padding_mask=tgt_padding_mask
+        )
+        return self.output_layer(result)
+
+    def forward(self, graphs, tgt, tgt_mask, tgt_pad_mask):
+        tgt_emb = self.pos_enc(self.word_emb(tgt))
+        node_feat, edge_feat = self.encoder(graphs)
+
+        memory = self.graph2batch(node_feat, graphs.batch_mask)
+        result = self.output_layer(self.decoder(
+            tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask,
+            memory_key_padding_mask=torch.logical_not(graphs.batch_mask),
+            tgt_key_padding_mask=tgt_pad_mask
+        ))
+
+        AH_logs = self.Hchange(node_feat)
+        AE_logs = self.Echange(node_feat)
+        AC_logs = self.Cchange(node_feat)
+
+        edge_logs = self.edge_cls(edge_feat)
+
+        return edge_logs, AH_logs, AE_logs, AC_logs, result
+
+
+def make_edit_dataset(reacs, prods, rxn):
+    graphs, Eas, Has, Cas, edge_labels = [[] for i in range(5)]
+    for idx, reac in enumerate(tqdm(reacs)):
+        Eatom, Hatom, Catom, deltaE, org_type = get_synthon_edits(
+            reac, prods[idx], consider_inner_bonds=True,
+            return_org_type=True
+        )
+        graph, amap = smiles2graph(prods[idx], with_amap=True)
+
+        Ea = torch.zeros(graph['num_nodes']).long()
+        Ha = torch.zeros(graph['num_nodes']).long()
+        Ca = torch.zeros(graph['num_nodes']).long()
+
+        Ea[[amap[t] for t in Eatom]] = 1
+        Ha[[amap[t] for t in Hatom]] = 1
+        Ca[[amap[t] for t in Catom]] = 1
+
+        num_edges = graph['edge_feat'].shape[0]
+        edge_label = torch.zeros(num_edges).long()
+
+        new_type = {k: v[0] for k, v in org_type.items()}
+        new_type.update({k: v[1] for k, v in deltaE.items()})
+        new_edge = {}
+        for (src, dst), ntype in new_type.items():
+            src, dst = amap[src], amap[dst]
+            ntype = BOND_FLOAT_TO_IDX[ntype]
+            new_edge[(src, dst)] = new_edge[(dst, src)] = ntype
+
+        for i in range(num_edges):
+            src, dst = graph['edge_index'][:, i].tolist()
+            edge_label[i] = new_edge[(src, dst)]
+
+        graphs.append(graph)
+        Eas.append(Ea)
+        Has.append(Ha)
+        Cas.append(Ca)
+        edge_labels.append(edge_label)
+
+    return EditDataset(graphs, Eas, Has, Cas, edge_labels, rxn)
+
+
+class EditDataset(torch.utils.data.Dataset):
+    def __init__(self, graphs, Eas, Has, Cas, edge_labels, rxn):
+        super(EditDataset, self).__init__()
+        self.graphs = graphs
+        self.Eas = Eas
+        self.Has = Has
+        self.Cas = Cas
+        self.edge_labels = edge_labels
+        self.rxn = rxn
+
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, idx):
+        return self.graphs[idx], self.Eas[idx], self.Has[idx],\
+            self.Cas[idx], self.edge_labels[idx],\
+            None if self.rxn is None else self.rxn[idx]
+
+
+class RetroDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, prod_sm: List[str], reat_sm: List[str],
+        rxn_cls: Optional[List[int]] = None, aug_prob: float = 0,
+    ):
+        super(RetroDataset, self).__init__()
+        self.prod_sm = prod_sm
+        self.reat_sm = reat_sm
+        self.rxn_cls = rxn_cls
+        self.aug_prob = aug_prob
+
+    def __len__(self):
+        return len(self.reat_sm)
+
+    def remap_reac_prod(self, reac, prod):
+        if 0 < self.aug_prob <= 1 and random.random() < self.aug_prob:
+            # randomize the smiles and remap the reaction according to the
+            # randomized result, have to make sure the amap number of
+            # prod is int the range of 1 -> num atoms
+            mol = Chem.MolFromSmiles(prod)
+            temp_x = Chem.MolToSmiles(mol, doRandom=True)
+            all_ams = find_all_amap(temp_x)
+            remap = {v: idx + 1 for idx, v in enumerate(all_ams)}
+
+            r_mol = Chem.MolFromSmiles(reac)
+
+            for x in mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+
+            for x in r_mol.GetAtoms():
+                old_num = x.GetAtomMapNum()
+                x.SetAtomMapNum(remap.get(old_num, old_num))
+            return Chem.MolToSmiles(r_mol), Chem.MolToSmiles(mol)
         else:
-            n_prod_emb, n_lg_emb = prod_feat, lg_feat
+            # the data is canonicalized in data_proprecess
+            return reac, prod
 
-        conn_logits, conn_mask = self.conn_forward(
-            n_lg_emb, n_prod_emb,  conn_edges, lg_useful
+    def process_reac_via_prod(self, prod, reac):
+        pro_atom_maps = find_all_amap(prod)
+        reacts = reac.split('.')
+        rea_atom_maps = [find_all_amap(x) for x in reacts]
+
+        aligned_reactants = []
+        for i, rea_map_num in enumerate(rea_atom_maps):
+            for j, mapnum in enumerate(pro_atom_maps):
+                if mapnum in rea_map_num:
+                    mol = Chem.MolFromSmiles(reacts[i])
+                    amap = {
+                        x.GetAtomMapNum(): x.GetIdx() for x in mol.GetAtoms()
+                    }
+
+                    y_smi = Chem.MolToSmiles(
+                        mol, rootedAtAtom=amap[mapnum], canonical=True
+                    )
+
+                    aligned_reactants.append((y_smi, j))
+                    break
+
+        aligned_reactants.sort(key=lambda x: x[1])
+        return '.'.join(x[0] for x in aligned_reactants)
+
+    def __getitem__(self, index):
+        this_reac, this_prod = self.remap_reac_prod(
+            reac=self.reat_sm[index], prod=self.prod_sm[index]
         )
+        this_reac = self.process_reac_via_prod(this_prod, this_reac)
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+        ret = ['<CLS>' if rxn is None else f'<RXN>_{rxn}']
+        ret.extend(smi_tokenizer(remove_am_wo_cano(this_reac)))
+        ret.append('<END>')
 
-        return conn_logits, conn_mask
+        graph = smiles2graph(this_prod, with_amap=False)
+
+        return graph,  ret, rxn
 
 
-class SIM(torch.nn.Module):
-    def __init__(self, q_dim, kv_dim, heads, dropout):
-        super(SIM, self).__init__()
-        self.Attn = DotMhAttn(
-            Qdim=q_dim, emb_dim=q_dim, Odim=q_dim, Kdim=kv_dim,
-            Vdim=kv_dim, num_heads=heads, dropout=dropout
-        )
+def col_fn_retro(data_batch):
+    batch_size, max_node = len(data_batch), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, reats, node_per_graph = [], [0], [], []
+    node_rxn, edge_rxn = [], []
+    for idx, data in enumerate(data_batch):
+        graph, ret, rxn = data
+        num_nodes = graph['num_nodes']
+        num_edges = graph['edge_index'].shape[1]
+        reats.append(ret)
 
-    def forward(self, x, other, key_padding_mask=None):
-        attn_o, attn_w = self.Attn(
-            query=x, key=other, value=other,
-            key_padding_mask=key_padding_mask
-        )
-        return torch.relu(x + attn_o)
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
 
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
+        ptr.append(lstnode)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(num_nodes, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(num_edges, dtype=np.int64) * rxn)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0),
+        'ptr': np.array(ptr, dtype=np.int64)
+    }
+
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    result['batch_mask'] = all_batch_mask.bool()
+
+    if len(node_rxn) > 0:
+        node_rxn = npcat(node_rxn, axis=0)
+        edge_rxn = npcat(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result), reats

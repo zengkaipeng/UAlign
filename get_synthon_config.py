@@ -18,11 +18,15 @@ if __name__ == '__main__':
         '--filter', type=str, default='{}',
         help='a string as filter dict'
     )
+    parser.add_argument(
+        '--topk', type=int, default=10,
+        help='the number of results to list'
+    )
 
     args = parser.parse_args()
     args_ft = eval(args.filter)
 
-    bpref, btime, bargs, bep = None, None, None, None
+    all_pfs = []
 
     for x in os.listdir(args.dir):
         if x.startswith('log-') and x.endswith('.json'):
@@ -36,14 +40,15 @@ if __name__ == '__main__':
             if len(INFO['valid_metric']) == 0:
                 continue
 
-            best_idx = np.argmax([x['trans'] for x in INFO['valid_metric']])
-            best_node_fit = INFO['test_metric'][best_idx]
+            best_idx = np.argmax([x['Edge'] for x in INFO['valid_metric']])
+            curr_perf = INFO['test_metric'][best_idx]
 
-            if bpref is None or best_node_fit['trans'] > bpref['trans']:
-                bpref = best_node_fit
-                btime, bargs, bep = timestamp, INFO['args'], best_idx
+            all_pfs.append((INFO['args'], best_idx, timestamp, curr_perf))
 
-    print('[args]\n', bargs)
-    print('[TIME]', btime)
-    print('[EPOCH]', bep)
-    print('[pref]', bpref)
+    all_pfs.sort(key=lambda x: -x[-1]['Edge'])
+    for arg, ep, ts, pf in all_pfs[:args.topk]:
+        print('=====================================================')
+        print(f'[args]\n{arg}')
+        print(f'[time] {ts}')
+        print(f'[epoch] {ep}')
+        print(f'[result] {pf}')
