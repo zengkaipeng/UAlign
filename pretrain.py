@@ -97,7 +97,6 @@ if __name__ == '__main__':
         '--base_log', default='log_pretrain', type=str,
         help='the base dir of logging'
     )
-    # GAT & Gtrans setting
     parser.add_argument(
         '--heads', default=4, type=int,
         help='the number of heads for attention, only useful for gat'
@@ -130,6 +129,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--accu', type=int, default=1,
         help='the gradient accumulation step'
+    )
+    parser.add_argument(
+        '--num_worker', type=int, default=0,
+        help='the number of worker for dataloader'
     )
 
     # training
@@ -165,12 +168,12 @@ if __name__ == '__main__':
     test_set = TransDataset(test_moles, test_reac, mode='eval')
 
     train_loader = DataLoader(
-        train_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=True
+        train_set, collate_fn=col_fn_pretrain, shuffle=True,
+        batch_size=args.bs, num_workers=args.num_worker
     )
     test_loader = DataLoader(
-        test_set, collate_fn=col_fn_pretrain,
-        batch_size=args.bs, shuffle=False
+        test_set, collate_fn=col_fn_pretrain, shuffle=False,
+        batch_size=args.bs, num_workers=args.num_worker
     )
 
     GNN = GATBase(
