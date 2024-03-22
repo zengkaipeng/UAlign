@@ -106,22 +106,6 @@ def convert_edge_log_into_labels(
     return edge_pred
 
 
-def load_ext_data(data_dir, part=None):
-    if part is not None:
-        fname = os.path.join(data_dir, f'extend_{part}.csv')
-        df_train = pandas.read_csv(fname)
-    else:
-        df_train = pandas.read_csv(data_dir)
-    rxn_class, reacts, prods, target = [], [], [], []
-    for idx, resu in enumerate(df_train['reactants>reagents>production']):
-        rxn_class.append(df_train['class'][idx])
-        rea, prd = resu.strip().split('>>')
-        reacts.append(rea)
-        prods.append(prd)
-        target.append(df_train['clean_reactant'][idx])
-    return reacts, prods, rxn_class, target
-
-
 def fix_seed(seed):
     random.seed(seed)
     torch.manual_seed(seed)
