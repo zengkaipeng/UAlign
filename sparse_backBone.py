@@ -2,17 +2,11 @@ import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from GATconv import SelfLoopGATConv as MyGATConv
-from GINConv import MyGINConv
 import numpy as np
 
 
 class SparseEdgeUpdateLayer(torch.nn.Module):
-    def __init__(
-        self,
-        edge_dim: int = 64,
-        node_dim: int = 64,
-        residual: bool = False
-    ):
+    def __init__(self, edge_dim: int = 64, node_dim: int = 64):
         super(SparseEdgeUpdateLayer, self).__init__()
         input_dim = node_dim * 2 + edge_dim
         self.mlp = torch.nn.Sequential(
@@ -21,66 +15,15 @@ class SparseEdgeUpdateLayer(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(input_dim, edge_dim)
         )
-        self.residual = residual
 
     def forward(
-        self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
+        self, node_feats: torch.Tensor, edge_feats: torch.Tensor,
         edge_index: torch.Tensor,
     ) -> torch.Tensor:
-        node_i = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[0]
-        )
-        node_j = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[1]
-        )
-
+        node_i = node_feats[edge_index[0]]
+        node_j = node_feats[edge_index[1]]
         x = torch.cat([node_i, node_j, edge_feats], dim=-1)
-        return self.mlp(x) + edge_feats if self.residual else self.mlp(x)
-
-
-class GINBase(torch.nn.Module):
-    def __init__(
-        self,  num_layers: int = 4,
-        embedding_dim: int = 64,
-        dropout: float = 0.7,
-        n_class: Optional[int] = None
-    ):
-        super(GINBase, self).__init__()
-        if num_layers < 2:
-            raise ValueError("Number of GNN layers must be greater than 1.")
-        self.convs = torch.nn.ModuleList()
-        self.batch_norms = torch.nn.ModuleList()
-        self.edge_update = torch.nn.ModuleList()
-        self.num_layers = num_layers
-        self.dropout_fun = torch.nn.Dropout(dropout)
-        for layer in range(self.num_layers):
-            self.convs.append(MyGINConv(
-                in_channels=embedding_dim, out_channels=embedding_dim,
-                edge_dim=embedding_dim
-            ))
-            self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
-            self.edge_update.append(SparseEdgeUpdateLayer(
-                embedding_dim, embedding_dim, residual=True
-            ))
-        self.atom_encoder = SparseAtomEncoder(embedding_dim, n_class)
-        self.bond_encoder = SparseBondEncoder(embedding_dim, n_class)
-
-    def forward(self, G) -> torch.Tensor:
-        node_feats = self.atom_encoder(G.x, G.get('node_rxn', None))
-        edge_feats = self.bond_encoder(G.edge_attr, G.get('edge_rxn', None))
-
-        for layer in range(self.num_layers):
-            conv_res = self.batch_norms[layer](self.convs[layer](
-                x=node_feats, edge_attr=edge_feats, edge_index=G.edge_index,
-            ))
-            node_feats = self.dropout_fun(torch.relu(conv_res)) + node_feats
-
-            edge_feats = torch.relu(self.edge_update[layer](
-                edge_feats=edge_feats, node_feats=node_feats,
-                edge_index=G.edge_index
-            ))
-        return node_feats, edge_feats
+        return self.mlp(x) + edge_feats
 
 
 class GATBase(torch.nn.Module):
@@ -108,7 +51,7 @@ class GATBase(torch.nn.Module):
             ))
             self.batch_norms.append(torch.nn.LayerNorm(embedding_dim))
             self.edge_update.append(SparseEdgeUpdateLayer(
-                embedding_dim, embedding_dim, residual=True
+                embedding_dim, embedding_dim
             ))
         self.atom_encoder = SparseAtomEncoder(embedding_dim, n_class)
         self.bond_encoder = SparseBondEncoder(embedding_dim, n_class)
