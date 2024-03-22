@@ -6,12 +6,9 @@ import os
 import time
 
 from torch.utils.data import DataLoader
-from sparse_backBone import GINBase, GATBase
-from Mix_backbone import MixFormer
-from model import (
-    col_fn_pretrain, TransDataset, PositionalEncoding,
-    PretrainModel
-)
+from sparse_backBone import GATBase
+from Dataset import TransDataset, col_fn_pretrain
+from model import PositionalEncoding, PretrainModel
 from training import pretrain, preeval
 from data_utils import fix_seed, check_early_stop
 from tokenlizer import DEFAULT_SP, Tokenizer
@@ -39,14 +36,16 @@ def load_moles(data_dir, part):
     df_train = pandas.read_csv(
         os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
     )
-    moles = []
+    moles, reacts = set(), set()
     for idx, resu in enumerate(df_train['reactants>reagents>production']):
         rea, prd = resu.strip().split('>>')
         rea = clear_map_number(rea)
         prd = clear_map_number(prd)
-        moles.extend(rea.split('.'))
-        moles.append(prd)
-    return moles
+        moles.update(rea.split('.'))
+        moles.add(prd)
+        if '.' in rea:
+            reacts.add(rea)
+    return list(moles), list(reacts)
 
 
 if __name__ == '__main__':
@@ -90,10 +89,6 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--gnn_type', type=str, choices=['gin', 'gat'],
-        help='type of gnn backbone', required=True
-    )
-    parser.add_argument(
         '--dropout', type=float, default=0.1,
         help='the dropout rate, useful for all backbone'
     )
@@ -102,12 +97,6 @@ if __name__ == '__main__':
         '--base_log', default='log_pretrain', type=str,
         help='the base dir of logging'
     )
-
-    parser.add_argument(
-        '--transformer', action='store_true',
-        help='use the graph transformer or not'
-    )
-
     # GAT & Gtrans setting
     parser.add_argument(
         '--heads', default=4, type=int,
@@ -118,16 +107,8 @@ if __name__ == '__main__':
         help='negative slope for attention, only useful for gat'
     )
     parser.add_argument(
-        '--update_gate', choices=['cat', 'add'], default='add',
-        help='the update method for mixformer', type=str,
-    )
-    parser.add_argument(
         '--token_path', type=str, default='',
         help='the path of json containing tokens'
-    )
-    parser.add_argument(
-        '--aug_prob', type=float, default=0.0,
-        help='the augument prob for training'
     )
     parser.add_argument(
         '--checkpoint', type=str, default='',
@@ -177,11 +158,11 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
-    train_moles = load_moles(args.data_path, 'train')
-    test_moles = load_moles(args.data_path, 'val')
+    train_moles, train_reac = load_moles(args.data_path, 'train')
+    test_moles, test_reac = load_moles(args.data_path, 'val')
 
-    train_set = TransDataset(train_moles, args.aug_prob)
-    test_set = TransDataset(test_moles, random_prob=0)
+    train_set = TransDataset(train_moles, train_reac, mode='train')
+    test_set = TransDataset(test_moles, test_reac, mode='eval')
 
     train_loader = DataLoader(
         train_set, collate_fn=col_fn_pretrain,
@@ -192,42 +173,11 @@ if __name__ == '__main__':
         batch_size=args.bs, shuffle=False
     )
 
-    if args.transformer:
-        if args.gnn_type == 'gin':
-            gnn_args = {
-                'in_channels': args.dim, 'out_channels': args.dim,
-                'edge_dim': args.dim
-            }
-        elif args.gnn_type == 'gat':
-            assert args.dim % args.heads == 0, \
-                'The model dim should be evenly divided by num_heads'
-            gnn_args = {
-                'in_channels': args.dim, 'dropout': args.dropout,
-                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
-                'negative_slope': args.negative_slope, 'heads': args.heads
-            }
-        else:
-            raise ValueError(f'Invalid GNN type {args.backbone}')
-
-        GNN = MixFormer(
-            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
-            n_class=None, update_gate=args.update_gate
-        )
-    else:
-        if args.gnn_type == 'gin':
-            GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, n_class=None
-            )
-        elif args.gnn_type == 'gat':
-            GNN = GATBase(
-                num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, num_heads=args.heads,
-                negative_slope=args.negative_slope, n_class=None
-            )
-        else:
-            raise ValueError(f'Invalid GNN type {args.backbone}')
+    GNN = GATBase(
+        num_layers=args.n_layer, dropout=args.dropout,
+        embedding_dim=args.dim, num_heads=args.heads,
+        negative_slope=args.negative_slope, n_class=None
+    )
 
     decode_layer = TransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,

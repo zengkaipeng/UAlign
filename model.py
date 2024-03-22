@@ -1,7 +1,7 @@
 from numpy import concatenate as npcat
 import random
 import torch
-from sparse_backBone import GINBase, GATBase
+from sparse_backBone import GATBase
 
 from ogb.graphproppred.mol_encoder import AtomEncoder
 from utils.chemistry_parse import(
