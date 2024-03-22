@@ -13,26 +13,22 @@ from training import pretrain, preeval
 from data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
-from model import RetroDataset, col_fn_retro
-from sparse_backBone import GINBase, GATBase
-from Mix_backbone import MixFormer
+from Dataset import RetroDataset, col_fn_retro
+from sparse_backBone import GATBase
 
 
 def create_log_model(args):
     timestamp = time.time()
-    detail_log_folder = os.path.join(
-        args.base_log, ('Gtrans_' if args.transformer else '') + args.gnn_type
-    )
-    if not os.path.exists(detail_log_folder):
-        os.makedirs(detail_log_folder)
-    detail_log_dir = os.path.join(detail_log_folder, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(detail_log_folder, f'mod-{timestamp}.pth')
-    token_path = os.path.join(detail_log_folder, f'token-{timestamp}.pkl')
+    if not os.path.exists(args.base_log):
+        os.makedirs(args.base_log)
+    detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
+    detail_model_dir = os.path.join(args.base_log, f'mod-{timestamp}.pth')
+    token_path = os.path.join(args.base_log, f'token-{timestamp}.pkl')
     return detail_log_dir, detail_model_dir, token_path
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+    parser = argparse.ArgumentParser('Trans Data')
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
@@ -57,19 +53,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--warmup', default=1, type=int,
         help='the epoch of warmup'
-    )
-    parser.add_argument(
-        '--gnn_type', type=str, choices=['gat', 'gin'],
-        help='type of gnn backbone', required=True
-    )
-    parser.add_argument(
-        '--update_gate', choices=['add', 'cat'], type=str,
-        help='the update gate for graphtransformer'
-    )
-
-    parser.add_argument(
-        '--transformer', action='store_true',
-        help='use graph transformer or not'
     )
     parser.add_argument(
         '--gamma', default=0.998, type=float,
@@ -141,7 +124,7 @@ if __name__ == '__main__':
         help='the label smoothing for transformer training'
     )
     parser.add_argument(
-        '--num_workers', type=int, default=4,
+        '--num_workers', type=int, default=0,
         help='the num of worker for dataloader'
     )
     parser.add_argument(
@@ -208,45 +191,11 @@ if __name__ == '__main__':
         shuffle=False, num_workers=args.num_workers
     )
 
-    if args.transformer:
-        if args.gnn_type == 'gin':
-            gnn_args = {
-                'in_channels': args.dim, 'out_channels': args.dim,
-                'edge_dim': args.dim
-            }
-        elif args.gnn_type == 'gat':
-            assert args.dim % args.heads == 0, \
-                'The model dim should be evenly divided by num_heads'
-            gnn_args = {
-                'in_channels': args.dim, 'dropout': args.dropout,
-                'out_channels': args.dim // args.heads, 'edge_dim': args.dim,
-                'negative_slope': args.negative_slope, 'heads': args.heads
-            }
-        else:
-            raise ValueError(f'Invalid GNN type {args.backbone}')
-
-        GNN = MixFormer(
-            emb_dim=args.dim, n_layers=args.n_layer, gnn_args=gnn_args,
-            dropout=args.dropout, heads=args.heads, gnn_type=args.gnn_type,
-            n_class=11 if args.use_class else None,
-            update_gate=args.update_gate
-        )
-    else:
-        if args.gnn_type == 'gin':
-            GNN = GINBase(
-                num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim,
-                n_class=11 if args.use_class else None
-            )
-        elif args.gnn_type == 'gat':
-            GNN = GATBase(
-                num_layers=args.n_layer, dropout=args.dropout,
-                embedding_dim=args.dim, num_heads=args.heads,
-                negative_slope=args.negative_slope,
-                n_class=11 if args.use_class else None
-            )
-        else:
-            raise ValueError(f'Invalid GNN type {args.backbone}')
+    GNN = GATBase(
+        num_layers=args.n_layer, dropout=args.dropout, num_heads=args.heads,
+        embedding_dim=args.dim, negative_slope=args.negative_slope,
+        n_class=11 if args.use_class else None
+    )
 
     decode_layer = TransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,

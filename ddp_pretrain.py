@@ -66,13 +66,13 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
     device = torch.device(f'cuda:{worker_idx}')
     verbose = (worker_idx == 0)
 
-    train_moles = load_moles(args.data_path, 'train', verbose)
-    test_moles = load_moles(args.data_path, 'val', verbose)
+    train_moles, train_reac = load_moles(args.data_path, 'train')
+    test_moles, test_reac = load_moles(args.data_path, 'val')
 
     print(f'[INFO] worker {worker_idx} data loaded')
 
-    train_set = TransDataset(train_moles, args.aug_prob)
-    test_set = TransDataset(test_moles, random_prob=0)
+    train_set = TransDataset(train_moles, train_reac, mode='train')
+    test_set = TransDataset(test_moles, test_reac, mode='eval')
 
     train_sampler = DistributedSampler(train_set, shuffle=True)
     test_sampler = DistributedSampler(test_set, shuffle=False)
@@ -236,10 +236,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--token_path', type=str, default='',
         help='the path of json containing tokens'
-    )
-    parser.add_argument(
-        '--aug_prob', type=float, default=0.0,
-        help='the augument prob for training'
     )
     parser.add_argument(
         '--checkpoint', type=str, default='',
