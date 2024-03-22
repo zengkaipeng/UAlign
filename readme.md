@@ -1,3 +1,5 @@
+## This REPO is for github
+
 ## ENV
 
 环境配置文件放在 chemistry.yml 里面，按照cuda服务器配置的，如果要用信创到时候找一下管理我把镜像给你
