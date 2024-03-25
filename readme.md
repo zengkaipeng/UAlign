@@ -4,13 +4,86 @@ Official implementation for paper:
 
 UAlign: Pushing the Limit of Template-free Retrosynthesis Prediction with Unsupervised SMILES Alignment
 
-## ENV
+## Environment
+
+two anaconda environments are provided, corresponding to CUDA 10.2 and CUDA 11.3 respectively. Use the following commands to create the environment for running our code.
+
+```shell
+conda env create -f env_cu102.yml # for CUDA 10.2
+conda env create -f env_cu113.yml # for CUDA 11.3
+```
+
+## Data and Checkpoints
+
+The raw data, processed data, checkpoints and the predicted results can be accessed via [link](https://drive.google.com/drive/folders/1hADgJ_Sga7xVao73ChlQy74bieS-5kYX?usp=drive_link). The directory structure should be as follows:
+
+```
+UAlign
+├───checkpoints
+│   ├───USPTO-50K
+│   │       ├───class_unknown.pkl
+│   │       ├───class_unknown.pth
+│   │       ├───class_known.pkl
+│   │       └───class_known.pth
+│   │       
+│   ├───USPTO-FULL
+│   │       ├───model.pth
+│   │       └───token.pkl
+│   │       
+│   └───USPTO-MIT
+│           ├───model.pth
+│           └───token.pkl
+│           
+├───Data
+|   ├───USPTO-50K
+|   │       ├───canonicalized_raw_test.csv
+|   │       ├───canonicalized_raw_val.csv
+|   │       ├───canonicalized_raw_train.csv
+|   │       ├───raw_test.csv
+|   │       ├───raw_val.csv
+|   │       └───raw_train.csv
+|   │       
+|   ├───USPTO-MIT
+|   │       ├───canonicalized_raw_train.csv
+|   │       ├───canonicalized_raw_val.csv
+|   │       ├───canonicalized_raw_test.csv
+|   │       ├───valid.txt
+|   │       ├───test.txt
+|   │       └───train.txt
+|   │       
+|   └───USPTO-FULL
+|           ├───canonicalized_raw_val.csv
+|           ├───canonicalized_raw_test.csv
+|           ├───canonicalized_raw_train.csv
+|           ├───raw_val.csv
+|           ├───raw_test.csv
+|           └───raw_train.csv
+|                     
+└───predicted_results
+    ├───USPTO-50K
+    │       ├───answer-1711345166.9484136.json
+    │       └───answer-1711345359.2533984.json
+    │       
+    ├───USPTO-MIT
+    │       ├───10000-20000.json
+    │       ├───30000-38648.json
+    │       ├───20000-30000.json
+    │       └───0-10000.json
+    │       
+    └───USPTO-FULL
+            ├───75000-96014.json
+            ├───25000-50000.json
+            ├───50000-75000.json
+            └───0-25000.json
 
 
+```
 
-## Data
+The raw data of USPTO-50K dataset and USPTO-FULL dataset are named  $\texttt{raw\_train.csv}$, $\texttt{raw\_val.csv}$ and $\texttt{raw\_test.csv}$ and are located in their corresponding folders respectively. The raw data of USPTO-MIT dataset are named $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$ under the folder $\texttt{USPTO-MIT}$. All the processed 
 
-数据应该被放在同一个文件夹下，按照划分分为 `canonicalized_raw_train.csv`, `canonicalized_raw_val.csv`和 `canonicalized_raw_test.csv` 三个文件，我会把剩下的数据集整理好发私法
+## Data Preprocess
+
+The data should have 
 
 ## Pretrain (First stage training)
 
