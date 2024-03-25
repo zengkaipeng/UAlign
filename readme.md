@@ -1,8 +1,12 @@
-## This REPO is for github
+# UAlign
+
+Official implementation for paper:
+
+UAlign: Pushing the Limit of Template-free Retrosynthesis Prediction with Unsupervised SMILES Alignment
 
 ## ENV
 
-环境配置文件放在 chemistry.yml 里面，按照cuda服务器配置的，如果要用信创到时候找一下管理我把镜像给你
+
 
 ## Data
 
