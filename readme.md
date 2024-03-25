@@ -85,13 +85,26 @@ UAlign
 - predicted_results
     - In the $\texttt{USPTO-FULL}$ and $\texttt{USPTO-MIT}$ folders, there is only one set of experimental results in each. They are divided into different files based on the index of the data. 
     - In USPTO-50K, there are two sets of experimental results. The file $\texttt{answer-1711345166.9484136.json}$ corresponds to the setting of reaction class unknowns, while $\texttt{answer-1711345359.2533984.json}$ corresponds to the setting of reaction class known. 
-    - Each json file contains raw data for testing, the model's prediction results, corresponding logits, and also includes the checkpoints information used to generate this json file.
+    - Each $\texttt{json}$ file contains raw data for testing, the model's prediction results, corresponding logits, and also includes the checkpoints information used to generate this $\texttt{json}$ file.
 
 
 
 ## Data Preprocess
 
-The data should have 
+We provide the data preprocess scripts in folder $\texttt{data\_proprocess}$​. Each dataset is processed through a separate processing script.  The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
+
+```shell
+python data_proprocess/canonicalize_data_50k.py --filename $dir_of_raw_file
+python data_proprocess/canonicalize_data_full.py --filename $dir_of_raw_file
+```
+
+The script for USPTO-MIT processes all the files together, which can be used by
+
+```shell
+python data_proprocess/canonicalize_data_full.py --dir $folder_of_raw_data --output_dir $output_dir
+```
+
+The `$folder_of_raw_data` should contain the following files:  $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$. 
 
 ## Pretrain (First stage training)
 
