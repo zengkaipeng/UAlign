@@ -66,8 +66,8 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
     device = torch.device(f'cuda:{worker_idx}')
     verbose = (worker_idx == 0)
 
-    train_moles, train_reac = load_moles(args.data_path, 'train')
-    test_moles, test_reac = load_moles(args.data_path, 'val')
+    train_moles, train_reac = load_moles(args.data_path, 'train', verbose)
+    test_moles, test_reac = load_moles(args.data_path, 'val', verbose)
 
     print(f'[INFO] worker {worker_idx} data loaded')
 
