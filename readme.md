@@ -288,3 +288,23 @@ The script will summary all the results into a $\texttt{json}$ file under output
 python evaluate_dir.py --beams $beam_size_for_beam_search --path $path_of_output_dir
 ```
 
+We also provide the script for inferencing a single product. You can used the following command for inference:
+
+```shell
+python inference_one.py --dim $dim \
+                        --n_layer $n_layer \
+                    	--heads $num_heads_for_attention \
+                    	--seed $random_seed \
+                    	--device $device_id \
+                    	--checkpoint $path_of_checkpoint \
+                    	--token_ckpt $path_of_checkpoint_for_tokenizer \
+                    	--negative_slope $negative_slope_for_leaky_relu \
+                    	--max_len $max_length_of_generated_smiles \
+                    	--beams $beam_size_for_beam_search \
+                    	--product_smiles $the_SMILES_of_product \
+                    	--input_class $class_number_for_reaction \
+                        [--use_class] #add it into command for reaction class known setting
+```
+
+If `--use_class` is added, the `input_class` is required. Also you have make sure that the product SMILES contains a single molecule. 
+
