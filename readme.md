@@ -75,11 +75,19 @@ UAlign
             ├───25000-50000.json
             ├───50000-75000.json
             └───0-25000.json
-
-
 ```
 
-The raw data of USPTO-50K dataset and USPTO-FULL dataset are named  $\texttt{raw\_train.csv}$, $\texttt{raw\_val.csv}$ and $\texttt{raw\_test.csv}$ and are located in their corresponding folders respectively. The raw data of USPTO-MIT dataset are named $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$ under the folder $\texttt{USPTO-MIT}$. All the processed 
+- Data
+    - The raw data of the USPTO-50K dataset and USPTO-FULL dataset is stored in the corresponding folders in the files $\texttt{raw\_train.csv}$, $\texttt{raw\_val.csv}$, and $\texttt{raw\_test.csv}$. The raw data of USPTO-MIT dataset are named $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$ under the folder $\texttt{USPTO-MIT}$. 
+    - All the processed data are named $\texttt{canonicalized\_raw\_train.csv}$ , $\texttt{canonicalized\_raw\_val.csv}$ and $\texttt{canonicalized\_raw\_test.csv}$ and are put in the corresponding folders respectively. **If you want to use your own data for training, please make sure the your files have the same format and the same name as the processed ones.**
+- Checkpoints
+    - Every checkpoint needs to be used together with its corresponding tokenizer. The tokenizers are stored as $\texttt{pkl}$ files, while the trained model weights are stored in $\texttt{pth}$ files. The matching model weights and tokenizer have the same name and are placed in the same folder.
+- predicted_results
+    - In the $\texttt{USPTO-FULL}$ and $\texttt{USPTO-MIT}$ folders, there is only one set of experimental results in each. They are divided into different files based on the index of the data. 
+    - In USPTO-50K, there are two sets of experimental results. The file $\texttt{answer-1711345166.9484136.json}$ corresponds to the setting of reaction class unknowns, while $\texttt{answer-1711345359.2533984.json}$ corresponds to the setting of reaction class known. 
+    - Each json file contains raw data for testing, the model's prediction results, corresponding logits, and also includes the checkpoints information used to generate this json file.
+
+
 
 ## Data Preprocess
 
