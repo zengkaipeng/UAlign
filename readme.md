@@ -234,11 +234,57 @@ python pretrain.py --dim $dim \
                    [--use_class] #add it into command for reaction class known setting
 ```
 
-
-
 ## Inference and evaluation
 
+To inference the well-trained checkpoints, you can use the following commands:
 
+```shell
+python inference.py --dim $dim \
+                    --n_layer $n_layer \
+                    --heads $num_heads_for_attention \
+                    --seed $random_seed \
+                    --data_path $path_for_file_of_testset \
+                    --device $device_id \
+                    --checkpoint $path_of_checkpoint \
+                    --token_ckpt $path_of_checkpoint_for_tokenizer \
+                    --negative_slope $negative_slope_for_leaky_relu \
+                    --max_len $max_length_of_generated_smiles \
+                    --beams $beam_size_for_beam_search \
+                    --output_folder $the_folder_to_store_results \
+                    --save_every $the_step_to_write_results_to_files \
+                    [--use_class] #add it into command for reaction class known setting
+```
 
+The script will summary all the results into a $\texttt{json}$ file under output folder, named by the timestamp. And to evaluate the result to get top-$k$ accuracy, use   the following command:
 
+```shell
+python evaluate_answer.py --beams $beam_size_for_beam_search --path $path_of_result
+```
+
+To fasten the inference, you can the following command to inference only a part of test set so that the inference part can be done parallelly: 
+
+```shell
+python inference_part.py --dim $dim \
+                    	 --n_layer $n_layer \
+                         --heads $num_heads_for_attention \
+                         --seed $random_seed \
+                         --data_path $path_for_file_of_testset \
+                         --device $device_id \
+                         --checkpoint $path_of_checkpoint \
+                         --token_ckpt $path_of_checkpoint_for_tokenizer \
+                         --negative_slope $negative_slope_for_leaky_relu \
+                         --max_len $max_length_of_generated_smiles \
+                         --beams $beam_size_for_beam_search \
+                         --output_folder $the_folder_to_store_results \
+                         --save_every $the_step_to_write_results_to_files \
+                         --start $start_idx \
+                         --len $num_of_samples_to_test \
+                         [--use_class] #add it into command for reaction class known setting
+```
+
+The script will summary all the results into a $\texttt{json}$ file under output folder, named by the start and end index of data. And to evaluate the result to get top-$k$​ accuracy, use the following command:
+
+```shell
+python evaluate_dir.py --beams $beam_size_for_beam_search --path $path_of_output_dir
+```
 
