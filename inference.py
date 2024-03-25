@@ -151,7 +151,7 @@ if __name__ == '__main__':
 
     for idx, resu in enumerate(tqdm(meta_df['reactants>reagents>production'])):
         rea, prd = resu.strip().split('>>')
-        prd = cano_with_am(prd)
+        prd = clear_map_number(prd)
         rea = clear_map_number(rea)
         if args.use_class:
             rxn_class = int(meta_df['class'][idx])

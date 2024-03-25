@@ -10,7 +10,7 @@ from model import PretrainModel, PositionalEncoding
 from data_utils import fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from sparse_backBone import GATBase
-from utils.chemistry_parse import clear_map_number
+from utils.chemistry_parse import clear_map_number, canonical_smiles
 from utils.graph_utils import smiles2graph
 import pandas
 import torch_geometric
@@ -138,10 +138,11 @@ if __name__ == '__main__':
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
     if args.use_class:
         assert args.input_class != -1, 'require reaction class!'
-        start_token = f'<RXN>_{args.input_class}'
+        start_token, rxn_class = f'<RXN>_{args.input_class}', args.input_class
     else:
-        start_token = '<CLS>'
+        start_token, rxn_class = '<CLS>', None
 
+    prd = canonical_smiles(args.product_smiles)
     g_ip = make_graph_batch(prd, rxn_class).to(device)
 
     preds, probs = beam_search_one(
