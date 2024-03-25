@@ -209,7 +209,7 @@ If you want to train from scratch, pass the path of token list to the script and
 ```shell
 python pretrain.py --dim $dim \
 				   --n_layer $n_layer \
-				   --aug_prob $probability_for_data_augumentation
+				   --aug_prob $probability_for_data_augumentation \
                    --data_path $folder_of_dataset \
                    --seed $random_seed \
                    --bs $batch_size \
