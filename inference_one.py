@@ -98,6 +98,11 @@ if __name__ == '__main__':
         help='the input class for reaction, required when' +
         ' use_class option is chosen'
     )
+    parser.add_argument(
+        '--org_output', action='store_true',
+        help='preserve the original output,' +
+        ' if chosen the invalid smiles will not be removed'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -148,7 +153,7 @@ if __name__ == '__main__':
     preds, probs = beam_search_one(
         model, tokenizer, g_ip, device, max_len=args.max_len,
         size=args.beams, begin_token=start_token, end_token='<END>',
-        pen_para=0, validate=False
+        pen_para=0, validate=not args.org_output
     )
 
     print('[RESULT]')

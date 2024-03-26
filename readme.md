@@ -324,6 +324,7 @@ python inference_one.py --dim $dim \
                     	--product_smiles $the_SMILES_of_product \
                     	--input_class $class_number_for_reaction \
                         [--use_class] #add it into command for reaction class known setting
+                        [--org_output] # add it and the invalid smiles will not be removed from outputs
 ```
 
 If `--use_class` is added, the `input_class` is required. Also you have make sure that the product SMILES contains a single molecule. 
