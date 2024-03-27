@@ -136,7 +136,7 @@ To build the tokenizer, we need a list of of all the shown tokens. You can use t
 python generate_tokens $file_1 $file_2 ... $file_n $token_list.json
 ```
 
-The script can accept multiple files as input and the last position should be the path of file to store the token list.
+The script can accept multiple files as input and the last position should be the path of file to store the token list. The files should have the same format as the processed dataset.
 
 ## Stage I training
 
