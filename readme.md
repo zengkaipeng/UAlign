@@ -2,7 +2,7 @@
 
 Official implementation for paper:
 
-UAlign: Pushing the Limit of Template-free Retrosynthesis Prediction with Unsupervised SMILES Alignment
+[UAlign: Pushing the Limit of Template-free Retrosynthesis Prediction with Unsupervised SMILES Alignment](https://arxiv.org/abs/2404.00044)
 
 ## Environment
 
