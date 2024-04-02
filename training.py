@@ -3,8 +3,8 @@ import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
 from data_utils import (
-    generate_tgt_mask, correct_trans_output, eval_by_batch,
-    convert_log_into_label, convert_edge_log_into_labels
+    generate_tgt_mask, correct_trans_output,
+    eval_by_batch, convert_log_into_label
 )
 
 from data_utils import eval_trans as data_eval_trans
