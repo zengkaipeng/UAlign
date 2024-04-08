@@ -196,62 +196,62 @@ python ddp_pretrain.py --dim $dim \
 Use the following command to train the second stage:
 
 ```shell
-python pretrain.py --dim $dim \
-				   --n_layer $n_layer \
-				   --aug_prob $probability_for_data_augumentation \
-                   --data_path $folder_of_dataset \
-                   --seed $random_seed \
-                   --bs $batch_size \
-                   --epoch $epoch_for_training \
-                   --early_stop $epoch_num_for_checking_early_stop \
-                   --device $device_id \
-                   --lr $learning_rate \
-                   --dropout $dropout \
-                   --base_log $folder_for_logging \
-                   --heads $num_heads_for_attention \
-                   --negative_slope $negative_slope_for_leaky_relu \
-                   --token_path $path_of_token_list \
-                   --checkpoint $path_of_checkpoint \
-                   --token_ckpt $path_of_checkpoint_for_tokenizer \
-                   --gamma $decay_rate_for_lr_scheduler \
-                   --step_start $the_epoch_to_start_lr_decay \
-                   --warmup $epoch_num_for_warmup \
-                   --accu $batch_num_for_gradient_accumulation \
-                   --num_worker $num_worker_for_data_loader \
-                   --label_smoothing $label_smoothing_for_training \
-                   --num_gpus $num_of_gpus_for_training \
-                   --port $port_for_ddp_training
-                   [--use_class] #add it into command for reaction class known setting
+python train_trans.py --dim $dim \
+				      --n_layer $n_layer \
+				      --aug_prob $probability_for_data_augumentation \
+				      --data_path $folder_of_dataset \
+                      --seed $random_seed \
+                      --bs $batch_size \
+                      --epoch $epoch_for_training \
+                      --early_stop $epoch_num_for_checking_early_stop \
+                      --device $device_id \
+                      --lr $learning_rate \
+                      --dropout $dropout \
+                      --base_log $folder_for_logging \
+                      --heads $num_heads_for_attention \
+                      --negative_slope $negative_slope_for_leaky_relu \
+                      --token_path $path_of_token_list \
+                      --checkpoint $path_of_checkpoint \
+                      --token_ckpt $path_of_checkpoint_for_tokenizer \
+                      --gamma $decay_rate_for_lr_scheduler \
+                      --step_start $the_epoch_to_start_lr_decay \
+                      --warmup $epoch_num_for_warmup \
+                      --accu $batch_num_for_gradient_accumulation \
+                      --num_worker $num_worker_for_data_loader \
+                      --label_smoothing $label_smoothing_for_training \
+                      --num_gpus $num_of_gpus_for_training \
+                      --port $port_for_ddp_training
+                      [--use_class] #add it into command for reaction class known setting
 ```
 
 If you want to train from scratch, pass the path of token list to the script and don't provide any checkpoints for it.  Also for data distributed training, you can use:
 
 ```shell
-python pretrain.py --dim $dim \
-				   --n_layer $n_layer \
-				   --aug_prob $probability_for_data_augumentation \
-                   --data_path $folder_of_dataset \
-                   --seed $random_seed \
-                   --bs $batch_size \
-                   --epoch $epoch_for_training \
-                   --early_stop $epoch_num_for_checking_early_stop \
-                   --lr $learning_rate \
-                   --dropout $dropout \
-                   --base_log $folder_for_logging \
-                   --heads $num_heads_for_attention \
-                   --negative_slope $negative_slope_for_leaky_relu \
-                   --token_path $path_of_token_list \
-                   --checkpoint $path_of_checkpoint \
-                   --token_ckpt $path_of_checkpoint_for_tokenizer \
-                   --gamma $decay_rate_for_lr_scheduler \
-                   --step_start $the_epoch_to_start_lr_decay \
-                   --warmup $epoch_num_for_warmup \
-                   --accu $batch_num_for_gradient_accumulation \
-                   --num_worker $num_worker_for_data_loader \
-                   --label_smoothing $label_smoothing_for_training \
-                   --encoder $the_checkpoint_of_encoder \
-                   --decoder $the_checkpoint_of_decoder \
-                   [--use_class] #add it into command for reaction class known setting
+python ddp_train_trans.py --dim $dim \
+                          --n_layer $n_layer \
+                          --aug_prob $probability_for_data_augumentation \
+                          --data_path $folder_of_dataset \
+                          --seed $random_seed \
+                          --bs $batch_size \
+                          --epoch $epoch_for_training \
+                          --early_stop $epoch_num_for_checking_early_stop \
+                          --lr $learning_rate \
+                          --dropout $dropout \
+                          --base_log $folder_for_logging \
+                          --heads $num_heads_for_attention \
+                          --negative_slope $negative_slope_for_leaky_relu \
+                          --token_path $path_of_token_list \
+                          --checkpoint $path_of_checkpoint \
+                          --token_ckpt $path_of_checkpoint_for_tokenizer \
+                          --gamma $decay_rate_for_lr_scheduler \
+                          --step_start $the_epoch_to_start_lr_decay \
+                          --warmup $epoch_num_for_warmup \
+                          --accu $batch_num_for_gradient_accumulation \
+                          --num_worker $num_worker_for_data_loader \
+                          --label_smoothing $label_smoothing_for_training \
+                          --encoder $the_checkpoint_of_encoder \
+                          --decoder $the_checkpoint_of_decoder \
+                          [--use_class] #add it into command for reaction class known setting
 ```
 
 ## Inference and evaluation
