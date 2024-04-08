@@ -39,10 +39,14 @@ class TransDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         ret = ['<CLS>']
-        out_smi = self.smiles[index] if index < self.offset \
-            else self.reacts[index - self.offset]
-        if self.mode == 'train':
-            out_smi = self.randomize_smiles(out_smi)
+
+        if index < self.offset:
+            out_smi = self.randomize_smiles(self.smiles[index]) \
+                if self.mode == 'train' else self.smiles[index]
+        else:
+            out_smi = self.reacts[index - self.offset]
+            if self.mode == 'train':
+                out_smi = self.random_react(out_smi)
 
         ret.extend(smi_tokenizer(out_smi))
         ret.append('<END>')
