@@ -23,28 +23,6 @@ def load_data(data_dir, part):
     return reacts, prods, rxn_class
 
 
-def eval_by_batch(pred, label, batch, return_tensor=False, batch_size=None):
-    if batch_size is None:
-        batch_size = batch.max().item() + 1
-
-    accs = torch.zeros(batch_size).bool()
-
-    for i in range(batch_size):
-        this_mask = batch == i
-
-        if torch.any(this_mask):
-            this_lb = label[this_mask]
-            this_pd = pred[this_mask]
-            accs[i] = torch.all(this_lb == this_pd).item()
-        else:
-            accs[i] = True
-
-    if not return_tensor:
-        return accs.sum().item(), batch_size
-    else:
-        return accs
-
-
 def fix_seed(seed):
     random.seed(seed)
     torch.manual_seed(seed)

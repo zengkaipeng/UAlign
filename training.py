@@ -4,7 +4,7 @@ import torch
 from torch.nn.functional import cross_entropy
 from data_utils import (
     generate_tgt_mask, correct_trans_output,
-    eval_by_batch, convert_log_into_label
+    convert_log_into_label
 )
 
 from data_utils import eval_trans as data_eval_trans
@@ -18,13 +18,6 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
         return warmup_factor * (1 - alpha) + alpha
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
-
-
-def loss_batch(logs, label, batch):
-    losses = cross_entropy(logs, label, reduction='none')
-    all_x = torch.zeros(batch.max().item() + 1).to(losses)
-    all_x.index_add_(dim=0, source=losses, index=batch)
-    return all_x.mean()
 
 
 def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
