@@ -219,7 +219,6 @@ python train_trans.py --dim $dim \
                           --num_worker $num_worker_for_data_loader \
                           --label_smoothing $label_smoothing_for_training \
                           [--use_class] #add it into command for reaction class known setting
-
 ```
 
 If you want to train from scratch, pass the path of token list to the script and don't provide any checkpoints for it.  Also for data distributed training, you can use:
