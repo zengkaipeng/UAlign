@@ -9,6 +9,7 @@ import random
 from rdkit import Chem
 
 
+
 class TransDataset(torch.utils.data.Dataset):
     def __init__(self, smiles, reacts, mode='train'):
         super(TransDataset, self).__init__()
@@ -212,8 +213,8 @@ def col_fn_retro(data_batch):
     result['batch_mask'] = all_batch_mask.bool()
 
     if len(node_rxn) > 0:
-        node_rxn = npcat(node_rxn, axis=0)
-        edge_rxn = npcat(edge_rxn, axis=0)
+        node_rxn = np.concatenate(node_rxn, axis=0)
+        edge_rxn = np.concatenate(edge_rxn, axis=0)
         result['node_rxn'] = torch.from_numpy(node_rxn)
         result['edge_rxn'] = torch.from_numpy(edge_rxn)
 

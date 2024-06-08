@@ -127,14 +127,6 @@ if __name__ == '__main__':
         '--num_workers', type=int, default=0,
         help='the num of worker for dataloader'
     )
-    parser.add_argument(
-        "--encoder", type=str, default='',
-        help='the checkpoint used for encoder'
-    )
-    parser.add_argument(
-        '--decoder', type=str, default='',
-        help='the checkpoint used for decoder'
-    )
 
     args = parser.parse_args()
     print(args)
@@ -147,7 +139,7 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
 
-    if args.checkpoint != '' or args.decoder != '':
+    if args.checkpoint != '':
         assert args.token_ckpt != '', \
             'require token_ckpt when checkpoint is given'
         with open(args.token_ckpt, 'rb') as Fin:
@@ -209,23 +201,6 @@ if __name__ == '__main__':
         decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
     ).to(device)
 
-    if args.encoder != '':
-        assert args.checkpoint == '', "encoder will be covered by total ckpt"
-        print(f'[INFO] Loading encoder weight in {args.encoder}')
-        weight = torch.load(args.encoder, map_location=device)
-        weight = {k: v for k, v in weight.items() if k.startswith('encoder')}
-        model.load_state_dict(weight, strict=False)
-    if args.decoder != '':
-        assert args.checkpoint == '', "encoder will be covered by total ckpt"
-        assert args.token_ckpt != '', 'Missing Tokenizer Information'
-        print(f'[INFO] Loading decoder weight in {args.decoder}')
-        weight = torch.load(args.decoder, map_location=device)
-        weight = {
-            k: v for k, v in weight.items() if k.startswith('decoder') or
-            k.startswith('word_emb') or k.startswith('pos_enc') or
-            k.startswith('output_layer')
-        }
-        model.load_state_dict(weight, strict=False)
     if args.checkpoint != '':
         assert args.token_ckpt != '', 'Missing Tokenizer Information'
         print(f'[INFO] Loading model weight in {args.checkpoint}')
