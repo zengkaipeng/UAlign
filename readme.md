@@ -78,11 +78,11 @@ UAlign
 ```
 
 - Data
-    - The raw data of the USPTO-50K dataset and USPTO-FULL dataset is stored in the corresponding folders in the files $\texttt{raw\_train.csv}$, $\texttt{raw\_val.csv}$, and $\texttt{raw\_test.csv}$. The raw data of USPTO-MIT dataset are named $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$ under the folder $\texttt{USPTO-MIT}$. 
-    - All the processed data are named $\texttt{canonicalized\_raw\_train.csv}$ , $\texttt{canonicalized\_raw\_val.csv}$ and $\texttt{canonicalized\_raw\_test.csv}$ and are put in the corresponding folders respectively. **If you want to use your own data for training, please make sure the your files have the same format and the same name as the processed ones.**
+    - The raw data of the USPTO-50K dataset and USPTO-FULL dataset is stored in the corresponding folders in the files `raw_train.csv`, `raw_val.csv`, and `raw_test.csv`. The raw data of USPTO-MIT dataset are named `train.txt`, `valid.txt` and `test.txt` under the folder `USPTO-MIT`. 
+    - All the processed data are named `canonicalized_raw_train.csv` , `canonicalized_raw_val.csv` and `canonicalized_raw_test.csv` and are put in the corresponding folders respectively. **If you want to use your own data for training, please make sure the your files have the same format and the same name as the processed ones.**
     
 - Checkpoints
-    - Every checkpoint needs to be used together with its corresponding tokenizer. The tokenizers are stored as $\texttt{pkl}$ files, while the trained model weights are stored in $\texttt{pth}$​ files. The matching model weights and tokenizer have the same name and are placed in the same folder.
+    - Every checkpoint needs to be used together with its corresponding tokenizer. The tokenizers are stored as `pkl` files, while the trained model weights are stored in `pth`​ files. The matching model weights and tokenizer have the same name and are placed in the same folder.
     
     - The parameters of checkpoint for USPTO-50K are
     
@@ -103,15 +103,13 @@ UAlign
       
     
 - predicted_results
-    - In the $\texttt{USPTO-FULL}$ and $\texttt{USPTO-MIT}$ folders, there is only one set of experimental results in each. They are divided into different files based on the index of the data. 
-    - In USPTO-50K, there are two sets of experimental results. The file $\texttt{answer-1711345166.9484136.json}$ corresponds to the setting of reaction class unknown, while $\texttt{answer-1711345359.2533984.json}$ corresponds to the setting of reaction class known. 
-    - Each $\texttt{json}$ file contains raw data for testing, the model's prediction results, corresponding logits, and also includes the checkpoints information used to generate this $\texttt{json}$ file.
-
-
+    - In the `USPTO-FULL` and `USPTO-MIT` folders, there is only one set of experimental results in each. They are divided into different files based on the index of the data. 
+    - In USPTO-50K, there are two sets of experimental results. The file `answer-1711345166.9484136.json` corresponds to the setting of reaction class unknown, while `answer-1711345359.2533984.json` corresponds to the setting of reaction class known. 
+    - Each `json` file contains raw data for testing, the model's prediction results, corresponding logits, and also includes the checkpoints information used to generate this `json` file.
 
 ## Data Preprocess
 
-We provide the data preprocess scripts in folder $\texttt{data\_proprocess}$​. Each dataset is processed through a separate processing script.  The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
+We provide the data preprocess scripts in folder `data_proprocess`​. Each dataset is processed through a separate processing script.  The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
 
 ```shell
 python data_proprocess/canonicalize_data_50k.py --filename $dir_of_raw_file
@@ -124,7 +122,7 @@ The script for USPTO-MIT processes all the files together, which can be used by
 python data_proprocess/canonicalize_data_full.py --dir $folder_of_raw_data --output_dir $output_dir
 ```
 
-The `$folder_of_raw_data` should contain the following files:  $\texttt{train.txt}$, $\texttt{valid.txt}$ and $\texttt{test.txt}$​. 
+The `$folder_of_raw_data` should contain the following files:  `train.txt`, `valid.txt` and `test.txt`. 
 
 **For the detail about data preprocess, please refer to the article.**
 
@@ -273,7 +271,7 @@ python inference.py --dim $dim \
                     [--use_class] #add it into command for reaction class known setting
 ```
 
-The script will summary all the results into a $\texttt{json}$ file under output folder, named by the timestamp. And to evaluate the result to get top-$k$ accuracy, use   the following command:
+The script will summary all the results into a `json` file under output folder, named by the timestamp. And to evaluate the result to get top-$k$ accuracy, use   the following command:
 
 ```shell
 python evaluate_answer.py --beams $beam_size_for_beam_search --path $path_of_result
@@ -300,7 +298,7 @@ python inference_part.py --dim $dim \
                          [--use_class] #add it into command for reaction class known setting
 ```
 
-The script will summary all the results into a $\texttt{json}$ file under output folder, named by the start and end index of data. And to evaluate the result to get top-$k$​ accuracy, use the following command:
+The script will summary all the results into a `json` file under output folder, named by the start and end index of data. And to evaluate the result to get top-$k$​ accuracy, use the following command:
 
 ```shell
 python evaluate_dir.py --beams $beam_size_for_beam_search --path $path_of_output_dir
