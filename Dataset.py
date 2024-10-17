@@ -9,7 +9,6 @@ import random
 from rdkit import Chem
 
 
-
 class TransDataset(torch.utils.data.Dataset):
     def __init__(self, smiles, reacts, mode='train'):
         super(TransDataset, self).__init__()
@@ -34,7 +33,7 @@ class TransDataset(torch.utils.data.Dataset):
     def random_react(self, smi):
         y = []
         for x in smi.split('.'):
-            mol = Chem.MolFromSmiles(smi)
+            mol = Chem.MolFromSmiles(x)
             y.append(Chem.MolToSmiles(mol, doRandom=True))
         return '.'.join(y)
 
