@@ -47,7 +47,8 @@ def pretrain(
     for graph, tran in tqdm(loader):
         graph = graph.to(device)
 
-        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        tops = tokenizer.encode2d(tran, pad_token=pad_token)
+        tops = torch.LongTensor(tops).to(device)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 
@@ -88,7 +89,8 @@ def preeval(model, loader, device, tokenizer, pad_token, end_token):
 
     for graph, tran in tqdm(loader):
         graph = graph.to(device)
-        tops = torch.LongTensor(tokenizer.encode2d(tran)).to(device)
+        tops = tokenizer.encode2d(tran, pad_token=pad_token)
+        tops = torch.LongTensor(tops).to(device)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 
