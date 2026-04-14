@@ -1,44 +1,75 @@
-from tqdm import tqdm
 import torch
 import argparse
 import json
 import pickle
+import numpy as np
 
 
-from torch.utils.data import DataLoader
 from models.ualign import PretrainModel, PositionalEncoding
 from utils.data_utils import fix_seed
 from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 from models.sparse_backBone import GATBase
-from utils.chemistry_parse import clear_map_number, canonical_smiles
+from utils.chemistry_parse import canonical_smiles
 from utils.graph_utils import smiles2graph
-import pandas
 import torch_geometric
-from utils.inference_tools import beam_search_one
-import time
-import os
+from rdkit import Chem
+from utils.inference_tools import beam_search_batch, merge_prediction_group
 
 
-def make_graph_batch(smi, rxn=None):
-    graph = smiles2graph(smi, with_amap=False)
-    num_nodes = graph['node_feat'].shape[0]
-    num_edges = graph['edge_index'].shape[1]
+def get_augmented_products(smi, aug_time):
+    prod = canonical_smiles(smi)
+    prod_mol = Chem.MolFromSmiles(prod)
+    products = [Chem.MolToSmiles(prod_mol)]
+    for _ in range(aug_time - 1):
+        products.append(Chem.MolToSmiles(prod_mol, doRandom=True))
+    return products
+
+
+def make_graph_batch(products, rxn=None):
+    if isinstance(products, str):
+        products = [products]
+
+    batch_size, max_node = len(products), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, node_per_graph = [], [0], []
+    node_rxn, edge_rxn = [], []
+
+    for idx, smi in enumerate(products):
+        graph = smiles2graph(smi, with_amap=False)
+        num_nodes = graph['node_feat'].shape[0]
+        num_edges = graph['edge_index'].shape[1]
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(torch.ones(num_nodes, dtype=torch.long) * idx)
+        ptr.append(lstnode)
+
+        if rxn is not None:
+            node_rxn.append(torch.ones(num_nodes, dtype=torch.long) * rxn)
+            edge_rxn.append(torch.ones(num_edges, dtype=torch.long) * rxn)
 
     data = {
-        'x': torch.from_numpy(graph['node_feat']),
-        'num_nodes': num_nodes,
-        'edge_attr': torch.from_numpy(graph['edge_feat']),
-        'edge_index': torch.from_numpy(graph['edge_index']),
-        'ptr': torch.LongTensor([0, num_nodes]),
-        'e_ptr': torch.LongTensor([0, num_edges]),
-        'batch': torch.zeros(num_nodes).long(),
-        'e_batch': torch.zeros(num_edges).long(),
-        'batch_mask': torch.ones(1, num_nodes).bool()
+        'x': torch.from_numpy(np.concatenate(node_feats, axis=0)),
+        'num_nodes': lstnode,
+        'edge_attr': torch.from_numpy(np.concatenate(edge_feats, axis=0)),
+        'edge_index': torch.from_numpy(np.concatenate(edge_idxes, axis=-1)),
+        'ptr': torch.LongTensor(ptr),
+        'batch': torch.cat(batch, dim=0),
     }
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    data['batch_mask'] = all_batch_mask.bool()
 
     if rxn is not None:
-        data['node_rxn'] = torch.ones(num_nodes).long() * rxn
-        data['edge_rxn'] = torch.ones(num_edges).long() * rxn
+        data['node_rxn'] = torch.cat(node_rxn, dim=0)
+        data['edge_rxn'] = torch.cat(edge_rxn, dim=0)
+
     return torch_geometric.data.Data(**data)
 
 
@@ -103,6 +134,10 @@ if __name__ == '__main__':
         help='preserve the original output,' +
         ' if chosen the invalid smiles will not be removed'
     )
+    parser.add_argument(
+        '--aug_time', type=int, default=1,
+        help='the number of product SMILES augmentations for test-time inference'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -147,19 +182,29 @@ if __name__ == '__main__':
     else:
         start_token, rxn_class = '<CLS>', None
 
-    prd = canonical_smiles(args.product_smiles)
-    g_ip = make_graph_batch(prd, rxn_class).to(device)
+    products = get_augmented_products(args.product_smiles, args.aug_time)
+    g_ip = make_graph_batch(products, rxn_class).to(device)
 
-    preds, probs = beam_search_one(
-        model, tokenizer, g_ip, device, max_len=args.max_len,
-        size=args.beams, begin_token=start_token, end_token='<END>',
-        pen_para=0, validate=not args.org_output
+    pred_batch, prob_batch = beam_search_batch(
+        model=model,
+        tokenizer=tokenizer,
+        graphs=g_ip,
+        device=device,
+        begin_tokens=[start_token] * len(products),
+        max_len=args.max_len,
+        size=args.beams,
+        pen_para=0,
+        validate=not args.org_output,
+    )
+    preds, probs = merge_prediction_group(
+        pred_batch, prob_batch, keep_invalid=args.org_output
     )
 
     print('[RESULT]')
     print(json.dumps({
         "answers": preds, 'probs': probs,
-        'rxn_class': args.input_class
+        'rxn_class': args.input_class,
+        'aug_time': args.aug_time,
     }, indent=4))
 
 

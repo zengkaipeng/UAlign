@@ -3,6 +3,8 @@ from typing import List
 import torch
 from rdkit import Chem
 
+from utils.chemistry_parse import canonical_smiles
+
 
 def check_valid(smi):
     mol = Chem.MolFromSmiles(smi)
@@ -40,6 +42,37 @@ def _pack_beam_answers(
         answers[owner].append(smi)
         probs[owner].append(float(score.item()))
     return answers, probs
+
+
+def merge_prediction_group(
+    answer_group,
+    prob_group,
+    keep_invalid=False,
+):
+    merged = {}
+    fallback = {}
+    for answers, probs in zip(answer_group, prob_group):
+        for smi, score in zip(answers, probs):
+            fallback.setdefault(smi, []).append(score)
+            mol = Chem.MolFromSmiles(smi)
+            if mol is None:
+                if not keep_invalid:
+                    continue
+                key = smi
+            else:
+                key = canonical_smiles(Chem.MolToSmiles(mol))
+            merged.setdefault(key, []).append(score)
+
+    if len(merged) == 0:
+        merged = fallback
+
+    rank_scores = []
+    for smi, scores in merged.items():
+        log_score = torch.logsumexp(torch.tensor(scores), dim=0).item()
+        rank_scores.append((smi, log_score))
+    rank_scores.sort(key=lambda x: -x[1])
+
+    return [x[0] for x in rank_scores], [x[1] for x in rank_scores]
 
 
 @torch.no_grad()

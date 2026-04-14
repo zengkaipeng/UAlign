@@ -13,7 +13,7 @@ from models.sparse_backBone import GATBase
 from models.ualign import PositionalEncoding, PretrainModel
 from utils.Dataset import InferenceDataset, col_fn_inference
 from utils.data_utils import fix_seed
-from utils.inference_tools import beam_search_batch
+from utils.inference_tools import beam_search_batch, merge_prediction_group
 
 
 def build_model(args, tokenizer, device):
@@ -48,6 +48,7 @@ def build_dataloader(args):
         queries=part_df['reactants>reagents>production'].tolist(),
         indexes=part_df.index.tolist(),
         rxn_cls=rxn_cls,
+        aug_time=args.aug_time,
     )
     loader = DataLoader(
         dataset,
@@ -138,6 +139,10 @@ def main():
         help='the batch size for batched decoding'
     )
     parser.add_argument(
+        '--aug_time', type=int, default=1,
+        help='the number of product SMILES augmentations per sample'
+    )
+    parser.add_argument(
         '--num_workers', type=int, default=0,
         help='the number of workers for the inference dataloader'
     )
@@ -166,12 +171,8 @@ def main():
 
     answers = []
     processed = 0
-    for graphs, queries, rxn_classes, indexes in tqdm(loader):
+    for graphs, begin_tokens, queries, rxn_classes, indexes, aug_sizes in tqdm(loader):
         graphs = graphs.to(device)
-        begin_tokens = [
-            '<CLS>' if rxn is None else f'<RXN>_{rxn}'
-            for rxn in rxn_classes
-        ]
         pred_batch, prob_batch = beam_search_batch(
             model=model,
             tokenizer=tokenizer,
@@ -185,9 +186,15 @@ def main():
             use_kv_cache=not args.disable_kv_cache,
         )
 
-        for query, rxn_class, data_idx, preds, probs in zip(
-            queries, rxn_classes, indexes, pred_batch, prob_batch
+        offset = 0
+        for query, rxn_class, data_idx, aug_size in zip(
+            queries, rxn_classes, indexes, aug_sizes
         ):
+            preds, probs = merge_prediction_group(
+                pred_batch[offset: offset + aug_size],
+                prob_batch[offset: offset + aug_size],
+                keep_invalid=False,
+            )
             answers.append({
                 'query': query,
                 'idx': int(data_idx),
@@ -196,6 +203,7 @@ def main():
                 'prob': probs,
             })
             processed += 1
+            offset += aug_size
 
         if args.save_every > 0 and processed % args.save_every == 0:
             dump_answers(out_file, args, answers)

@@ -227,39 +227,55 @@ def col_fn_retro(data_batch):
 class InferenceDataset(torch.utils.data.Dataset):
     def __init__(
         self, queries: List[str], indexes: List[int],
-        rxn_cls: Optional[List[int]] = None
+        rxn_cls: Optional[List[int]] = None, aug_time: int = 1
     ):
         super(InferenceDataset, self).__init__()
         self.queries = queries
         self.indexes = indexes
         self.rxn_cls = rxn_cls
+        self.aug_time = aug_time
+        assert aug_time > 0, 'aug_time should be positive'
 
     def __len__(self):
         return len(self.queries)
 
-    def __getitem__(self, index):
-        query = self.queries[index]
+    def get_augmented_products(self, query):
         _, prod = query.strip().split('>>')
         prod = clear_map_number(prod)
+        prod_mol = Chem.MolFromSmiles(prod)
+        plist = [Chem.MolToSmiles(prod_mol)]
+        for _ in range(self.aug_time - 1):
+            plist.append(Chem.MolToSmiles(prod_mol, doRandom=True))
+        return plist
+
+    def __getitem__(self, index):
+        query = self.queries[index]
         rxn = None if self.rxn_cls is None else self.rxn_cls[index]
-        graph = smiles2graph(prod, with_amap=False)
-        return graph, query, rxn, self.indexes[index]
+        products = self.get_augmented_products(query)
+        graphs = [smiles2graph(prod, with_amap=False) for prod in products]
+        return graphs, query, [rxn] * len(graphs), self.indexes[index]
 
 
 def col_fn_inference(data_batch):
-    batch_size, max_node = len(data_batch), 0
+    flat_graphs, flat_rxn = [], []
+    queries, rxn_classes, indexes, aug_sizes = [], [], [], []
+    for graphs, query, rxn_list, data_idx in data_batch:
+        flat_graphs.extend(graphs)
+        flat_rxn.extend(rxn_list)
+        queries.append(query)
+        rxn_classes.append(rxn_list[0] if len(rxn_list) > 0 else None)
+        indexes.append(data_idx)
+        aug_sizes.append(len(graphs))
+
+    batch_size, max_node = len(flat_graphs), 0
     edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
     batch, ptr, node_per_graph = [], [0], []
     node_rxn, edge_rxn = [], []
-    queries, rxn_classes, indexes = [], [], []
 
-    for idx, data in enumerate(data_batch):
-        graph, query, rxn, data_idx = data
+    for idx, graph in enumerate(flat_graphs):
+        rxn = flat_rxn[idx]
         num_nodes = graph['num_nodes']
         num_edges = graph['edge_index'].shape[1]
-        queries.append(query)
-        rxn_classes.append(rxn)
-        indexes.append(data_idx)
 
         edge_idxes.append(graph['edge_index'] + lstnode)
         edge_feats.append(graph['edge_feat'])
@@ -297,5 +313,12 @@ def col_fn_inference(data_batch):
         result['node_rxn'] = torch.from_numpy(node_rxn)
         result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
-    return GData(**result), queries, rxn_classes, indexes
+    begin_tokens = [
+        '<CLS>' if rxn is None else f'<RXN>_{rxn}'
+        for rxn in flat_rxn
+    ]
+    return (
+        GData(**result), begin_tokens, queries,
+        rxn_classes, indexes, aug_sizes
+    )
 
