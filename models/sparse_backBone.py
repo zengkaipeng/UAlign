@@ -1,7 +1,7 @@
 import torch
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-from GATconv import SelfLoopGATConv as MyGATConv
+from models.GATconv import SelfLoopGATConv as MyGATConv
 import numpy as np
 
 
@@ -115,3 +115,4 @@ class SparseBondEncoder(torch.nn.Module):
                 result = torch.cat([rxn_class_emb, result], dim=-1)
                 result = self.lin(result)
         return result
+

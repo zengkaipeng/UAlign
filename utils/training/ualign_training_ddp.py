@@ -2,13 +2,13 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
-from data_utils import (
+from utils.data_utils import (
     generate_tgt_mask, correct_trans_output,
     convert_log_into_label
 )
 
-from data_utils import eval_trans as data_eval_trans
-from training import calc_trans_loss
+from utils.data_utils import eval_trans as data_eval_trans
+from utils.training.ualign_training import calc_trans_loss
 import torch.distributed as torch_dist
 from enum import Enum
 
@@ -203,3 +203,4 @@ if __name__ == '__main__':
     X = MetricCollector(name='test')
     X.update(2)
     print(X)
+

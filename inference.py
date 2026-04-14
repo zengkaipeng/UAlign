@@ -6,15 +6,15 @@ import pickle
 
 
 from torch.utils.data import DataLoader
-from model import PretrainModel, PositionalEncoding
-from data_utils import fix_seed
+from models.ualign import PretrainModel, PositionalEncoding
+from utils.data_utils import fix_seed
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
-from sparse_backBone import GATBase
+from models.sparse_backBone import GATBase
 from utils.chemistry_parse import clear_map_number
 from utils.graph_utils import smiles2graph
 import pandas
 import torch_geometric
-from inference_tools import beam_search_one
+from utils.inference_tools import beam_search_one
 import time
 import os
 
@@ -185,3 +185,4 @@ if __name__ == '__main__':
             'args': args.__dict__,
             'answer': answers
         }, Fout, indent=4)
+

@@ -2,12 +2,12 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
-from data_utils import (
+from utils.data_utils import (
     generate_tgt_mask, correct_trans_output,
     convert_log_into_label
 )
 
-from data_utils import eval_trans as data_eval_trans
+from utils.data_utils import eval_trans as data_eval_trans
 
 
 def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
@@ -109,3 +109,4 @@ def preeval(model, loader, device, tokenizer, pad_token, end_token):
 
     trans_accs = torch.cat(trans_accs, dim=0).float()
     return trans_accs.mean().item()
+

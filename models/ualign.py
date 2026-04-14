@@ -1,5 +1,4 @@
 import torch
-from sparse_backBone import GATBase
 import math
 
 
@@ -71,3 +70,4 @@ class PretrainModel(torch.nn.Module):
         )
 
         return result
+

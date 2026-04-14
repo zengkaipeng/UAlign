@@ -1,5 +1,5 @@
 import torch
-from data_utils import generate_square_subsequent_mask
+from utils.data_utils import generate_square_subsequent_mask
 from rdkit import Chem
 
 
@@ -110,3 +110,4 @@ def beam_search_one(
         real_answer.append(r_smiles)
         real_prob.append(y)
     return real_answer, real_prob
+

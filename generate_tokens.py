@@ -1,4 +1,4 @@
-from tokenlizer import smi_tokenizer
+from utils.tokenlizer import smi_tokenizer
 from utils.chemistry_parse import canonical_smiles, clear_map_number
 import os
 import pandas
@@ -72,3 +72,4 @@ if __name__ == '__main__':
 
     with open(output_file, 'w') as Fout:
         json.dump(list(all_tokens), Fout, indent=4)
+

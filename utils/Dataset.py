@@ -1,5 +1,5 @@
 import torch
-from tokenlizer import smi_tokenizer
+from utils.tokenlizer import smi_tokenizer
 from utils.graph_utils import smiles2graph
 import numpy as np
 from typing import Any, Dict, List, Tuple, Optional, Union
@@ -218,3 +218,4 @@ def col_fn_retro(data_batch):
         result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
     return GData(**result), reats
+

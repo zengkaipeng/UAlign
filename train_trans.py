@@ -6,15 +6,15 @@ import time
 import pickle
 
 
-from tokenlizer import DEFAULT_SP, Tokenizer
+from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from model import PretrainModel, PositionalEncoding
-from training import pretrain, preeval
-from data_utils import load_data, fix_seed, check_early_stop
+from models.ualign import PretrainModel, PositionalEncoding
+from utils.training import pretrain, preeval
+from utils.data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
-from Dataset import RetroDataset, col_fn_retro
-from sparse_backBone import GATBase
+from utils.Dataset import RetroDataset, col_fn_retro
+from models.sparse_backBone import GATBase
 
 
 def create_log_model(args):
@@ -270,3 +270,4 @@ if __name__ == '__main__':
     print(f'[INFO] best acc epoch: {best_ep}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
     print(f'[INFO] best test loss: {log_info["test_metric"][best_ep]}')
+

@@ -6,12 +6,12 @@ import os
 import time
 
 from torch.utils.data import DataLoader
-from sparse_backBone import GATBase
-from Dataset import TransDataset, col_fn_pretrain
-from model import PositionalEncoding, PretrainModel
-from training import pretrain, preeval
-from data_utils import fix_seed, check_early_stop
-from tokenlizer import DEFAULT_SP, Tokenizer
+from models.sparse_backBone import GATBase
+from utils.Dataset import TransDataset, col_fn_pretrain
+from models.ualign import PositionalEncoding, PretrainModel
+from utils.training import pretrain, preeval
+from utils.data_utils import fix_seed, check_early_stop
+from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.optim.lr_scheduler import ExponentialLR
 from utils.chemistry_parse import clear_map_number
 import pandas
@@ -245,3 +245,4 @@ if __name__ == '__main__':
 
     print('[BEST EP]', best_ep)
     print('[BEST TEST]', log_info['test_metric'][best_ep])
+

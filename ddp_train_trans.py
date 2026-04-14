@@ -6,16 +6,16 @@ import time
 import pickle
 
 
-from tokenlizer import DEFAULT_SP, Tokenizer
+from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from model import PositionalEncoding, PretrainModel
-from Dataset import RetroDataset, col_fn_retro
+from models.ualign import PositionalEncoding, PretrainModel
+from utils.Dataset import RetroDataset, col_fn_retro
 
-from ddp_training import ddp_pretrain, ddp_preeval
-from data_utils import load_data, fix_seed, check_early_stop
+from utils.ddp_training import ddp_pretrain, ddp_preeval
+from utils.data_utils import load_data, fix_seed, check_early_stop
 from torch.nn import TransformerDecoderLayer, TransformerDecoder
 from torch.optim.lr_scheduler import ExponentialLR
-from sparse_backBone import GATBase
+from models.sparse_backBone import GATBase
 
 
 import torch.distributed as torch_dist
@@ -318,3 +318,4 @@ if __name__ == '__main__':
         main_worker, nprocs=args.num_gpus,
         args=(args, tokenizer, log_dir, model_dir)
     )
+
