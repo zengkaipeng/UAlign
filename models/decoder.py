@@ -101,6 +101,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
         static_k: torch.Tensor,
         static_v: torch.Tensor,
         key_padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
         training: bool = False,
     ) -> torch.Tensor:
         if mha.add_zero_attn or mha.bias_k is not None or mha.bias_v is not None:
@@ -128,7 +129,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
             training=training,
             key_padding_mask=key_padding_mask,
             need_weights=False,
-            attn_mask=None,
+            attn_mask=attn_mask,
             use_separate_proj_weight=False,
             static_k=CachedTransformerDecoderLayer._flatten_static_kv(static_k),
             static_v=CachedTransformerDecoderLayer._flatten_static_kv(static_v),
@@ -151,6 +152,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
         memory_k: torch.Tensor,
         memory_v: torch.Tensor,
         memory_key_padding_mask: Optional[torch.Tensor] = None,
+        self_attn_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         batch_first = self.self_attn.batch_first
         x = self._to_batch_first(tgt, batch_first)
@@ -170,7 +172,12 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
                 key_all = torch.cat([self_cache[0], key_new], dim=2)
                 value_all = torch.cat([self_cache[1], value_new], dim=2)
             self_out = self._static_attention(
-                self_attn, x_norm, key_all, value_all, training=self.training
+                self_attn,
+                x_norm,
+                key_all,
+                value_all,
+                attn_mask=self_attn_mask,
+                training=self.training,
             )
             x = x + self.dropout1(self_out)
 
@@ -193,7 +200,12 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
                 key_all = torch.cat([self_cache[0], key_new], dim=2)
                 value_all = torch.cat([self_cache[1], value_new], dim=2)
             self_out = self._static_attention(
-                self_attn, x, key_all, value_all, training=self.training
+                self_attn,
+                x,
+                key_all,
+                value_all,
+                attn_mask=self_attn_mask,
+                training=self.training,
             )
             x = self.norm1(x + self.dropout1(self_out))
 
@@ -230,6 +242,7 @@ class CachedTransformerDecoder(torch.nn.TransformerDecoder):
         memory_cache,
         memory_key_padding_mask: Optional[torch.Tensor] = None,
         memory_select_idx: Optional[torch.Tensor] = None,
+        self_attn_mask: Optional[torch.Tensor] = None,
     ):
         new_cache = []
         output = tgt
@@ -251,6 +264,7 @@ class CachedTransformerDecoder(torch.nn.TransformerDecoder):
                 memory_k=memory_k,
                 memory_v=memory_v,
                 memory_key_padding_mask=memory_pad,
+                self_attn_mask=self_attn_mask,
             )
             new_cache.append(layer_cache)
 

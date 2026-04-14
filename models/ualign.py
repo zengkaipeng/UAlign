@@ -11,6 +11,7 @@ from .decoder import (
     select_kv_cache,
 )
 from .sparse_backBone import GATBase
+from utils.mask_utils import generate_square_subsequent_mask
 
 
 REQUIRED_MODEL_ARCH_KEYS = (
@@ -148,14 +149,6 @@ class PretrainModel(torch.nn.Module):
         pos_emb = self.pos_enc.pos_embedding[step_idx: step_idx + 1].to(step_emb)
         return self.pos_enc.dropout(step_emb + pos_emb)
 
-    @staticmethod
-    def _generate_causal_mask(seq_len: int, device):
-        mask = torch.triu(
-            torch.ones((seq_len, seq_len), dtype=torch.bool, device=device),
-            diagonal=1,
-        )
-        return mask
-
     def _build_decoder_cache(self, memory: torch.Tensor):
         if not isinstance(self.decoder, CachedTransformerDecoder):
             raise TypeError(
@@ -189,7 +182,7 @@ class PretrainModel(torch.nn.Module):
             memory=memory[memory_select_idx],
             memory_padding_mask=memory_pad[memory_select_idx]
             if memory_pad is not None else None,
-            tgt_mask=self._generate_causal_mask(seq.shape[1], seq.device),
+            tgt_mask=generate_square_subsequent_mask(seq.shape[1], seq.device),
         )[:, -1]
         return token_logits, None
 
