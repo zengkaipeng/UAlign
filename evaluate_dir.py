@@ -1,11 +1,49 @@
-from utils.chemistry_parse import canonical_smiles, clear_map_number
-import json
-import numpy as np
 import argparse
-from tqdm import tqdm
+import json
 import os
 
-if __name__ == '__main__':
+import numpy as np
+from tqdm import tqdm
+
+from utils.chemistry_parse import canonical_smiles, clear_map_number
+
+
+def load_answers(path, single_file):
+    if single_file:
+        with open(path) as fin:
+            info = json.load(fin)
+        return info['answer'], info['args']
+
+    answers = []
+    saved_args = None
+    for file_name in sorted(os.listdir(path)):
+        if not file_name.endswith('.json'):
+            continue
+        with open(os.path.join(path, file_name)) as fin:
+            info = json.load(fin)
+        saved_args = info['args']
+        answers.extend(info['answer'])
+    if saved_args is None:
+        raise FileNotFoundError(f'No json result file found under {path}')
+    return answers, saved_args
+
+
+def evaluate_answers(answers, beam):
+    topks = []
+    for single in tqdm(answers):
+        reac, _ = single['query'].split('>>')
+        real_ans = clear_map_number(reac)
+        opt = np.zeros(beam)
+        for idx, pred in enumerate(single['answer'][:beam]):
+            if canonical_smiles(pred) == real_ans:
+                opt[idx:] = 1
+                break
+        topks.append(opt)
+    topks = np.stack(topks, axis=0)
+    return np.mean(topks, axis=0)
+
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--path', required=True, type=str,
@@ -15,31 +53,20 @@ if __name__ == '__main__':
         '--beam', type=int, default=10,
         help='the number of beams for searching'
     )
-
+    parser.add_argument(
+        '--single_file', action='store_true',
+        help='treat --path as a single json result file instead of a folder'
+    )
     args = parser.parse_args()
 
-    answers, targs = [], None
-    for x in os.listdir(args.path):
-        if x.endswith('.json'):
-            with open(os.path.join(args.path, x)) as Fin:
-                INFO = json.load(Fin)
-            targs = INFO['args']
-            answers.extend(INFO['answer'])
+    answers, saved_args = load_answers(args.path, args.single_file)
+    topk_acc = evaluate_answers(answers, args.beam)
 
-    topks = []
-    for single in tqdm(answers):
-        reac, prod = single['query'].split('>>')
-        real_ans = clear_map_number(reac)
-        opt = np.zeros(args.beam)
-        for idx, x in enumerate(single['answer']):
-            x = canonical_smiles(x)
-            if x == real_ans:
-                opt[idx:] = 1
-                break
-        topks.append(opt)
-    topks = np.stack(topks, axis=0)
-    topk_acc = np.mean(topks, axis=0)
-
-    print(f'[args]\n{targs}')
+    print(f'[args]\n{saved_args}')
     for i in [1, 3, 5, 10]:
-        print(f'[TOP {i}]', topk_acc[i - 1])
+        if i <= args.beam:
+            print(f'[TOP {i}]', topk_acc[i - 1])
+
+
+if __name__ == '__main__':
+    main()
