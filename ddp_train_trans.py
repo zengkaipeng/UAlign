@@ -8,14 +8,12 @@ import pickle
 
 from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
-from models.ualign import PositionalEncoding, PretrainModel
+from models import PretrainModel, load_model_arch
 from utils.Dataset import RetroDataset, col_fn_retro
 
 from utils.ddp_training import ddp_pretrain, ddp_preeval
 from utils.data_utils import load_data, fix_seed, check_early_stop
-from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 from torch.optim.lr_scheduler import ExponentialLR
-from models.sparse_backBone import GATBase
 
 
 import torch.distributed as torch_dist
@@ -82,22 +80,10 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         num_workers=args.num_workers
     )
 
-    GNN = GATBase(
-        num_layers=args.n_layer, dropout=args.dropout, num_heads=args.heads,
-        embedding_dim=args.dim, negative_slope=args.negative_slope,
-        n_class=11 if args.use_class else None
-    )
-
-    decode_layer = CachedTransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=args.dropout
-    )
-    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
-    Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
-
-    model = PretrainModel(
-        token_size=tokenizer.get_token_size(), encoder=GNN,
-        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
+    model = PretrainModel.from_arch(
+        token_size=tokenizer.get_token_size(),
+        model_arch=args.model_arch,
+        use_class=args.use_class,
     ).to(device)
 
     if args.checkpoint != '':
@@ -192,8 +178,8 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
+        '--model_arch_path', required=True, type=str,
+        help='the path of model architecture json'
     )
     parser.add_argument(
         '--aug_prob', default=0.5, type=float,
@@ -201,16 +187,8 @@ if __name__ == '__main__':
         "should be between 0 and 1"
     )
     parser.add_argument(
-        '--n_layer', default=8, type=int,
-        help='the layer of encoder gnn'
-    )
-    parser.add_argument(
         '--token_path', type=str, default='',
         help='the path of a json containing all tokens'
-    )
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
     )
     parser.add_argument(
         '--warmup', default=1, type=int,
@@ -219,14 +197,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--gamma', default=0.998, type=float,
         help='the gamma of lr scheduler'
-    )
-    parser.add_argument(
-        '--dropout', type=float, default=0.3,
-        help='the dropout rate, useful for all backbone'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,
@@ -314,6 +284,7 @@ if __name__ == '__main__':
     with open(token_dir, 'wb') as Fout:
         pickle.dump(tokenizer, Fout)
 
+    args.model_arch = load_model_arch(args.model_arch_path)
     torch_mp.spawn(
         main_worker, nprocs=args.num_gpus,
         args=(args, tokenizer, log_dir, model_dir)

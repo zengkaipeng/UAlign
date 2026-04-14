@@ -5,10 +5,8 @@ import pickle
 import numpy as np
 
 
-from models.ualign import PretrainModel, PositionalEncoding
+from models import PretrainModel, load_model_arch
 from utils.data_utils import fix_seed
-from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
-from models.sparse_backBone import GATBase
 from utils.chemistry_parse import canonical_smiles
 from utils.graph_utils import smiles2graph
 import torch_geometric
@@ -76,20 +74,8 @@ def make_graph_batch(products, rxn=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
     parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--n_layer', default=8, type=int,
-        help='the layer of encoder gnn'
-    )
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
+        '--model_arch_path', required=True, type=str,
+        help='the path of model architecture json'
     )
     parser.add_argument(
         '--seed', type=int, default=2023,
@@ -138,6 +124,10 @@ if __name__ == '__main__':
         '--aug_time', type=int, default=1,
         help='the number of product SMILES augmentations for test-time inference'
     )
+    parser.add_argument(
+        '--disable_kv_cache', action='store_true',
+        help='disable KV cache and recompute the decoder state each step'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -150,23 +140,12 @@ if __name__ == '__main__':
     fix_seed(args.seed)
     with open(args.token_ckpt, 'rb') as Fin:
         tokenizer = pickle.load(Fin)
+    args.model_arch = load_model_arch(args.model_arch_path)
 
-    GNN = GATBase(
-        num_layers=args.n_layer, dropout=0.1, embedding_dim=args.dim,
-        num_heads=args.heads, negative_slope=args.negative_slope,
-        n_class=11 if args.use_class else None
-    )
-
-    decode_layer = CachedTransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=0.1
-    )
-    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
-    Pos_env = PositionalEncoding(args.dim, 0.1, maxlen=2000)
-
-    model = PretrainModel(
-        token_size=tokenizer.get_token_size(), encoder=GNN,
-        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
+    model = PretrainModel.from_arch(
+        token_size=tokenizer.get_token_size(),
+        model_arch=args.model_arch,
+        use_class=args.use_class,
     ).to(device)
 
     if args.checkpoint != '':
@@ -174,6 +153,7 @@ if __name__ == '__main__':
         print(f'[INFO] Loading model weight in {args.checkpoint}')
         weight = torch.load(args.checkpoint, map_location=device)
         model.load_state_dict(weight, strict=False)
+    model.eval()
 
     print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
     if args.use_class:
@@ -195,6 +175,7 @@ if __name__ == '__main__':
         size=args.beams,
         pen_para=0,
         validate=not args.org_output,
+        use_kv_cache=not args.disable_kv_cache,
     )
     preds, probs = merge_prediction_group(
         pred_batch, prob_batch, keep_invalid=args.org_output

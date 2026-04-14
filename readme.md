@@ -92,6 +92,10 @@ UAlign/
       heads: 12
       negative_slope: 0.2
       ```
+      Matching model architecture presets are provided under `model_arch/`, with separate files for pretraining and stage-II training:
+      `uspto_50k-pretrain.json`, `uspto_50k-stageII.json`,
+      `uspto_mit-pretrain.json`, `uspto_mit-stageII.json`,
+      `uspto_full-pretrain.json`, and `uspto_full-stageII.json`.
       
     
 - predicted_results
@@ -133,19 +137,15 @@ The script can accept multiple files as input and the last position should be th
 Use the following command for training the first stage:
 
 ```shell
-python pretrain.py --dim $dim \
-				   --n_layer $n_layer \
+python pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
                    --data_path $folder_of_dataset \
                    --seed $random_seed \
                    --bs $batch_size \
                    --epoch $epoch_for_training \
                    --early_stop $epoch_num_for_checking_early_stop \
                    --device $device_id \
-                   --lr $learning_rate \
-                   --dropout $dropout \
+                    --lr $learning_rate \
                    --base_log $folder_for_logging \
-                   --heads $num_heads_for_attention \
-                   --negative_slope $negative_slope_for_leaky_relu \
                    --token_path $path_of_token_list \
                    --checkpoint $path_of_checkpoint \
                    --token_ckpt $path_of_checkpoint_for_tokenizer \
@@ -158,18 +158,14 @@ python pretrain.py --dim $dim \
 If the checkpoints for model and tokenizer are provided, the path for token list is not necessary and will be ignored if you pass it to the arguments of the script. Also for data distributed training, you can use:
 
 ```shell
-python ddp_pretrain.py --dim $dim \
-				   	   --n_layer $n_layer \
+python ddp_pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
                        --data_path $folder_of_dataset \
                        --seed $random_seed \
                        --bs $batch_size \
                        --epoch $epoch_for_training \
                        --early_stop $epoch_num_for_checking_early_stop \
                        --lr $learning_rate \
-                       --dropout $dropout \
                        --base_log $folder_for_logging \
-                       --heads $num_heads_for_attention \
-                       --negative_slope $negative_slope_for_leaky_relu \
                        --token_path $path_of_token_list \
                        --checkpoint $path_of_checkpoint \
                        --token_ckpt $path_of_checkpoint_for_tokenizer \
@@ -186,8 +182,7 @@ python ddp_pretrain.py --dim $dim \
 Use the following command to train the second stage:
 
 ```shell
-python train_trans.py --dim $dim \
-                          --n_layer $n_layer \
+python train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
                           --aug_prob $probability_for_data_augumentation \
                           --data_path $folder_of_dataset \
                           --seed $random_seed \
@@ -195,10 +190,7 @@ python train_trans.py --dim $dim \
                           --epoch $epoch_for_training \
                           --early_stop $epoch_num_for_checking_early_stop \
                           --lr $learning_rate \
-                          --dropout $dropout \
                           --base_log $folder_for_logging \
-                          --heads $num_heads_for_attention \
-                          --negative_slope $negative_slope_for_leaky_relu \
                           --token_path $path_of_token_list \
                           --checkpoint $path_of_checkpoint \
                           --token_ckpt $path_of_checkpoint_for_tokenizer \
@@ -214,8 +206,7 @@ python train_trans.py --dim $dim \
 If you want to train from scratch, pass the path of token list to the script and don't provide any checkpoints for it.  Also for data distributed training, you can use:
 
 ```shell
-python ddp_train_trans.py --dim $dim \
-				      --n_layer $n_layer \
+python ddp_train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
 				      --aug_prob $probability_for_data_augumentation \
 				      --data_path $folder_of_dataset \
                       --seed $random_seed \
@@ -224,10 +215,7 @@ python ddp_train_trans.py --dim $dim \
                       --early_stop $epoch_num_for_checking_early_stop \
                       --device $device_id \
                       --lr $learning_rate \
-                      --dropout $dropout \
                       --base_log $folder_for_logging \
-                      --heads $num_heads_for_attention \
-                      --negative_slope $negative_slope_for_leaky_relu \
                       --token_path $path_of_token_list \
                       --checkpoint $path_of_checkpoint \
                       --token_ckpt $path_of_checkpoint_for_tokenizer \
@@ -247,15 +235,12 @@ python ddp_train_trans.py --dim $dim \
 To inference the well-trained checkpoints, you can use the following command:
 
 ```shell
-python inference.py --dim $dim \
-                    --n_layer $n_layer \
-                    --heads $num_heads_for_attention \
+python inference.py --model_arch_path model_arch/uspto_50k-stageII.json \
                     --seed $random_seed \
                     --data_path $path_for_file_of_testset \
                     --device $device_id \
                     --checkpoint $path_of_checkpoint \
                     --token_ckpt $path_of_checkpoint_for_tokenizer \
-                    --negative_slope $negative_slope_for_leaky_relu \
                     --max_len $max_length_of_generated_smiles \
                     --beams $beam_size_for_beam_search \
                     --output_folder $the_folder_to_store_results \
@@ -285,19 +270,17 @@ python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_output_
 We also provide the script for inferencing a single product. You can use the following command:
 
 ```shell
-python inference_one.py --dim $dim \
-                        --n_layer $n_layer \
-                        --heads $num_heads_for_attention \
+python inference_one.py --model_arch_path model_arch/uspto_50k-stageII.json \
                         --seed $random_seed \
                         --device $device_id \
                         --checkpoint $path_of_checkpoint \
                         --token_ckpt $path_of_checkpoint_for_tokenizer \
-                        --negative_slope $negative_slope_for_leaky_relu \
                         --max_len $max_length_of_generated_smiles \
                         --beams $beam_size_for_beam_search \
                         --product_smiles $the_SMILES_of_product \
                         --aug_time $num_of_smiles_augmentations \
                         --input_class $class_number_for_reaction \
+                        [--disable_kv_cache] # add it to disable cached decoding \
                         [--use_class] # add it for reaction class known setting \
                         [--org_output] # add it to keep invalid smiles in outputs
 ```

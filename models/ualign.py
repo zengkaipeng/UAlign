@@ -1,14 +1,47 @@
+import json
 import math
 from typing import Optional
 
 import torch
 
-from models.decoder import (
+from .decoder import (
     CachedTransformerDecoder,
     CachedTransformerDecoderLayer,
     repeat_kv_cache,
     select_kv_cache,
 )
+from .sparse_backBone import GATBase
+
+
+REQUIRED_MODEL_ARCH_KEYS = (
+    'dim',
+    'n_layer',
+    'heads',
+    'negative_slope',
+    'dropout',
+)
+
+
+def normalize_model_arch(model_arch):
+    missing = [
+        key for key in REQUIRED_MODEL_ARCH_KEYS if key not in model_arch
+    ]
+    if missing:
+        raise KeyError(
+            'Missing keys in model_arch: ' + ', '.join(sorted(missing))
+        )
+    normalized = dict(model_arch)
+    normalized['dim'] = int(normalized['dim'])
+    normalized['n_layer'] = int(normalized['n_layer'])
+    normalized['heads'] = int(normalized['heads'])
+    normalized['negative_slope'] = float(normalized['negative_slope'])
+    normalized['dropout'] = float(normalized['dropout'])
+    return normalized
+
+
+def load_model_arch(model_arch_path):
+    with open(model_arch_path) as fin:
+        return normalize_model_arch(json.load(fin))
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -40,6 +73,46 @@ class PretrainModel(torch.nn.Module):
             torch.nn.Linear(d_model, d_model),
             torch.nn.ReLU(),
             torch.nn.Linear(d_model, token_size)
+        )
+
+    @classmethod
+    def from_arch(
+        cls,
+        token_size,
+        model_arch,
+        use_class=False,
+        max_len=2000,
+    ):
+        model_arch = normalize_model_arch(model_arch)
+        d_model = model_arch['dim']
+        n_layer = model_arch['n_layer']
+        heads = model_arch['heads']
+        negative_slope = model_arch['negative_slope']
+        dropout = model_arch['dropout']
+
+        encoder = GATBase(
+            num_layers=n_layer,
+            dropout=dropout,
+            embedding_dim=d_model,
+            num_heads=heads,
+            negative_slope=negative_slope,
+            n_class=11 if use_class else None,
+        )
+        decode_layer = CachedTransformerDecoderLayer(
+            d_model=d_model,
+            nhead=heads,
+            batch_first=True,
+            dim_feedforward=d_model * 2,
+            dropout=dropout,
+        )
+        decoder = CachedTransformerDecoder(decode_layer, n_layer)
+        pos_enc = PositionalEncoding(d_model, dropout, maxlen=max_len)
+        return cls(
+            token_size=token_size,
+            encoder=encoder,
+            decoder=decoder,
+            d_model=d_model,
+            pos_enc=pos_enc,
         )
 
     def graph2batch(

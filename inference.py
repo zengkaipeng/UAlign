@@ -8,29 +8,17 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
-from models.sparse_backBone import GATBase
-from models.ualign import PositionalEncoding, PretrainModel
+from models import PretrainModel, load_model_arch
 from utils.Dataset import InferenceDataset, col_fn_inference
 from utils.data_utils import fix_seed
 from utils.inference_tools import beam_search_batch, merge_prediction_group
 
 
 def build_model(args, tokenizer, device):
-    gnn = GATBase(
-        num_layers=args.n_layer, dropout=0.1, embedding_dim=args.dim,
-        num_heads=args.heads, negative_slope=args.negative_slope,
-        n_class=11 if args.use_class else None
-    )
-    decode_layer = CachedTransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=0.1
-    )
-    decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
-    pos_enc = PositionalEncoding(args.dim, 0.1, maxlen=2000)
-    model = PretrainModel(
-        token_size=tokenizer.get_token_size(), encoder=gnn,
-        decoder=decoder, d_model=args.dim, pos_enc=pos_enc
+    model = PretrainModel.from_arch(
+        token_size=tokenizer.get_token_size(),
+        model_arch=args.model_arch,
+        use_class=args.use_class,
     ).to(device)
 
     weight = torch.load(args.checkpoint, map_location=device)
@@ -71,20 +59,8 @@ def dump_answers(path, args, answers):
 def main():
     parser = argparse.ArgumentParser('Batch inference')
     parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--n_layer', default=8, type=int,
-        help='the layer of encoder gnn'
-    )
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
+        '--model_arch_path', required=True, type=str,
+        help='the path of model architecture json'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,
@@ -161,6 +137,7 @@ def main():
     fix_seed(args.seed)
     with open(args.token_ckpt, 'rb') as fin:
         tokenizer = pickle.load(fin)
+    args.model_arch = load_model_arch(args.model_arch_path)
 
     model = build_model(args, tokenizer, device)
     loader, end_pos = build_dataloader(args)

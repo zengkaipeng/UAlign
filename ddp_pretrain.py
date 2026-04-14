@@ -7,9 +7,8 @@ import time
 
 
 from torch.utils.data import DataLoader
-from models.sparse_backBone import GATBase
+from models import PretrainModel, load_model_arch
 from utils.Dataset import TransDataset, col_fn_pretrain
-from models.ualign import PositionalEncoding, PretrainModel
 from utils.ddp_training import ddp_pretrain, ddp_preeval
 from utils.data_utils import fix_seed, check_early_stop
 from utils.tokenlizer import DEFAULT_SP, Tokenizer
@@ -17,8 +16,6 @@ from torch.optim.lr_scheduler import ExponentialLR
 from utils.chemistry_parse import clear_map_number
 import pandas
 from tqdm import tqdm
-
-from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 
 
 import torch.distributed as torch_dist
@@ -88,22 +85,10 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         num_workers=args.num_workers
     )
 
-    GNN = GATBase(
-        num_layers=args.n_layer, dropout=args.dropout,
-        embedding_dim=args.dim, num_heads=args.heads,
-        negative_slope=args.negative_slope, n_class=None
-    )
-
-    decode_layer = CachedTransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=args.dropout
-    )
-    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
-    Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
-
-    model = PretrainModel(
-        token_size=tokenizer.get_token_size(), encoder=GNN,
-        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
+    model = PretrainModel.from_arch(
+        token_size=tokenizer.get_token_size(),
+        model_arch=args.model_arch,
+        use_class=False,
     ).to(device)
 
     if args.checkpoint != '':
@@ -183,12 +168,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('DDP first stage')
     # public setting
     parser.add_argument(
-        '--dim', default=256, type=int,
-        help='the hidden dim of model'
-    )
-    parser.add_argument(
-        '--n_layer', default=5, type=int,
-        help='the layer of backbones'
+        '--model_arch_path', required=True, type=str,
+        help='the path of model architecture json'
     )
     parser.add_argument(
         '--data_path', required=True, type=str,
@@ -216,23 +197,10 @@ if __name__ == '__main__':
         help='the learning rate for training'
     )
     parser.add_argument(
-        '--dropout', type=float, default=0.1,
-        help='the dropout rate, useful for all backbone'
-    )
-
-    parser.add_argument(
         '--base_log', default='ddp_pretrain', type=str,
         help='the base dir of logging'
     )
 
-    parser.add_argument(
-        '--heads', default=4, type=int,
-        help='the number of heads for attention, only useful for gat'
-    )
-    parser.add_argument(
-        '--negative_slope', type=float, default=0.2,
-        help='negative slope for attention, only useful for gat'
-    )
     parser.add_argument(
         '--token_path', type=str, default='',
         help='the path of json containing tokens'
@@ -295,6 +263,7 @@ if __name__ == '__main__':
 
     print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
     fix_seed(args.seed)
+    args.model_arch = load_model_arch(args.model_arch_path)
 
     torch_mp.spawn(
         main_worker, nprocs=args.num_gpus,
