@@ -95,6 +95,95 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
         return x.reshape(batch_size * num_heads, seq_len, head_dim).contiguous()
 
     @staticmethod
+    def _prepare_step_attn_mask(
+        attn_mask: Optional[torch.Tensor],
+        batch_size: int,
+        num_heads: int,
+        src_len: int,
+        device,
+    ) -> Optional[torch.Tensor]:
+        if attn_mask is None:
+            return None
+
+        if attn_mask.dim() == 1:
+            if attn_mask.shape[0] != src_len:
+                raise ValueError(
+                    f'1D mask shape mismatch, expected [{src_len}], '
+                    f'got {tuple(attn_mask.shape)}'
+                )
+            return attn_mask.view(1, src_len).to(device)
+
+        if attn_mask.dim() == 2:
+            if attn_mask.shape == (1, src_len):
+                return attn_mask.to(device)
+            if attn_mask.shape == (batch_size, src_len):
+                return attn_mask[:, None, None, :].expand(
+                    -1, num_heads, -1, -1
+                ).reshape(batch_size * num_heads, 1, src_len).to(device)
+            if attn_mask.shape == (batch_size * num_heads, src_len):
+                return attn_mask[:, None, :].to(device)
+            raise ValueError(
+                f'2D mask shape mismatch, expected one of '
+                f'[(1, {src_len}), ({batch_size}, {src_len}), '
+                f'({batch_size * num_heads}, {src_len})], '
+                f'got {tuple(attn_mask.shape)}'
+            )
+
+        if attn_mask.dim() == 3:
+            if attn_mask.shape == (batch_size * num_heads, 1, src_len):
+                return attn_mask.to(device)
+            if attn_mask.shape == (batch_size, 1, src_len):
+                return attn_mask[:, None, :, :].expand(
+                    -1, num_heads, -1, -1
+                ).reshape(batch_size * num_heads, 1, src_len).to(device)
+            if attn_mask.shape == (1, 1, src_len):
+                return attn_mask.to(device)
+            raise ValueError(
+                f'3D mask shape mismatch, expected one of '
+                f'[({batch_size * num_heads}, 1, {src_len}), '
+                f'({batch_size}, 1, {src_len}), (1, 1, {src_len})], '
+                f'got {tuple(attn_mask.shape)}'
+            )
+
+        raise ValueError(
+            f'Unsupported mask dim {attn_mask.dim()}, expected 1/2/3'
+        )
+
+    @staticmethod
+    def _prepare_step_ca_mask(
+        ca_mask: Optional[torch.Tensor],
+        batch_size: int,
+        src_len: int,
+        device,
+    ) -> Optional[torch.Tensor]:
+        if ca_mask is None:
+            return None
+        if ca_mask.dtype != torch.bool:
+            raise TypeError(
+                f'ca_mask only supports bool tensors, got {ca_mask.dtype}'
+            )
+        if ca_mask.dim() == 1:
+            if ca_mask.shape[0] != src_len:
+                raise ValueError(
+                    f'1D ca_mask shape mismatch, expected [{src_len}], '
+                    f'got {tuple(ca_mask.shape)}'
+                )
+            return ca_mask.view(1, src_len).expand(batch_size, src_len).to(device)
+        if ca_mask.dim() == 2:
+            if ca_mask.shape == (1, src_len):
+                return ca_mask.expand(batch_size, src_len).to(device)
+            if ca_mask.shape == (batch_size, src_len):
+                return ca_mask.to(device)
+            raise ValueError(
+                f'2D ca_mask shape mismatch, expected one of '
+                f'[(1, {src_len}), ({batch_size}, {src_len})], '
+                f'got {tuple(ca_mask.shape)}'
+            )
+        raise ValueError(
+            f'Unsupported ca_mask dim {ca_mask.dim()}, expected 1/2'
+        )
+
+    @staticmethod
     def _static_attention(
         mha: torch.nn.MultiheadAttention,
         query: torch.Tensor,
@@ -153,6 +242,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
         memory_v: torch.Tensor,
         memory_key_padding_mask: Optional[torch.Tensor] = None,
         self_attn_mask: Optional[torch.Tensor] = None,
+        ca_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         batch_first = self.self_attn.batch_first
         x = self._to_batch_first(tgt, batch_first)
@@ -163,6 +253,18 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
 
         self_attn = self.self_attn
         cross_attn = self.multihead_attn
+        cross_ca_mask = self._prepare_step_ca_mask(
+            ca_mask=ca_mask,
+            batch_size=x.shape[0],
+            src_len=memory_k.shape[2],
+            device=x.device,
+        )
+        if memory_key_padding_mask is None:
+            cross_padding_mask = cross_ca_mask
+        elif cross_ca_mask is None:
+            cross_padding_mask = memory_key_padding_mask
+        else:
+            cross_padding_mask = memory_key_padding_mask | cross_ca_mask
         if self.norm_first:
             x_norm = self.norm1(x)
             key_new, value_new = self._project_kv(self_attn, x_norm)
@@ -187,7 +289,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
                 cross_in,
                 memory_k,
                 memory_v,
-                key_padding_mask=memory_key_padding_mask,
+                key_padding_mask=cross_padding_mask,
                 training=self.training,
             )
             x = x + self.dropout2(cross_out)
@@ -214,7 +316,7 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
                 x,
                 memory_k,
                 memory_v,
-                key_padding_mask=memory_key_padding_mask,
+                key_padding_mask=cross_padding_mask,
                 training=self.training,
             )
             x = self.norm2(x + self.dropout2(cross_out))
@@ -224,6 +326,27 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
 
 
 class CachedTransformerDecoder(torch.nn.TransformerDecoder):
+    @staticmethod
+    def _select_step_mask(
+        mask: Optional[torch.Tensor],
+        index: torch.Tensor,
+        orig_batch_size: int,
+        num_heads: int,
+    ) -> Optional[torch.Tensor]:
+        if mask is None:
+            return None
+        if mask.dim() == 1:
+            return mask
+        if mask.dim() == 2:
+            if mask.shape[0] in (1,):
+                return mask
+            if mask.shape[0] == orig_batch_size:
+                return mask[index]
+            return mask
+        if mask.dim() == 3:
+            return mask
+        return mask
+
     def build_memory_cache(self, memory: torch.Tensor):
         cache = []
         for layer in self.layers:
@@ -243,11 +366,14 @@ class CachedTransformerDecoder(torch.nn.TransformerDecoder):
         memory_key_padding_mask: Optional[torch.Tensor] = None,
         memory_select_idx: Optional[torch.Tensor] = None,
         self_attn_mask: Optional[torch.Tensor] = None,
+        ca_mask: Optional[torch.Tensor] = None,
     ):
         new_cache = []
         output = tgt
         for idx, layer in enumerate(self.layers):
+            num_heads = layer.self_attn.num_heads
             memory_k, memory_v = memory_cache[idx]
+            orig_batch_size = memory_k.shape[0]
             if memory_select_idx is not None:
                 memory_k = memory_k[memory_select_idx]
                 memory_v = memory_v[memory_select_idx]
@@ -255,8 +381,15 @@ class CachedTransformerDecoder(torch.nn.TransformerDecoder):
                     memory_pad = memory_key_padding_mask[memory_select_idx]
                 else:
                     memory_pad = None
+                layer_ca_mask = self._select_step_mask(
+                    mask=ca_mask,
+                    index=memory_select_idx,
+                    orig_batch_size=orig_batch_size,
+                    num_heads=num_heads,
+                )
             else:
                 memory_pad = memory_key_padding_mask
+                layer_ca_mask = ca_mask
 
             output, layer_cache = layer.forward_kv_cache(
                 tgt=output,
@@ -265,6 +398,7 @@ class CachedTransformerDecoder(torch.nn.TransformerDecoder):
                 memory_v=memory_v,
                 memory_key_padding_mask=memory_pad,
                 self_attn_mask=self_attn_mask,
+                ca_mask=layer_ca_mask,
             )
             new_cache.append(layer_cache)
 
