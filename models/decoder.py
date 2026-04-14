@@ -1,3 +1,4 @@
+import math
 from typing import List, Optional, Tuple
 
 import torch
@@ -36,6 +37,45 @@ def repeat_kv_cache(cache: KVCache, repeat: int) -> KVCache:
 
 
 class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
+    @staticmethod
+    def _scaled_dot_product_attention(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        dropout_p: float = 0.0,
+        training: bool = False,
+    ) -> torch.Tensor:
+        if hasattr(F, 'scaled_dot_product_attention'):
+            return F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=attn_mask,
+                dropout_p=dropout_p,
+                is_causal=False,
+            )
+
+        scale = 1.0 / math.sqrt(q.shape[-1])
+        attn_bias = torch.zeros(
+            q.shape[:-1] + (k.shape[-2],),
+            dtype=q.dtype,
+            device=q.device,
+        )
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_bias = attn_bias.masked_fill(
+                    attn_mask, float('-inf')
+                )
+            else:
+                attn_bias = attn_bias + attn_mask.to(q.dtype)
+        attn_score = torch.matmul(q, k.transpose(-2, -1)) * scale
+        attn_score = attn_score + attn_bias
+        attn_prob = torch.softmax(attn_score, dim=-1)
+        if training and dropout_p > 0:
+            attn_prob = F.dropout(attn_prob, p=dropout_p, training=True)
+        return torch.matmul(attn_prob, v)
+
     @staticmethod
     def _split_heads(x: torch.Tensor, num_heads: int) -> torch.Tensor:
         batch_size, seq_len, model_dim = x.shape
@@ -116,13 +156,13 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
             attn_mask = attn_mask.masked_fill(
                 key_padding_mask[:, None, None, :], float('-inf')
             )
-        output = F.scaled_dot_product_attention(
+        output = CachedTransformerDecoderLayer._scaled_dot_product_attention(
             q,
             static_k,
             static_v,
             attn_mask=attn_mask,
             dropout_p=mha.dropout if training else 0.0,
-            is_causal=False,
+            training=training,
         )
         output = CachedTransformerDecoderLayer._merge_heads(output)
         return mha.out_proj(output)

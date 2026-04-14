@@ -92,10 +92,8 @@ UAlign/
       heads: 12
       negative_slope: 0.2
       ```
-      Matching model architecture presets are provided under `model_arch/`, with separate files for pretraining and stage-II training:
-      `uspto_50k-pretrain.json`, `uspto_50k-stageII.json`,
-      `uspto_mit-pretrain.json`, `uspto_mit-stageII.json`,
-      `uspto_full-pretrain.json`, and `uspto_full-stageII.json`.
+      Matching model architecture presets are provided under `model_arch/`:
+      `uspto_50k.json`, `uspto_mit.json`, and `uspto_full.json`.
       
     
 - predicted_results
@@ -137,7 +135,7 @@ The script can accept multiple files as input and the last position should be th
 Use the following command for training the first stage:
 
 ```shell
-python pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
+python pretrain.py --model_arch_path model_arch/uspto_50k.json \
                    --data_path $folder_of_dataset \
                    --seed $random_seed \
                    --bs $batch_size \
@@ -158,7 +156,7 @@ python pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
 If the checkpoints for model and tokenizer are provided, the path for token list is not necessary and will be ignored if you pass it to the arguments of the script. Also for data distributed training, you can use:
 
 ```shell
-python ddp_pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
+python ddp_pretrain.py --model_arch_path model_arch/uspto_50k.json \
                        --data_path $folder_of_dataset \
                        --seed $random_seed \
                        --bs $batch_size \
@@ -182,7 +180,7 @@ python ddp_pretrain.py --model_arch_path model_arch/uspto_50k-pretrain.json \
 Use the following command to train the second stage:
 
 ```shell
-python train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
+python train_trans.py --model_arch_path model_arch/uspto_50k.json \
                           --aug_prob $probability_for_data_augumentation \
                           --data_path $folder_of_dataset \
                           --seed $random_seed \
@@ -206,7 +204,7 @@ python train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
 If you want to train from scratch, pass the path of token list to the script and don't provide any checkpoints for it.  Also for data distributed training, you can use:
 
 ```shell
-python ddp_train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
+python ddp_train_trans.py --model_arch_path model_arch/uspto_50k.json \
 				      --aug_prob $probability_for_data_augumentation \
 				      --data_path $folder_of_dataset \
                       --seed $random_seed \
@@ -235,7 +233,7 @@ python ddp_train_trans.py --model_arch_path model_arch/uspto_50k-stageII.json \
 To inference the well-trained checkpoints, you can use the following command:
 
 ```shell
-python inference.py --model_arch_path model_arch/uspto_50k-stageII.json \
+python inference.py --model_arch_path model_arch/uspto_50k.json \
                     --seed $random_seed \
                     --data_path $path_for_file_of_testset \
                     --device $device_id \
@@ -270,7 +268,7 @@ python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_output_
 We also provide the script for inferencing a single product. You can use the following command:
 
 ```shell
-python inference_one.py --model_arch_path model_arch/uspto_50k-stageII.json \
+python inference_one.py --model_arch_path model_arch/uspto_50k.json \
                         --seed $random_seed \
                         --device $device_id \
                         --checkpoint $path_of_checkpoint \

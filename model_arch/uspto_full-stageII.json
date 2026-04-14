@@ -1,7 +1,0 @@
-{
-    "dim": 768,
-    "n_layer": 8,
-    "heads": 12,
-    "negative_slope": 0.2,
-    "dropout": 0.3
-}
