@@ -4,7 +4,11 @@ from utils.graph_utils import smiles2graph
 import numpy as np
 from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
-from utils.chemistry_parse import find_all_amap, remove_am_wo_cano
+from utils.chemistry_parse import (
+    clear_map_number,
+    find_all_amap,
+    remove_am_wo_cano,
+)
 import random
 from rdkit import Chem
 
@@ -218,4 +222,80 @@ def col_fn_retro(data_batch):
         result['edge_rxn'] = torch.from_numpy(edge_rxn)
 
     return GData(**result), reats
+
+
+class InferenceDataset(torch.utils.data.Dataset):
+    def __init__(
+        self, queries: List[str], indexes: List[int],
+        rxn_cls: Optional[List[int]] = None
+    ):
+        super(InferenceDataset, self).__init__()
+        self.queries = queries
+        self.indexes = indexes
+        self.rxn_cls = rxn_cls
+
+    def __len__(self):
+        return len(self.queries)
+
+    def __getitem__(self, index):
+        query = self.queries[index]
+        _, prod = query.strip().split('>>')
+        prod = clear_map_number(prod)
+        rxn = None if self.rxn_cls is None else self.rxn_cls[index]
+        graph = smiles2graph(prod, with_amap=False)
+        return graph, query, rxn, self.indexes[index]
+
+
+def col_fn_inference(data_batch):
+    batch_size, max_node = len(data_batch), 0
+    edge_idxes, edge_feats, node_feats, lstnode = [], [], [], 0
+    batch, ptr, node_per_graph = [], [0], []
+    node_rxn, edge_rxn = [], []
+    queries, rxn_classes, indexes = [], [], []
+
+    for idx, data in enumerate(data_batch):
+        graph, query, rxn, data_idx = data
+        num_nodes = graph['num_nodes']
+        num_edges = graph['edge_index'].shape[1]
+        queries.append(query)
+        rxn_classes.append(rxn)
+        indexes.append(data_idx)
+
+        edge_idxes.append(graph['edge_index'] + lstnode)
+        edge_feats.append(graph['edge_feat'])
+        node_feats.append(graph['node_feat'])
+
+        lstnode += num_nodes
+        max_node = max(max_node, num_nodes)
+        node_per_graph.append(num_nodes)
+        batch.append(np.ones(num_nodes, dtype=np.int64) * idx)
+        ptr.append(lstnode)
+
+        if rxn is not None:
+            node_rxn.append(np.ones(num_nodes, dtype=np.int64) * rxn)
+            edge_rxn.append(np.ones(num_edges, dtype=np.int64) * rxn)
+
+    result = {
+        'edge_index': np.concatenate(edge_idxes, axis=-1),
+        'edge_attr': np.concatenate(edge_feats, axis=0),
+        'batch': np.concatenate(batch, axis=0),
+        'x': np.concatenate(node_feats, axis=0),
+        'ptr': np.array(ptr, dtype=np.int64)
+    }
+
+    result = {k: torch.from_numpy(v) for k, v in result.items()}
+    result['num_nodes'] = lstnode
+
+    all_batch_mask = torch.zeros((batch_size, max_node))
+    for idx, mk in enumerate(node_per_graph):
+        all_batch_mask[idx, :mk] = 1
+    result['batch_mask'] = all_batch_mask.bool()
+
+    if len(node_rxn) > 0:
+        node_rxn = np.concatenate(node_rxn, axis=0)
+        edge_rxn = np.concatenate(edge_rxn, axis=0)
+        result['node_rxn'] = torch.from_numpy(node_rxn)
+        result['edge_rxn'] = torch.from_numpy(edge_rxn)
+
+    return GData(**result), queries, rxn_classes, indexes
 

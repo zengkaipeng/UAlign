@@ -1,49 +1,74 @@
-from tqdm import tqdm
-import torch
 import argparse
 import json
+import os
 import pickle
 
-
+import pandas
+import torch
 from torch.utils.data import DataLoader
-from models.ualign import PretrainModel, PositionalEncoding
-from utils.data_utils import fix_seed
+from tqdm import tqdm
+
 from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 from models.sparse_backBone import GATBase
-from utils.chemistry_parse import clear_map_number
-from utils.graph_utils import smiles2graph
-import pandas
-import torch_geometric
-from utils.inference_tools import beam_search_one
-import time
-import os
+from models.ualign import PositionalEncoding, PretrainModel
+from utils.Dataset import InferenceDataset, col_fn_inference
+from utils.data_utils import fix_seed
+from utils.inference_tools import beam_search_batch
 
 
-def make_graph_batch(smi, rxn=None):
-    graph = smiles2graph(smi, with_amap=False)
-    num_nodes = graph['node_feat'].shape[0]
-    num_edges = graph['edge_index'].shape[1]
+def build_model(args, tokenizer, device):
+    gnn = GATBase(
+        num_layers=args.n_layer, dropout=0.1, embedding_dim=args.dim,
+        num_heads=args.heads, negative_slope=args.negative_slope,
+        n_class=11 if args.use_class else None
+    )
+    decode_layer = CachedTransformerDecoderLayer(
+        d_model=args.dim, nhead=args.heads, batch_first=True,
+        dim_feedforward=args.dim * 2, dropout=0.1
+    )
+    decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
+    pos_enc = PositionalEncoding(args.dim, 0.1, maxlen=2000)
+    model = PretrainModel(
+        token_size=tokenizer.get_token_size(), encoder=gnn,
+        decoder=decoder, d_model=args.dim, pos_enc=pos_enc
+    ).to(device)
 
-    data = {
-        'x': torch.from_numpy(graph['node_feat']),
-        'num_nodes': num_nodes,
-        'edge_attr': torch.from_numpy(graph['edge_feat']),
-        'edge_index': torch.from_numpy(graph['edge_index']),
-        'ptr': torch.LongTensor([0, num_nodes]),
-        'e_ptr': torch.LongTensor([0, num_edges]),
-        'batch': torch.zeros(num_nodes).long(),
-        'e_batch': torch.zeros(num_edges).long(),
-        'batch_mask': torch.ones(1, num_nodes).bool()
-    }
-
-    if rxn is not None:
-        data['node_rxn'] = torch.ones(num_nodes).long() * rxn
-        data['edge_rxn'] = torch.ones(num_edges).long() * rxn
-    return torch_geometric.data.Data(**data)
+    weight = torch.load(args.checkpoint, map_location=device)
+    model.load_state_dict(weight, strict=False)
+    model.eval()
+    return model
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Graph Edit Exp, Sparse Model')
+def build_dataloader(args):
+    meta_df = pandas.read_csv(args.data_path)
+    end_pos = len(meta_df) if args.len <= 0 else min(len(meta_df), args.start + args.len)
+    part_df = meta_df.iloc[args.start:end_pos]
+    rxn_cls = part_df['class'].tolist() if args.use_class else None
+    dataset = InferenceDataset(
+        queries=part_df['reactants>reagents>production'].tolist(),
+        indexes=part_df.index.tolist(),
+        rxn_cls=rxn_cls,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        collate_fn=col_fn_inference,
+    )
+    return loader, end_pos
+
+
+def dump_answers(path, args, answers):
+    with open(path, 'w') as fout:
+        json.dump({
+            'args': args.__dict__,
+            'answer': answers,
+        }, fout, indent=4)
+
+
+def main():
+    parser = argparse.ArgumentParser('Batch inference')
     parser.add_argument(
         '--dim', default=256, type=int,
         help='the hidden dim of model'
@@ -68,7 +93,6 @@ if __name__ == '__main__':
         '--seed', type=int, default=2023,
         help='the seed for training'
     )
-
     parser.add_argument(
         '--device', default=-1, type=int,
         help='the device for running exps'
@@ -91,17 +115,36 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--beams', default=10, type=int,
-        help='the number of beams '
+        help='the number of beams'
     )
     parser.add_argument(
         '--output_folder', default='results', type=str,
         help='the path containing results'
     )
     parser.add_argument(
-        "--save_every", type=int, default=1000,
-        help='the step for saving results into files'
+        '--save_every', type=int, default=1000,
+        help='the step to save result into file'
     )
-
+    parser.add_argument(
+        '--start', type=int, default=0,
+        help='the start index for inference'
+    )
+    parser.add_argument(
+        '--len', type=int, default=-1,
+        help='the number of samples to run; negative means all remaining'
+    )
+    parser.add_argument(
+        '--batch_size', type=int, default=32,
+        help='the batch size for batched decoding'
+    )
+    parser.add_argument(
+        '--num_workers', type=int, default=0,
+        help='the number of workers for the inference dataloader'
+    )
+    parser.add_argument(
+        '--disable_kv_cache', action='store_true',
+        help='disable KV cache and recompute the decoder state each step'
+    )
     args = parser.parse_args()
     print(args)
 
@@ -111,79 +154,54 @@ if __name__ == '__main__':
         device = torch.device(f'cuda:{args.device}')
 
     fix_seed(args.seed)
-    with open(args.token_ckpt, 'rb') as Fin:
-        tokenizer = pickle.load(Fin)
+    with open(args.token_ckpt, 'rb') as fin:
+        tokenizer = pickle.load(fin)
 
-    GNN = GATBase(
-        num_layers=args.n_layer, dropout=0.1, embedding_dim=args.dim,
-        num_heads=args.heads, negative_slope=args.negative_slope,
-        n_class=11 if args.use_class else None
-    )
-
-    decode_layer = CachedTransformerDecoderLayer(
-        d_model=args.dim, nhead=args.heads, batch_first=True,
-        dim_feedforward=args.dim * 2, dropout=0.1
-    )
-    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
-    Pos_env = PositionalEncoding(args.dim, 0.1, maxlen=2000)
-
-    model = PretrainModel(
-        token_size=tokenizer.get_token_size(), encoder=GNN,
-        decoder=Decoder, d_model=args.dim, pos_enc=Pos_env
-    ).to(device)
-
-    if args.checkpoint != '':
-        assert args.token_ckpt != '', 'Missing Tokenizer Information'
-        print(f'[INFO] Loading model weight in {args.checkpoint}')
-        weight = torch.load(args.checkpoint, map_location=device)
-        model.load_state_dict(weight, strict=False)
-
-    print('[INFO] padding index', tokenizer.token2idx['<PAD>'])
+    model = build_model(args, tokenizer, device)
+    loader, end_pos = build_dataloader(args)
 
     if not os.path.exists(args.output_folder):
         os.makedirs(args.output_folder)
-
-    out_file = os.path.join(args.output_folder, f'answer-{time.time()}.json')
-
-    meta_df = pandas.read_csv(args.data_path)
+    out_file = os.path.join(args.output_folder, f'{args.start}-{end_pos}.json')
 
     answers = []
-
-    for idx, resu in enumerate(tqdm(meta_df['reactants>reagents>production'])):
-        rea, prd = resu.strip().split('>>')
-        prd = clear_map_number(prd)
-        rea = clear_map_number(rea)
-        if args.use_class:
-            rxn_class = int(meta_df['class'][idx])
-            start_token = f'<RXN>_{rxn_class}'
-        else:
-            rxn_class = None
-            start_token = '<CLS>'
-
-        g_ip = make_graph_batch(prd, rxn_class).to(device)
-
-        preds, probs = beam_search_one(
-            model, tokenizer, g_ip, device, max_len=args.max_len,
-            size=args.beams, begin_token=start_token, end_token='<END>',
-            pen_para=0, validate=False
+    processed = 0
+    for graphs, queries, rxn_classes, indexes in tqdm(loader):
+        graphs = graphs.to(device)
+        begin_tokens = [
+            '<CLS>' if rxn is None else f'<RXN>_{rxn}'
+            for rxn in rxn_classes
+        ]
+        pred_batch, prob_batch = beam_search_batch(
+            model=model,
+            tokenizer=tokenizer,
+            graphs=graphs,
+            device=device,
+            begin_tokens=begin_tokens,
+            max_len=args.max_len,
+            size=args.beams,
+            pen_para=0,
+            validate=False,
+            use_kv_cache=not args.disable_kv_cache,
         )
 
-        answers.append({
-            'query': resu, 'idx': idx, 'rxn_class': rxn_class,
-            'answer': preds, 'prob': probs
-        })
+        for query, rxn_class, data_idx, preds, probs in zip(
+            queries, rxn_classes, indexes, pred_batch, prob_batch
+        ):
+            answers.append({
+                'query': query,
+                'idx': int(data_idx),
+                'rxn_class': rxn_class,
+                'answer': preds,
+                'prob': probs,
+            })
+            processed += 1
 
-        if idx % args.save_every == 0:
-            with open(out_file, 'w') as Fout:
-                json.dump({
-                    'args': args.__dict__,
-                    'answer': answers
-                }, Fout, indent=4)
+        if args.save_every > 0 and processed % args.save_every == 0:
+            dump_answers(out_file, args, answers)
 
-    with open(out_file, 'w') as Fout:
-        json.dump({
-            'args': args.__dict__,
-            'answer': answers
-        }, Fout, indent=4)
+    dump_answers(out_file, args, answers)
 
 
+if __name__ == '__main__':
+    main()
