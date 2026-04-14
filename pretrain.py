@@ -16,7 +16,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from utils.chemistry_parse import clear_map_number
 import pandas
 
-from torch.nn import TransformerDecoderLayer, TransformerDecoder
+from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 
 
 def create_log_model(args):
@@ -179,11 +179,11 @@ if __name__ == '__main__':
         negative_slope=args.negative_slope, n_class=None
     )
 
-    decode_layer = TransformerDecoderLayer(
+    decode_layer = CachedTransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
-    Decoder = TransformerDecoder(decode_layer, args.n_layer)
+    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
     model = PretrainModel(
@@ -245,4 +245,5 @@ if __name__ == '__main__':
 
     print('[BEST EP]', best_ep)
     print('[BEST TEST]', log_info['test_metric'][best_ep])
+
 

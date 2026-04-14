@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from models.ualign import PretrainModel, PositionalEncoding
 from utils.training import pretrain, preeval
 from utils.data_utils import load_data, fix_seed, check_early_stop
-from torch.nn import TransformerDecoderLayer, TransformerDecoder
+from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 from torch.optim.lr_scheduler import ExponentialLR
 from utils.Dataset import RetroDataset, col_fn_retro
 from models.sparse_backBone import GATBase
@@ -189,11 +189,11 @@ if __name__ == '__main__':
         n_class=11 if args.use_class else None
     )
 
-    decode_layer = TransformerDecoderLayer(
+    decode_layer = CachedTransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
-    Decoder = TransformerDecoder(decode_layer, args.n_layer)
+    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
     model = PretrainModel(
@@ -270,4 +270,5 @@ if __name__ == '__main__':
     print(f'[INFO] best acc epoch: {best_ep}')
     print(f'[INFO] best valid loss: {log_info["valid_metric"][best_ep]}')
     print(f'[INFO] best test loss: {log_info["test_metric"][best_ep]}')
+
 

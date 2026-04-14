@@ -18,7 +18,7 @@ from utils.chemistry_parse import clear_map_number
 import pandas
 from tqdm import tqdm
 
-from torch.nn import TransformerDecoderLayer, TransformerDecoder
+from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 
 
 import torch.distributed as torch_dist
@@ -94,11 +94,11 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         negative_slope=args.negative_slope, n_class=None
     )
 
-    decode_layer = TransformerDecoderLayer(
+    decode_layer = CachedTransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=args.dropout
     )
-    Decoder = TransformerDecoder(decode_layer, args.n_layer)
+    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, args.dropout, maxlen=2000)
 
     model = PretrainModel(
@@ -300,4 +300,5 @@ if __name__ == '__main__':
         main_worker, nprocs=args.num_gpus,
         args=(args, tokenizer, log_dir, model_dir)
     )
+
 

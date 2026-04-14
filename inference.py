@@ -8,7 +8,7 @@ import pickle
 from torch.utils.data import DataLoader
 from models.ualign import PretrainModel, PositionalEncoding
 from utils.data_utils import fix_seed
-from torch.nn import TransformerDecoderLayer, TransformerDecoder
+from models.decoder import CachedTransformerDecoder, CachedTransformerDecoderLayer
 from models.sparse_backBone import GATBase
 from utils.chemistry_parse import clear_map_number
 from utils.graph_utils import smiles2graph
@@ -120,11 +120,11 @@ if __name__ == '__main__':
         n_class=11 if args.use_class else None
     )
 
-    decode_layer = TransformerDecoderLayer(
+    decode_layer = CachedTransformerDecoderLayer(
         d_model=args.dim, nhead=args.heads, batch_first=True,
         dim_feedforward=args.dim * 2, dropout=0.1
     )
-    Decoder = TransformerDecoder(decode_layer, args.n_layer)
+    Decoder = CachedTransformerDecoder(decode_layer, args.n_layer)
     Pos_env = PositionalEncoding(args.dim, 0.1, maxlen=2000)
 
     model = PretrainModel(
@@ -185,4 +185,5 @@ if __name__ == '__main__':
             'args': args.__dict__,
             'answer': answers
         }, Fout, indent=4)
+
 
