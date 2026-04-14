@@ -8,7 +8,6 @@ from tqdm import tqdm
 import rdkit
 from rdkit import Chem
 import multiprocessing
-from utils.mask_utils import generate_square_subsequent_mask
 
 
 def load_data(data_dir, part):
@@ -29,13 +28,6 @@ def fix_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-def generate_tgt_mask(tgt, tokenizer, pad='<PAD>', device='cpu'):
-    PAD_IDX, siz = tokenizer.token2idx[pad], tgt.shape[1]
-    tgt_pad_mask = (tgt == PAD_IDX).to(device)
-    tgt_sub_mask = generate_square_subsequent_mask(siz, device)
-    return tgt_pad_mask, tgt_sub_mask
 
 
 def correct_trans_output(trans_pred, end_idx, pad_idx):

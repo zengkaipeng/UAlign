@@ -2,8 +2,9 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from torch.nn.functional import cross_entropy
+from utils.mask_utils import generate_tgt_mask
 from utils.data_utils import (
-    generate_tgt_mask, correct_trans_output,
+    correct_trans_output,
     convert_log_into_label
 )
 
