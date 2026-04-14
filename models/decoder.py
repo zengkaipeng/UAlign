@@ -1,4 +1,3 @@
-import math
 from typing import List, Optional, Tuple
 
 import torch
@@ -37,45 +36,6 @@ def repeat_kv_cache(cache: KVCache, repeat: int) -> KVCache:
 
 
 class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
-    @staticmethod
-    def _scaled_dot_product_attention(
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
-        dropout_p: float = 0.0,
-        training: bool = False,
-    ) -> torch.Tensor:
-        if hasattr(F, 'scaled_dot_product_attention'):
-            return F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                attn_mask=attn_mask,
-                dropout_p=dropout_p,
-                is_causal=False,
-            )
-
-        scale = 1.0 / math.sqrt(q.shape[-1])
-        attn_bias = torch.zeros(
-            q.shape[:-1] + (k.shape[-2],),
-            dtype=q.dtype,
-            device=q.device,
-        )
-        if attn_mask is not None:
-            if attn_mask.dtype == torch.bool:
-                attn_bias = attn_bias.masked_fill(
-                    attn_mask, float('-inf')
-                )
-            else:
-                attn_bias = attn_bias + attn_mask.to(q.dtype)
-        attn_score = torch.matmul(q, k.transpose(-2, -1)) * scale
-        attn_score = attn_score + attn_bias
-        attn_prob = torch.softmax(attn_score, dim=-1)
-        if training and dropout_p > 0:
-            attn_prob = F.dropout(attn_prob, p=dropout_p, training=True)
-        return torch.matmul(attn_prob, v)
-
     @staticmethod
     def _split_heads(x: torch.Tensor, num_heads: int) -> torch.Tensor:
         batch_size, seq_len, model_dim = x.shape
@@ -130,6 +90,11 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
         )
 
     @staticmethod
+    def _flatten_static_kv(x: torch.Tensor) -> torch.Tensor:
+        batch_size, num_heads, seq_len, head_dim = x.shape
+        return x.reshape(batch_size * num_heads, seq_len, head_dim).contiguous()
+
+    @staticmethod
     def _static_attention(
         mha: torch.nn.MultiheadAttention,
         query: torch.Tensor,
@@ -143,29 +108,35 @@ class CachedTransformerDecoderLayer(torch.nn.TransformerDecoderLayer):
                 'KV-cache path does not support add_zero_attn/bias_k/bias_v'
             )
 
-        q = CachedTransformerDecoderLayer._project_q_only(mha, query)
-        attn_mask = None
-        if key_padding_mask is not None:
-            batch_size = query.shape[0]
-            src_len = static_k.shape[2]
-            attn_mask = torch.zeros(
-                (batch_size, 1, 1, src_len),
-                dtype=q.dtype,
-                device=q.device,
-            )
-            attn_mask = attn_mask.masked_fill(
-                key_padding_mask[:, None, None, :], float('-inf')
-            )
-        output = CachedTransformerDecoderLayer._scaled_dot_product_attention(
-            q,
-            static_k,
-            static_v,
-            attn_mask=attn_mask,
-            dropout_p=mha.dropout if training else 0.0,
+        batch_first = mha.batch_first
+        if batch_first:
+            query = query.transpose(0, 1).contiguous()
+        output, _ = F.multi_head_attention_forward(
+            query=query,
+            key=query,
+            value=query,
+            embed_dim_to_check=mha.embed_dim,
+            num_heads=mha.num_heads,
+            in_proj_weight=mha.in_proj_weight,
+            in_proj_bias=mha.in_proj_bias,
+            bias_k=mha.bias_k,
+            bias_v=mha.bias_v,
+            add_zero_attn=mha.add_zero_attn,
+            dropout_p=mha.dropout,
+            out_proj_weight=mha.out_proj.weight,
+            out_proj_bias=mha.out_proj.bias,
             training=training,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+            attn_mask=None,
+            use_separate_proj_weight=False,
+            static_k=CachedTransformerDecoderLayer._flatten_static_kv(static_k),
+            static_v=CachedTransformerDecoderLayer._flatten_static_kv(static_v),
+            average_attn_weights=False,
         )
-        output = CachedTransformerDecoderLayer._merge_heads(output)
-        return mha.out_proj(output)
+        if batch_first:
+            output = output.transpose(0, 1).contiguous()
+        return output
 
     def project_memory_kv_cache(
         self, memory: torch.Tensor
