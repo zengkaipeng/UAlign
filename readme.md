@@ -9,72 +9,64 @@ Official implementation for paper:
 two anaconda environments are provided, corresponding to CUDA 10.2 and CUDA 11.3 respectively. Use the following commands to create the environment for running our code.
 
 ```shell
-conda env create -f env_cu102.yml # for CUDA 10.2
-conda env create -f env_cu113.yml # for CUDA 11.3
+conda env create -f env_config/env_cu102.yml # for CUDA 10.2
+conda env create -f env_config/enc_cu113.yml # for CUDA 11.3
 ```
 
 ## Data and Checkpoints
 
 The raw data, processed data, checkpoints and the predicted results can be accessed via [link](https://drive.google.com/drive/folders/1hADgJ_Sga7xVao73ChlQy74bieS-5kYX?usp=drive_link). The directory structure should be as follows:
 
-```
-UAlign
-├───checkpoints
-│   ├───USPTO-50K
-│   │       ├───class_unknown.pkl
-│   │       ├───class_unknown.pth
-│   │       ├───class_known.pkl
-│   │       └───class_known.pth
-│   │       
-│   ├───USPTO-FULL
-│   │       ├───model.pth
-│   │       └───token.pkl
-│   │       
-│   └───USPTO-MIT
-│           ├───model.pth
-│           └───token.pkl
-│           
-├───Data
-|   ├───USPTO-50K
-|   │       ├───canonicalized_raw_test.csv
-|   │       ├───canonicalized_raw_val.csv
-|   │       ├───canonicalized_raw_train.csv
-|   │       ├───raw_test.csv
-|   │       ├───raw_val.csv
-|   │       └───raw_train.csv
-|   │       
-|   ├───USPTO-MIT
-|   │       ├───canonicalized_raw_train.csv
-|   │       ├───canonicalized_raw_val.csv
-|   │       ├───canonicalized_raw_test.csv
-|   │       ├───valid.txt
-|   │       ├───test.txt
-|   │       └───train.txt
-|   │       
-|   └───USPTO-FULL
-|           ├───canonicalized_raw_val.csv
-|           ├───canonicalized_raw_test.csv
-|           ├───canonicalized_raw_train.csv
-|           ├───raw_val.csv
-|           ├───raw_test.csv
-|           └───raw_train.csv
-|                     
-└───predicted_results
-    ├───USPTO-50K
-    │       ├───answer-1711345166.9484136.json
-    │       └───answer-1711345359.2533984.json
-    │       
-    ├───USPTO-MIT
-    │       ├───10000-20000.json
-    │       ├───30000-38648.json
-    │       ├───20000-30000.json
-    │       └───0-10000.json
-    │       
-    └───USPTO-FULL
-            ├───75000-96014.json
-            ├───25000-50000.json
-            ├───50000-75000.json
-            └───0-25000.json
+```text
+UAlign/
+|- checkpoints/
+|  |- USPTO-50K/
+|  |  |- class_unknown.pkl
+|  |  |- class_unknown.pth
+|  |  |- class_known.pkl
+|  |  `- class_known.pth
+|  |- USPTO-FULL/
+|  |  |- model.pth
+|  |  `- token.pkl
+|  `- USPTO-MIT/
+|     |- model.pth
+|     `- token.pkl
+|- Data/
+|  |- USPTO-50K/
+|  |  |- canonicalized_raw_test.csv
+|  |  |- canonicalized_raw_val.csv
+|  |  |- canonicalized_raw_train.csv
+|  |  |- raw_test.csv
+|  |  |- raw_val.csv
+|  |  `- raw_train.csv
+|  |- USPTO-MIT/
+|  |  |- canonicalized_raw_train.csv
+|  |  |- canonicalized_raw_val.csv
+|  |  |- canonicalized_raw_test.csv
+|  |  |- valid.txt
+|  |  |- test.txt
+|  |  `- train.txt
+|  `- USPTO-FULL/
+|     |- canonicalized_raw_val.csv
+|     |- canonicalized_raw_test.csv
+|     |- canonicalized_raw_train.csv
+|     |- raw_val.csv
+|     |- raw_test.csv
+|     `- raw_train.csv
+`- predicted_results/
+   |- USPTO-50K/
+   |  |- answer-1711345166.9484136.json
+   |  `- answer-1711345359.2533984.json
+   |- USPTO-MIT/
+   |  |- 10000-20000.json
+   |  |- 30000-38648.json
+   |  |- 20000-30000.json
+   |  `- 0-10000.json
+   `- USPTO-FULL/
+      |- 75000-96014.json
+      |- 25000-50000.json
+      |- 50000-75000.json
+      `- 0-25000.json
 ```
 
 - Data
@@ -82,7 +74,7 @@ UAlign
     - All the processed data are named `canonicalized_raw_train.csv` , `canonicalized_raw_val.csv` and `canonicalized_raw_test.csv` and are put in the corresponding folders respectively. **If you want to use your own data for training, please make sure the your files have the same format and the same name as the processed ones.**
     
 - Checkpoints
-    - Every checkpoint needs to be used together with its corresponding tokenizer. The tokenizers are stored as `pkl` files, while the trained model weights are stored in `pth`​ files. The matching model weights and tokenizer have the same name and are placed in the same folder.
+    - Every checkpoint needs to be used together with its corresponding tokenizer. The tokenizers are stored as `pkl` files, while the trained model weights are stored in `pth` files. The matching model weights and tokenizer have the same name and are placed in the same folder.
     
     - The parameters of checkpoint for USPTO-50K are
     
@@ -109,7 +101,7 @@ UAlign
 
 ## Data Preprocess
 
-We provide the data preprocess scripts in folder `data_proprocess`​. Each dataset is processed through a separate processing script.  The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
+We provide the data preprocess scripts in folder `data_proprocess`. Each dataset is processed through a separate processing script. The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
 
 ```shell
 python data_proprocess/canonicalize_data_50k.py --filename $dir_of_raw_file
@@ -252,7 +244,7 @@ python ddp_train_trans.py --dim $dim \
 
 ## Inference and evaluation
 
-To inference the well-trained checkpoints, you can use the following commands:
+To inference the well-trained checkpoints, you can use the following command:
 
 ```shell
 python inference.py --dim $dim \
@@ -268,60 +260,46 @@ python inference.py --dim $dim \
                     --beams $beam_size_for_beam_search \
                     --output_folder $the_folder_to_store_results \
                     --save_every $the_step_to_write_results_to_files \
-                    [--use_class] #add it into command for reaction class known setting
+                    --batch_size $batch_size_for_batched_inference \
+                    --start $start_idx \
+                    --len $num_of_samples_to_test \
+                    --aug_time $num_of_smiles_augmentations \
+                    [--disable_kv_cache] # add it to disable cached decoding \
+                    [--use_class] # add it for reaction class known setting
 ```
 
-The script will summary all the results into a `json` file under output folder, named by the timestamp. And to evaluate the result to get top-$k$ accuracy, use   the following command:
+The script writes results under the output folder using the `start-end.json` naming scheme. Use `--start 0 --len -1` to run the full file in one job, or split the file into multiple shards by changing `--start` and `--len`.
+
+To evaluate a single output file and get top-k accuracy, use:
 
 ```shell
-python evaluate_answer.py --beams $beam_size_for_beam_search --path $path_of_result
+python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_result --single_file
 ```
 
-To fasten the inference, you can the following command to inference only a part of test set so that the inference part can be done parallelly: 
+To evaluate a directory of sharded output files, use:
 
 ```shell
-python inference_part.py --dim $dim \
-                    	 --n_layer $n_layer \
-                         --heads $num_heads_for_attention \
-                         --seed $random_seed \
-                         --data_path $path_for_file_of_testset \
-                         --device $device_id \
-                         --checkpoint $path_of_checkpoint \
-                         --token_ckpt $path_of_checkpoint_for_tokenizer \
-                         --negative_slope $negative_slope_for_leaky_relu \
-                         --max_len $max_length_of_generated_smiles \
-                         --beams $beam_size_for_beam_search \
-                         --output_folder $the_folder_to_store_results \
-                         --save_every $the_step_to_write_results_to_files \
-                         --start $start_idx \
-                         --len $num_of_samples_to_test \
-                         [--use_class] #add it into command for reaction class known setting
+python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_output_dir
 ```
 
-The script will summary all the results into a `json` file under output folder, named by the start and end index of data. And to evaluate the result to get top-$k$​ accuracy, use the following command:
-
-```shell
-python evaluate_dir.py --beams $beam_size_for_beam_search --path $path_of_output_dir
-```
-
-We also provide the script for inferencing a single product. You can used the following command for inference:
+We also provide the script for inferencing a single product. You can use the following command:
 
 ```shell
 python inference_one.py --dim $dim \
                         --n_layer $n_layer \
-                    	--heads $num_heads_for_attention \
-                    	--seed $random_seed \
-                    	--device $device_id \
-                    	--checkpoint $path_of_checkpoint \
-                    	--token_ckpt $path_of_checkpoint_for_tokenizer \
-                    	--negative_slope $negative_slope_for_leaky_relu \
-                    	--max_len $max_length_of_generated_smiles \
-                    	--beams $beam_size_for_beam_search \
-                    	--product_smiles $the_SMILES_of_product \
-                    	--input_class $class_number_for_reaction \
-                        [--use_class] #add it into command for reaction class known setting
-                        [--org_output] # add it and the invalid smiles will not be removed from outputs
+                        --heads $num_heads_for_attention \
+                        --seed $random_seed \
+                        --device $device_id \
+                        --checkpoint $path_of_checkpoint \
+                        --token_ckpt $path_of_checkpoint_for_tokenizer \
+                        --negative_slope $negative_slope_for_leaky_relu \
+                        --max_len $max_length_of_generated_smiles \
+                        --beams $beam_size_for_beam_search \
+                        --product_smiles $the_SMILES_of_product \
+                        --aug_time $num_of_smiles_augmentations \
+                        --input_class $class_number_for_reaction \
+                        [--use_class] # add it for reaction class known setting \
+                        [--org_output] # add it to keep invalid smiles in outputs
 ```
 
-If `--use_class` is added, the `input_class` is required. Also you have make sure that the product SMILES contains a single molecule. 
-
+If `--use_class` is added, `input_class` is required. Also make sure that the product SMILES contains a single molecule.
