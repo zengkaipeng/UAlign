@@ -1,9 +1,10 @@
+import gc
 from typing import List
 
 import torch
 from rdkit import Chem
 
-from utils.chemistry_parse import canonical_smiles
+from utils.rerank import rerank_predictions
 
 
 def check_valid(smi):
@@ -44,36 +45,41 @@ def _pack_beam_answers(
     return answers, probs
 
 
-def merge_prediction_group(
-    answer_group,
-    prob_group,
-    keep_invalid=False,
-):
-    merged = {}
-    fallback = {}
-    for answers, probs in zip(answer_group, prob_group):
-        for smi, score in zip(answers, probs):
-            fallback.setdefault(smi, []).append(score)
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                if not keep_invalid:
-                    continue
-                key = smi
-            else:
-                key = canonical_smiles(Chem.MolToSmiles(mol))
-            merged.setdefault(key, []).append(score)
+def _is_cuda_oom_error(exc):
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    if isinstance(exc, RuntimeError):
+        return 'out of memory' in str(exc).lower()
+    return False
 
-    if len(merged) == 0:
-        merged = fallback
 
-    rank_scores = []
-    for smi, scores in merged.items():
-        log_score = torch.logsumexp(torch.tensor(scores), dim=0).item()
-        rank_scores.append((smi, log_score))
-    rank_scores.sort(key=lambda x: -x[1])
+def _cleanup_after_cuda_oom(device):
+    gc.collect()
+    if device.type == 'cuda':
+        try:
+            torch.cuda.synchronize(device)
+        except Exception:
+            pass
+        torch.cuda.empty_cache()
+        try:
+            torch.cuda.ipc_collect()
+        except Exception:
+            pass
 
-    return [x[0] for x in rank_scores], [x[1] for x in rank_scores]
 
+def _run_with_kv_cache_fallback(run_fn, device, use_kv_cache):
+    try:
+        return run_fn(use_kv_cache=use_kv_cache)
+    except Exception as exc:
+        if not use_kv_cache or not _is_cuda_oom_error(exc):
+            raise
+
+    _cleanup_after_cuda_oom(device)
+    print(
+        '[WARN] CUDA OOM with KV cache enabled during inference; '
+        'retrying this batch with use_kv_cache=False.'
+    )
+    return run_fn(use_kv_cache=False)
 
 @torch.no_grad()
 def greedy_inference_batch(
@@ -93,14 +99,18 @@ def greedy_inference_batch(
     start_ids = torch.LongTensor([
         tokenizer.token2idx[x] for x in begin_tokens
     ]).to(device)
-    seqs, scores = model.greedy_search(
-        graphs=graphs,
-        start_ids=start_ids,
-        end_idx=tokenizer.token2idx[end_token],
-        pad_idx=tokenizer.token2idx[pad_token],
-        max_len=max_len,
-        left_parenthesis_idx=tokenizer.token2idx['('],
-        right_parenthesis_idx=tokenizer.token2idx[')'],
+    seqs, scores = _run_with_kv_cache_fallback(
+        run_fn=lambda use_kv_cache: model.greedy_search(
+            graphs=graphs,
+            start_ids=start_ids,
+            end_idx=tokenizer.token2idx[end_token],
+            pad_idx=tokenizer.token2idx[pad_token],
+            max_len=max_len,
+            left_parenthesis_idx=tokenizer.token2idx['('],
+            right_parenthesis_idx=tokenizer.token2idx[')'],
+            use_kv_cache=use_kv_cache,
+        ),
+        device=device,
         use_kv_cache=use_kv_cache,
     )
     answers = []
@@ -139,16 +149,20 @@ def beam_search_batch(
     start_ids = torch.LongTensor([
         tokenizer.token2idx[x] for x in begin_tokens
     ]).to(device)
-    seqs, scores, belong = model.beam_search(
-        graphs=graphs,
-        start_ids=start_ids,
-        end_idx=tokenizer.token2idx[end_token],
-        pad_idx=tokenizer.token2idx[pad_token],
-        beam=size,
-        max_len=max_len,
-        left_parenthesis_idx=tokenizer.token2idx['('],
-        right_parenthesis_idx=tokenizer.token2idx[')'],
-        pen_para=pen_para,
+    seqs, scores, belong = _run_with_kv_cache_fallback(
+        run_fn=lambda use_kv_cache: model.beam_search(
+            graphs=graphs,
+            start_ids=start_ids,
+            end_idx=tokenizer.token2idx[end_token],
+            pad_idx=tokenizer.token2idx[pad_token],
+            beam=size,
+            max_len=max_len,
+            left_parenthesis_idx=tokenizer.token2idx['('],
+            right_parenthesis_idx=tokenizer.token2idx[')'],
+            pen_para=pen_para,
+            use_kv_cache=use_kv_cache,
+        ),
+        device=device,
         use_kv_cache=use_kv_cache,
     )
     return _pack_beam_answers(

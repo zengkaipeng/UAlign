@@ -256,13 +256,13 @@ The script writes results under the output folder using the `start-end.json` nam
 To evaluate a single output file and get top-k accuracy, use:
 
 ```shell
-python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_result --single_file
+python evaluate_answer.py --beam $beam_size_for_beam_search --path $path_of_result --single_file
 ```
 
 To evaluate a directory of sharded output files, use:
 
 ```shell
-python evaluate_dir.py --beam $beam_size_for_beam_search --path $path_of_output_dir
+python evaluate_answer.py --beam $beam_size_for_beam_search --path $path_of_output_dir
 ```
 
 We also provide the script for inferencing a single product. You can use the following command:

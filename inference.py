@@ -11,7 +11,8 @@ from tqdm import tqdm
 from models import PretrainModel, load_model_arch
 from utils.Dataset import InferenceDataset, col_fn_inference
 from utils.data_utils import fix_seed
-from utils.inference_tools import beam_search_batch, merge_prediction_group
+from utils.inference_tools import beam_search_batch
+from utils.rerank import rerank_predictions
 
 
 def build_model(args, tokenizer, device):
@@ -126,6 +127,19 @@ def main():
         '--disable_kv_cache', action='store_true',
         help='disable KV cache and recompute the decoder state each step'
     )
+    parser.add_argument(
+        '--rank_compute', type=str, default='log_logits',
+        choices=['log_logits', 'ensemble'],
+        help=(
+            'how to combine augmented predictions: '
+            'log_logits sums probabilities, ensemble uses reciprocal-rank '
+            'voting after per-augmentation canonical merging'
+        )
+    )
+    parser.add_argument(
+        '--score_alpha', type=float, default=0.1,
+        help='alpha used by ensemble reciprocal-rank scoring'
+    )
     args = parser.parse_args()
     print(args)
 
@@ -167,10 +181,12 @@ def main():
         for query, rxn_class, data_idx, aug_size in zip(
             queries, rxn_classes, indexes, aug_sizes
         ):
-            preds, probs = merge_prediction_group(
+            preds, probs = rerank_predictions(
                 pred_batch[offset: offset + aug_size],
                 prob_batch[offset: offset + aug_size],
+                rank_compute=args.rank_compute,
                 keep_invalid=False,
+                score_alpha=args.score_alpha,
             )
             answers.append({
                 'query': query,

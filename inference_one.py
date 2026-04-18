@@ -11,7 +11,8 @@ from utils.chemistry_parse import canonical_smiles
 from utils.graph_utils import smiles2graph
 import torch_geometric
 from rdkit import Chem
-from utils.inference_tools import beam_search_batch, merge_prediction_group
+from utils.inference_tools import beam_search_batch
+from utils.rerank import rerank_predictions
 
 
 def get_augmented_products(smi, aug_time):
@@ -128,6 +129,19 @@ if __name__ == '__main__':
         '--disable_kv_cache', action='store_true',
         help='disable KV cache and recompute the decoder state each step'
     )
+    parser.add_argument(
+        '--rank_compute', type=str, default='log_logits',
+        choices=['log_logits', 'ensemble'],
+        help=(
+            'how to combine augmented predictions: '
+            'log_logits sums probabilities, ensemble uses reciprocal-rank '
+            'voting after per-augmentation canonical merging'
+        )
+    )
+    parser.add_argument(
+        '--score_alpha', type=float, default=0.1,
+        help='alpha used by ensemble reciprocal-rank scoring'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -177,8 +191,12 @@ if __name__ == '__main__':
         validate=not args.org_output,
         use_kv_cache=not args.disable_kv_cache,
     )
-    preds, probs = merge_prediction_group(
-        pred_batch, prob_batch, keep_invalid=args.org_output
+    preds, probs = rerank_predictions(
+        pred_batch,
+        prob_batch,
+        rank_compute=args.rank_compute,
+        keep_invalid=args.org_output,
+        score_alpha=args.score_alpha,
     )
 
     print('[RESULT]')
