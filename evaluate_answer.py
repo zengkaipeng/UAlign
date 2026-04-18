@@ -50,22 +50,25 @@ def main():
         help='the path for file storing result'
     )
     parser.add_argument(
-        '--beam', type=int, default=10,
-        help='the number of beams for searching'
+        '--top_k', nargs='+', type=int, default=[1, 3, 5, 10],
+        help='top-k values to report, e.g. --top_k 1 3 5 10'
     )
     parser.add_argument(
         '--single_file', action='store_true',
         help='treat --path as a single json result file instead of a folder'
     )
     args = parser.parse_args()
+    top_k = sorted(set(args.top_k))
+    if not top_k or any(x <= 0 for x in top_k):
+        raise ValueError('--top_k should be positive integers')
+    beam = max(top_k)
 
     answers, saved_args = load_answers(args.path, args.single_file)
-    topk_acc = compute_topk_accuracy(answers, args.beam)
+    topk_acc = compute_topk_accuracy(answers, beam)
 
     print(f'[args]\n{saved_args}')
-    for i in [1, 3, 5, 10, 20, 50]:
-        if i <= args.beam:
-            print(f'[TOP {i}]', topk_acc[i - 1])
+    for i in top_k:
+        print(f'[TOP {i}]', topk_acc[i - 1])
 
 
 if __name__ == '__main__':
