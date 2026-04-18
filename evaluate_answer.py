@@ -63,7 +63,7 @@ def main():
     topk_acc = compute_topk_accuracy(answers, args.beam)
 
     print(f'[args]\n{saved_args}')
-    for i in [1, 3, 5, 10]:
+    for i in [1, 3, 5, 10, 20, 50]:
         if i <= args.beam:
             print(f'[TOP {i}]', topk_acc[i - 1])
 
