@@ -7,7 +7,6 @@ import torch
 from .decoder import (
     CachedTransformerDecoder,
     CachedTransformerDecoderLayer,
-    repeat_kv_cache,
     select_kv_cache,
 )
 from .sparse_backBone import GATBase
@@ -155,6 +154,30 @@ class PretrainModel(torch.nn.Module):
                 'KV-cache decoding requires CachedTransformerDecoder'
             )
         return self.decoder.build_memory_cache(memory)
+
+    @staticmethod
+    def _select_topk_per_batch(
+        batch_size: int,
+        beam: int,
+        scores: torch.Tensor,
+        belong: torch.Tensor,
+        *payloads: torch.Tensor,
+    ):
+        selected = [[] for _ in range(len(payloads) + 1)]
+        for batch_idx in range(batch_size):
+            mask = belong == batch_idx
+            if not torch.any(mask).item():
+                continue
+            batch_scores = scores[mask]
+            keep = min(beam, batch_scores.shape[0])
+            order = torch.topk(
+                batch_scores, k=keep, largest=True, sorted=True
+            ).indices
+            selected[0].append(batch_scores[order])
+            masked_payloads = [payload[mask] for payload in payloads]
+            for idx, payload in enumerate(masked_payloads, start=1):
+                selected[idx].append(payload[order])
+        return [torch.cat(items, dim=0) for items in selected]
 
     def _decode_next_token(
         self,
@@ -323,7 +346,8 @@ class PretrainModel(torch.nn.Module):
             if not torch.any(alive).item():
                 break
 
-            seq_cand = []
+            parent_seq_cand = []
+            token_cand = []
             score_cand = []
             len_cand = []
             belong_cand = []
@@ -332,19 +356,22 @@ class PretrainModel(torch.nn.Module):
             cache_ref = []
 
             if torch.any(dead).item():
-                pad_col = torch.full(
-                    (dead.sum().item(), 1), pad_idx,
+                dead_idx = torch.where(dead)[0]
+                parent_seq_cand.append(dead_idx)
+                token_cand.append(torch.full(
+                    (dead_idx.shape[0],), pad_idx,
                     dtype=torch.long, device=device
-                )
-                seq_cand.append(torch.cat([seq[dead], pad_col], dim=-1))
+                ))
                 score_cand.append(scores[dead])
                 len_cand.append(lengths[dead])
                 belong_cand.append(belong[dead])
                 balance_cand.append(balance[dead])
-                alive_cand.append(torch.zeros(dead.sum().item(), dtype=torch.bool, device=device))
+                alive_cand.append(torch.zeros(
+                    dead_idx.shape[0], dtype=torch.bool, device=device
+                ))
                 if use_kv_cache:
                     cache_ref.append(torch.full(
-                        (dead.sum().item(),), -1,
+                        (dead_idx.shape[0],), -1,
                         dtype=torch.long, device=device
                     ))
 
@@ -364,11 +391,11 @@ class PretrainModel(torch.nn.Module):
             dup = min(token_logp.shape[-1], beam)
             topk = torch.topk(token_logp, k=dup, dim=-1, largest=True, sorted=True)
 
-            expanded_seq = seq_alive[:, None, :].repeat(1, dup, 1)
-            expanded_seq = torch.cat(
-                [expanded_seq, topk.indices.unsqueeze(-1)], dim=-1
+            parent_seq_cand.append(alive_idx.repeat_interleave(dup))
+            token_cand.append(topk.indices.reshape(-1))
+            expanded_scores = (
+                scores[alive][:, None] + topk.values
             )
-            expanded_scores = scores[alive][:, None] + topk.values
             expanded_lengths = lengths[alive][:, None].repeat(1, dup) + 1
             expanded_belong = belong_alive[:, None].repeat(1, dup)
             expanded_alive = topk.indices != end_idx
@@ -380,7 +407,6 @@ class PretrainModel(torch.nn.Module):
                     (topk.indices == right_parenthesis_idx).long()
                 )
 
-            seq_cand.append(expanded_seq.reshape(-1, expanded_seq.shape[-1]))
             score_cand.append(expanded_scores.reshape(-1))
             len_cand.append(expanded_lengths.reshape(-1))
             belong_cand.append(expanded_belong.reshape(-1))
@@ -388,12 +414,12 @@ class PretrainModel(torch.nn.Module):
             alive_cand.append(expanded_alive.reshape(-1))
 
             if use_kv_cache:
-                expanded_cache = repeat_kv_cache(next_cache, dup)
                 cache_ref.append(torch.arange(
-                    expanded_alive.numel(), dtype=torch.long, device=device
-                ))
+                    alive_idx.shape[0], dtype=torch.long, device=device
+                ).repeat_interleave(dup))
 
-            cand_seq = torch.cat(seq_cand, dim=0)
+            cand_parent_seq = torch.cat(parent_seq_cand, dim=0)
+            cand_token = torch.cat(token_cand, dim=0)
             cand_scores = torch.cat(score_cand, dim=0)
             cand_lengths = torch.cat(len_cand, dim=0)
             cand_belong = torch.cat(belong_cand, dim=0)
@@ -409,44 +435,53 @@ class PretrainModel(torch.nn.Module):
                     cand_lengths.clamp_min(1).float() ** pen_para
                 )
 
-            top_seq = []
-            top_scores = []
-            top_lengths = []
-            top_belong = []
-            top_balance = []
-            top_alive = []
-            top_cache_ref = []
+            select_payloads = [
+                cand_parent_seq,
+                cand_token,
+                cand_lengths,
+                cand_belong,
+                cand_balance,
+                cand_alive,
+            ]
+            if use_kv_cache:
+                select_payloads.append(cand_cache_ref)
 
-            for batch_idx in range(batch_size):
-                mask = cand_belong == batch_idx
-                if not torch.any(mask).item():
-                    continue
-                batch_scores = cand_scores[mask]
-                keep = min(beam, batch_scores.shape[0])
-                order = torch.topk(
-                    batch_scores, k=keep, largest=True, sorted=True
-                ).indices
-                top_seq.append(cand_seq[mask][order])
-                top_scores.append(batch_scores[order])
-                top_lengths.append(cand_lengths[mask][order])
-                top_belong.append(cand_belong[mask][order])
-                top_balance.append(cand_balance[mask][order])
-                top_alive.append(cand_alive[mask][order])
-                if use_kv_cache:
-                    top_cache_ref.append(cand_cache_ref[mask][order])
-
-            seq = torch.cat(top_seq, dim=0)
-            scores = torch.cat(top_scores, dim=0)
-            lengths = torch.cat(top_lengths, dim=0)
-            belong = torch.cat(top_belong, dim=0)
-            balance = torch.cat(top_balance, dim=0)
-            alive = torch.cat(top_alive, dim=0)
+            selected = self._select_topk_per_batch(
+                batch_size,
+                beam,
+                cand_scores,
+                cand_belong,
+                *select_payloads,
+            )
+            if use_kv_cache:
+                (
+                    scores,
+                    parent_seq,
+                    next_token,
+                    lengths,
+                    belong,
+                    balance,
+                    alive,
+                    cache_ref,
+                ) = selected
+            else:
+                (
+                    scores,
+                    parent_seq,
+                    next_token,
+                    lengths,
+                    belong,
+                    balance,
+                    alive,
+                ) = selected
+            seq = torch.cat(
+                [seq[parent_seq], next_token.unsqueeze(-1)], dim=-1
+            )
 
             if use_kv_cache:
-                cache_ref = torch.cat(top_cache_ref, dim=0)
                 if torch.any(alive).item():
                     alive_cache = select_kv_cache(
-                        expanded_cache, cache_ref[alive]
+                        next_cache, cache_ref[alive]
                     )
                 else:
                     alive_cache = [None for _ in self.decoder.layers]
