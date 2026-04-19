@@ -168,7 +168,7 @@ def main():
                     continue
 
                 rxn_new = add_all_amap(reaction)
-                rxn_new = clear_useless_part(reaction)
+                rxn_new = clear_useless_part(rxn_new)
                 rxn_new = remap_amap(rxn_new)
                 id_marker += 1
                 new_dict['id'].append(f'mit_{id_marker}')

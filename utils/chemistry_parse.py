@@ -28,19 +28,6 @@ def canonical_smiles(smi):
             canonical_smi = '.'.join(canonical_smi_list)
         return canonical_smi
 
-
-def cano_with_am(smi):
-    mol = Chem.MolFromSmiles(smi)
-    tmol = deepcopy(mol)
-    for atom in mol.GetAtoms():
-        if atom.HasProp('molAtomMapNumber'):
-            atom.ClearProp('molAtomMapNumber')
-
-    ranks = list(Chem.CanonicalRankAtoms(mol))
-    root_atom = int(np.argmin(ranks))
-    return Chem.MolToSmiles(tmol, rootedAtAtom=root_atom, canonical=True)
-
-
 def remove_am_wo_cano(smi):
     mol = Chem.MolFromSmiles(smi)
     for atom in mol.GetAtoms():
