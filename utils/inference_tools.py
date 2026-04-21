@@ -7,6 +7,9 @@ from rdkit import Chem
 from utils.rerank import rerank_predictions
 
 
+CUDA_OOM_ERROR = getattr(torch.cuda, 'OutOfMemoryError', None)
+
+
 def check_valid(smi):
     mol = Chem.MolFromSmiles(smi)
     return mol is not None
@@ -46,7 +49,7 @@ def _pack_beam_answers(
 
 
 def _is_cuda_oom_error(exc):
-    if isinstance(exc, torch.cuda.OutOfMemoryError):
+    if CUDA_OOM_ERROR is not None and isinstance(exc, CUDA_OOM_ERROR):
         return True
     if isinstance(exc, RuntimeError):
         return 'out of memory' in str(exc).lower()
