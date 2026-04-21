@@ -7,7 +7,7 @@ import numpy as np
 
 from models import PretrainModel, load_model_arch
 from utils.data_utils import fix_seed
-from utils.chemistry_parse import canonical_smiles
+from utils.chemistry_parse import augment_product_smiles, canonical_smiles
 from utils.graph_utils import smiles2graph
 import torch_geometric
 from rdkit import Chem
@@ -17,10 +17,9 @@ from utils.rerank import rerank_predictions
 
 def get_augmented_products(smi, aug_time):
     prod = canonical_smiles(smi)
-    prod_mol = Chem.MolFromSmiles(prod)
-    products = [Chem.MolToSmiles(prod_mol)]
+    products = [augment_product_smiles(prod, do_random=False)]
     for _ in range(aug_time - 1):
-        products.append(Chem.MolToSmiles(prod_mol, doRandom=True))
+        products.append(augment_product_smiles(prod, do_random=True))
     return products
 
 
@@ -109,7 +108,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--product_smiles', type=str, required=True,
-        help='the SMILES of product, containing only one mole'
+        help='the SMILES of product'
     )
     parser.add_argument(
         '--input_class', type=int, default=-1,

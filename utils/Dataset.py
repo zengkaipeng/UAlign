@@ -5,6 +5,7 @@ import numpy as np
 from typing import Any, Dict, List, Tuple, Optional, Union
 from torch_geometric.data import Data as GData
 from utils.chemistry_parse import (
+    augment_product_smiles,
     clear_map_number,
     find_all_amap,
     remove_am_wo_cano,
@@ -242,10 +243,9 @@ class InferenceDataset(torch.utils.data.Dataset):
     def get_augmented_products(self, query):
         _, prod = query.strip().split('>>')
         prod = clear_map_number(prod)
-        prod_mol = Chem.MolFromSmiles(prod)
-        plist = [Chem.MolToSmiles(prod_mol)]
+        plist = [augment_product_smiles(prod, do_random=False)]
         for _ in range(self.aug_time - 1):
-            plist.append(Chem.MolToSmiles(prod_mol, doRandom=True))
+            plist.append(augment_product_smiles(prod, do_random=True))
         return plist
 
     def __getitem__(self, index):
