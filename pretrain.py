@@ -1,45 +1,20 @@
-import pickle
 import torch
 import argparse
 import json
-import os
-import time
 
 from torch.utils.data import DataLoader
 from models import PretrainModel, load_model_arch
 from utils.Dataset import TransDataset, col_fn_pretrain
 from utils.training import pretrain, preeval
-from utils.data_utils import fix_seed, check_early_stop
-from utils.tokenlizer import DEFAULT_SP, Tokenizer
+from utils.data_utils import (
+    check_early_stop,
+    create_log_model,
+    dump_tokenizer,
+    fix_seed,
+    init_tokenizer,
+    load_moles,
+)
 from torch.optim.lr_scheduler import ExponentialLR
-from utils.chemistry_parse import clear_map_number
-import pandas
-
-
-def create_log_model(args):
-    timestamp = time.time()
-    if not os.path.exists(args.base_log):
-        os.makedirs(args.base_log)
-    detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(args.base_log, f'mod-{timestamp}.pth')
-    token_path = os.path.join(args.base_log, f'token-{timestamp}.pkl')
-    return detail_log_dir, detail_model_dir, token_path
-
-
-def load_moles(data_dir, part):
-    df_train = pandas.read_csv(
-        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
-    )
-    moles, reacts = set(), set()
-    for idx, resu in enumerate(df_train['reactants>reagents>production']):
-        rea, prd = resu.strip().split('>>')
-        rea = clear_map_number(rea)
-        prd = clear_map_number(prd)
-        moles.update(rea.split('.'))
-        moles.add(prd)
-        if '.' in rea:
-            reacts.add(rea)
-    return list(moles), list(reacts)
 
 
 if __name__ == '__main__':
@@ -83,6 +58,10 @@ if __name__ == '__main__':
         help='the base dir of logging'
     )
     parser.add_argument(
+        '--log_name', default='', type=str,
+        help='the shared name for log/model/token outputs'
+    )
+    parser.add_argument(
         '--token_path', type=str, default='',
         help='the path of json containing tokens'
     )
@@ -111,25 +90,24 @@ if __name__ == '__main__':
         '--num_worker', type=int, default=0,
         help='the number of worker for dataloader'
     )
+    parser.add_argument(
+        '--scilence', action='store_true',
+        help='disable tqdm progress bars while keeping epoch logs'
+    )
 
     # training
 
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, token_dir = create_log_model(args)
-
-    if args.checkpoint != '':
-        assert args.token_ckpt != '', \
-            'require token_ckpt when checkpoint is given'
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
-    else:
-        assert args.token_path != '', 'file containing all tokens are required'
-        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
-
-        with open(args.token_path) as Fin:
-            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
+    log_dir, model_dir, token_dir = create_log_model(
+        args.base_log, args.log_name
+    )
+    tokenizer = init_tokenizer(
+        token_path=args.token_path,
+        checkpoint=args.checkpoint,
+        token_ckpt=args.token_ckpt,
+    )
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -138,9 +116,14 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
     args.model_arch = load_model_arch(args.model_arch_path)
+    show_progress = not args.scilence
 
-    train_moles, train_reac = load_moles(args.data_path, 'train')
-    test_moles, test_reac = load_moles(args.data_path, 'val')
+    train_moles, train_reac = load_moles(
+        args.data_path, 'train', show_progress
+    )
+    test_moles, test_reac = load_moles(
+        args.data_path, 'val', show_progress
+    )
 
     train_set = TransDataset(train_moles, train_reac, mode='train')
     test_set = TransDataset(test_moles, test_reac, mode='eval')
@@ -175,15 +158,15 @@ if __name__ == '__main__':
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
+    dump_tokenizer(tokenizer, token_dir)
 
     for ep in range(args.epoch):
         print(f'[INFO] traing at epoch {ep + 1}')
         loss = pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
-            warmup=(ep < args.warmup), accu=args.accu
+            warmup=(ep < args.warmup), accu=args.accu,
+            verbose=show_progress
         )
         log_info['train_loss'].append(loss)
 
@@ -191,7 +174,8 @@ if __name__ == '__main__':
 
         test_results = preeval(
             loader=test_loader, model=model, tokenizer=tokenizer,
-            pad_token='<PAD>', end_token='<END>', device=device
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=show_progress
         )
         log_info['test_metric'].append(test_results)
 

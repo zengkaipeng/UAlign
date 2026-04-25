@@ -1,6 +1,9 @@
+import json
+import pickle
 import pandas
 import os
 from utils.graph_utils import smiles2graph
+from utils.chemistry_parse import clear_map_number
 import random
 import numpy as np
 import torch
@@ -8,6 +11,8 @@ from tqdm import tqdm
 import rdkit
 from rdkit import Chem
 import multiprocessing
+from utils.tokenlizer import DEFAULT_SP, Tokenizer
+import time
 
 
 def load_data(data_dir, part):
@@ -21,6 +26,56 @@ def load_data(data_dir, part):
         reacts.append(rea)
         prods.append(prd)
     return reacts, prods, rxn_class
+
+
+def load_moles(data_dir, part, verbose=False):
+    df_train = pandas.read_csv(
+        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
+    )
+    moles, reacts = set(), set()
+    iterx = df_train['reactants>reagents>production']
+    if verbose:
+        iterx = tqdm(iterx)
+    for resu in iterx:
+        rea, prd = resu.strip().split('>>')
+        rea = clear_map_number(rea)
+        prd = clear_map_number(prd)
+        moles.update(rea.split('.'))
+        moles.update(prd.split('.'))
+        if '.' in rea:
+            reacts.add(rea)
+        if '.' in prd:
+            reacts.add(prd)
+    return list(moles), list(reacts)
+
+
+def create_log_model(base_log, log_name=''):
+    timestamp = log_name if log_name != '' else str(time.time())
+    if not os.path.exists(base_log):
+        os.makedirs(base_log)
+    detail_log_dir = os.path.join(base_log, f'log-{timestamp}.json')
+    detail_model_dir = os.path.join(base_log, f'mod-{timestamp}.pth')
+    token_path = os.path.join(base_log, f'token-{timestamp}.pkl')
+    return detail_log_dir, detail_model_dir, token_path
+
+
+def init_tokenizer(token_path='', checkpoint='', token_ckpt=''):
+    if checkpoint != '':
+        assert token_ckpt != '', \
+            'require token_ckpt when checkpoint is given'
+        with open(token_ckpt, 'rb') as fin:
+            tokenizer = pickle.load(fin)
+    else:
+        assert token_path != '', 'file containing all tokens are required'
+        sp_token = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
+        with open(token_path) as fin:
+            tokenizer = Tokenizer(json.load(fin), sp_token)
+    return tokenizer
+
+
+def dump_tokenizer(tokenizer, token_dir):
+    with open(token_dir, 'wb') as fout:
+        pickle.dump(tokenizer, fout)
 
 
 def fix_seed(seed):

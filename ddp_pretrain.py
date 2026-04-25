@@ -1,57 +1,26 @@
-import pickle
 import torch
 import argparse
 import json
-import os
-import time
 
 
 from torch.utils.data import DataLoader
 from models import PretrainModel, load_model_arch
 from utils.Dataset import TransDataset, col_fn_pretrain
 from utils.training import ddp_pretrain, ddp_preeval
-from utils.data_utils import fix_seed, check_early_stop
-from utils.tokenlizer import DEFAULT_SP, Tokenizer
+from utils.data_utils import (
+    check_early_stop,
+    create_log_model,
+    dump_tokenizer,
+    fix_seed,
+    init_tokenizer,
+    load_moles,
+)
 from torch.optim.lr_scheduler import ExponentialLR
-from utils.chemistry_parse import clear_map_number
-import pandas
-from tqdm import tqdm
 
 
 import torch.distributed as torch_dist
 import torch.multiprocessing as torch_mp
 from torch.utils.data.distributed import DistributedSampler
-
-
-def create_log_model(args):
-    timestamp = args.log_name if args.log_name != '' else str(time.time())
-    if not os.path.exists(args.base_log):
-        os.makedirs(args.base_log)
-    detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(args.base_log, f'mod-{timestamp}.pth')
-    token_path = os.path.join(args.base_log, f'token-{timestamp}.pkl')
-    return detail_log_dir, detail_model_dir, token_path
-
-
-def load_moles(data_dir, part, verbose):
-    df_train = pandas.read_csv(
-        os.path.join(data_dir, f'canonicalized_raw_{part}.csv')
-    )
-    moles, reacts = set(), set()
-    iterx = df_train['reactants>reagents>production']
-    if verbose:
-        iterx = tqdm(iterx)
-    for idx, resu in enumerate(iterx):
-        rea, prd = resu.strip().split('>>')
-        rea = clear_map_number(rea)
-        prd = clear_map_number(prd)
-        moles.update(rea.split('.'))
-        moles.add(prd)
-        if '.' in rea:
-            reacts.add(rea)
-    return list(moles), list(reacts)
-
-
 def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
     print(f'[INFO] Process {worker_idx} start')
@@ -254,22 +223,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    log_dir, model_dir, token_dir = create_log_model(args)
-
-    if args.checkpoint != '':
-        assert args.token_ckpt != '', \
-            'require token_ckpt when checkpoint is given'
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
-    else:
-        assert args.token_path != '', 'file containing all tokens are required'
-        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
-
-        with open(args.token_path) as Fin:
-            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
-
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
+    log_dir, model_dir, token_dir = create_log_model(
+        args.base_log, args.log_name
+    )
+    tokenizer = init_tokenizer(
+        token_path=args.token_path,
+        checkpoint=args.checkpoint,
+        token_ckpt=args.token_ckpt,
+    )
+    dump_tokenizer(tokenizer, token_dir)
 
     print(f'[INFO] padding index', tokenizer.token2idx['<PAD>'])
     fix_seed(args.seed)

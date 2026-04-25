@@ -37,7 +37,7 @@ def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
 
 def pretrain(
     loader, model, optimizer, device, tokenizer,
-    pad_token, warmup, accu=1, label_smoothing=0
+    pad_token, warmup, accu=1, label_smoothing=0, verbose=True
 ):
     model, losses = model.train(), []
     ignore_idx = tokenizer.token2idx[pad_token]
@@ -45,7 +45,8 @@ def pretrain(
     if warmup:
         warmup_iters = len(loader) - 1
         warmup_sher = warmup_lr_scheduler(optimizer, warmup_iters, 5e-2)
-    for graph, tran in tqdm(loader):
+    iterx = tqdm(loader) if verbose else loader
+    for graph, tran in iterx:
         graph = graph.to(device)
 
         tops = tokenizer.encode2d(tran, pad_token=pad_token)
@@ -83,12 +84,15 @@ def pretrain(
     return np.mean(losses)
 
 
-def preeval(model, loader, device, tokenizer, pad_token, end_token):
+def preeval(
+    model, loader, device, tokenizer, pad_token, end_token, verbose=True
+):
     model, trans_accs = model.eval(), []
     end_idx = tokenizer.token2idx[end_token]
     pad_idx = tokenizer.token2idx[pad_token]
 
-    for graph, tran in tqdm(loader):
+    iterx = tqdm(loader) if verbose else loader
+    for graph, tran in iterx:
         graph = graph.to(device)
         tops = tokenizer.encode2d(tran, pad_token=pad_token)
         tops = torch.LongTensor(tops).to(device)

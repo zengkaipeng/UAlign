@@ -1,28 +1,21 @@
 import torch
 import argparse
 import json
-import os
-import time
-import pickle
 
 
-from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.utils.data import DataLoader
 from models import PretrainModel, load_model_arch
 from utils.training import pretrain, preeval
-from utils.data_utils import load_data, fix_seed, check_early_stop
+from utils.data_utils import (
+    check_early_stop,
+    create_log_model,
+    dump_tokenizer,
+    fix_seed,
+    init_tokenizer,
+    load_data,
+)
 from torch.optim.lr_scheduler import ExponentialLR
 from utils.Dataset import RetroDataset, col_fn_retro
-
-
-def create_log_model(args):
-    timestamp = time.time()
-    if not os.path.exists(args.base_log):
-        os.makedirs(args.base_log)
-    detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
-    detail_model_dir = os.path.join(args.base_log, f'mod-{timestamp}.pth')
-    token_path = os.path.join(args.base_log, f'token-{timestamp}.pkl')
-    return detail_log_dir, detail_model_dir, token_path
 
 
 if __name__ == '__main__':
@@ -82,6 +75,10 @@ if __name__ == '__main__':
         help='the base dir of logging'
     )
     parser.add_argument(
+        '--log_name', default='', type=str,
+        help='the shared name for log/model/token outputs'
+    )
+    parser.add_argument(
         '--accu', type=int, default=1,
         help='the number of batch accu'
     )
@@ -109,10 +106,16 @@ if __name__ == '__main__':
         '--num_workers', type=int, default=0,
         help='the num of worker for dataloader'
     )
+    parser.add_argument(
+        '--scilence', action='store_true',
+        help='disable tqdm progress bars while keeping epoch logs'
+    )
 
     args = parser.parse_args()
     print(args)
-    log_dir, model_dir, token_dir = create_log_model(args)
+    log_dir, model_dir, token_dir = create_log_model(
+        args.base_log, args.log_name
+    )
 
     if not torch.cuda.is_available() or args.device < 0:
         device = torch.device('cpu')
@@ -121,18 +124,13 @@ if __name__ == '__main__':
 
     fix_seed(args.seed)
     args.model_arch = load_model_arch(args.model_arch_path)
+    show_progress = not args.scilence
 
-    if args.checkpoint != '':
-        assert args.token_ckpt != '', \
-            'require token_ckpt when checkpoint is given'
-        with open(args.token_ckpt, 'rb') as Fin:
-            tokenizer = pickle.load(Fin)
-    else:
-        assert args.token_path != '', 'file containing all tokens are required'
-        SP_TOKEN = DEFAULT_SP | set([f"<RXN>_{i}" for i in range(11)])
-
-        with open(args.token_path) as Fin:
-            tokenizer = Tokenizer(json.load(Fin), SP_TOKEN)
+    tokenizer = init_tokenizer(
+        token_path=args.token_path,
+        checkpoint=args.checkpoint,
+        token_ckpt=args.token_ckpt,
+    )
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
@@ -189,8 +187,7 @@ if __name__ == '__main__':
         'valid_metric': [], 'test_metric': []
     }
 
-    with open(token_dir, 'wb') as Fout:
-        pickle.dump(tokenizer, Fout)
+    dump_tokenizer(tokenizer, token_dir)
 
     with open(log_dir, 'w') as Fout:
         json.dump(log_info, Fout, indent=4)
@@ -201,19 +198,22 @@ if __name__ == '__main__':
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
             warmup=(ep < args.warmup), accu=args.accu,
-            label_smoothing=args.label_smoothing
+            label_smoothing=args.label_smoothing,
+            verbose=show_progress
         )
         log_info['train_loss'].append({'trans': loss})
 
         valid_result = preeval(
             loader=valid_loader, model=model, tokenizer=tokenizer,
-            pad_token='<PAD>', end_token='<END>', device=device
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=show_progress
         )
         log_info['valid_metric'].append({'trans': valid_result})
 
         test_result = preeval(
             loader=test_loader, model=model, tokenizer=tokenizer,
-            pad_token='<PAD>', end_token='<END>', device=device
+            pad_token='<PAD>', end_token='<END>', device=device,
+            verbose=show_progress
         )
 
         log_info['test_metric'].append({'trans': test_result})
