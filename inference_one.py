@@ -7,7 +7,7 @@ import numpy as np
 
 from models import PretrainModel, load_model_arch
 from utils.data_utils import fix_seed
-from utils.chemistry_parse import augment_product_smiles, canonical_smiles
+from utils.chemistry_parse import augment_product_smiles, clear_map_number
 from utils.graph_utils import smiles2graph
 import torch_geometric
 from rdkit import Chem
@@ -16,7 +16,7 @@ from utils.rerank import rerank_predictions
 
 
 def get_augmented_products(smi, aug_time):
-    prod = canonical_smiles(smi)
+    prod = clear_map_number(smi)
     products = [augment_product_smiles(prod, do_random=False)]
     for _ in range(aug_time - 1):
         products.append(augment_product_smiles(prod, do_random=True))

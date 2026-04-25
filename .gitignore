@@ -5,3 +5,4 @@ tmp_res
 temp_res
 AGENTS.md
 tests/
+smiles_tokens/uspto_mit_tokens_ring10_19.json

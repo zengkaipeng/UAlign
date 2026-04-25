@@ -9,7 +9,7 @@ import time
 from torch.utils.data import DataLoader
 from models import PretrainModel, load_model_arch
 from utils.Dataset import TransDataset, col_fn_pretrain
-from utils.ddp_training import ddp_pretrain, ddp_preeval
+from utils.training import ddp_pretrain, ddp_preeval
 from utils.data_utils import fix_seed, check_early_stop
 from utils.tokenlizer import DEFAULT_SP, Tokenizer
 from torch.optim.lr_scheduler import ExponentialLR
@@ -24,7 +24,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 
 def create_log_model(args):
-    timestamp = time.time()
+    timestamp = args.log_name if args.log_name != '' else str(time.time())
     if not os.path.exists(args.base_log):
         os.makedirs(args.base_log)
     detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
@@ -62,9 +62,10 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
     device = torch.device(f'cuda:{worker_idx}')
     verbose = (worker_idx == 0)
+    show_progress = verbose and (not args.scilence)
 
-    train_moles, train_reac = load_moles(args.data_path, 'train', verbose)
-    test_moles, test_reac = load_moles(args.data_path, 'val', verbose)
+    train_moles, train_reac = load_moles(args.data_path, 'train', show_progress)
+    test_moles, test_reac = load_moles(args.data_path, 'val', show_progress)
 
     print(f'[INFO] worker {worker_idx} data loaded')
 
@@ -121,13 +122,14 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         loss = ddp_pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
-            warmup=(ep < args.warmup), accu=args.accu, verbose=verbose
+            warmup=(ep < args.warmup), accu=args.accu,
+            verbose=show_progress
         )
 
         test_results = ddp_preeval(
             loader=test_loader, model=model, tokenizer=tokenizer,
             pad_token='<PAD>', end_token='<END>', device=device,
-            verbose=verbose
+            verbose=show_progress
         )
         torch_dist.barrier()
         loss.all_reduct(device)
@@ -200,6 +202,10 @@ if __name__ == '__main__':
         '--base_log', default='ddp_pretrain', type=str,
         help='the base dir of logging'
     )
+    parser.add_argument(
+        '--log_name', default='', type=str,
+        help='the shared name for log/model/token outputs'
+    )
 
     parser.add_argument(
         '--token_path', type=str, default='',
@@ -237,6 +243,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--port', type=int, default=12345,
         help='the port for ddp nccl communication'
+    )
+    parser.add_argument(
+        '--scilence', action='store_true',
+        help='disable tqdm progress bars while keeping epoch logs'
     )
 
     # training

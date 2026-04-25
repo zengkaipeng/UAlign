@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from models import PretrainModel, load_model_arch
 from utils.Dataset import RetroDataset, col_fn_retro
 
-from utils.ddp_training import ddp_pretrain, ddp_preeval
+from utils.training import ddp_pretrain, ddp_preeval
 from utils.data_utils import load_data, fix_seed, check_early_stop
 from torch.optim.lr_scheduler import ExponentialLR
 
@@ -22,7 +22,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 
 def create_log_model(args):
-    timestamp = time.time()
+    timestamp = args.log_name if args.log_name != '' else str(time.time())
     if not os.path.exists(args.base_log):
         os.makedirs(args.base_log)
     detail_log_dir = os.path.join(args.base_log, f'log-{timestamp}.json')
@@ -40,6 +40,7 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
 
     device = torch.device(f'cuda:{worker_idx}')
     verbose = (worker_idx == 0)
+    show_progress = verbose and (not args.scilence)
 
     train_rec, train_prod, train_rxn = load_data(args.data_path, 'train')
     val_rec, val_prod, val_rxn = load_data(args.data_path, 'val')
@@ -119,20 +120,21 @@ def main_worker(worker_idx, args, tokenizer, log_dir, model_dir):
         train_loss = ddp_pretrain(
             loader=train_loader, model=model, optimizer=optimizer,
             tokenizer=tokenizer, device=device, pad_token='<PAD>',
-            warmup=(ep < args.warmup), accu=args.accu, verbose=verbose,
+            warmup=(ep < args.warmup), accu=args.accu,
+            verbose=show_progress,
             label_smoothing=args.label_smoothing
         )
 
         valid_result = ddp_preeval(
             loader=valid_loader, model=model, tokenizer=tokenizer,
             pad_token='<PAD>', end_token='<END>', device=device,
-            verbose=verbose
+            verbose=show_progress
         )
 
         test_result = ddp_preeval(
             loader=test_loader, model=model, tokenizer=tokenizer,
             pad_token='<PAD>', end_token='<END>', device=device,
-            verbose=verbose
+            verbose=show_progress
         )
 
         torch_dist.barrier()
@@ -232,6 +234,10 @@ if __name__ == '__main__':
         help='the base dir of logging'
     )
     parser.add_argument(
+        '--log_name', default='', type=str,
+        help='the shared name for log/model/token outputs'
+    )
+    parser.add_argument(
         '--accu', type=int, default=1,
         help='the number of batch accu'
     )
@@ -262,6 +268,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--port', type=int, default=12225,
         help='the port for ddp communation'
+    )
+    parser.add_argument(
+        '--scilence', action='store_true',
+        help='disable tqdm progress bars while keeping epoch logs'
     )
 
     args = parser.parse_args()

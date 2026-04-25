@@ -118,7 +118,7 @@ class RetroDataset(torch.utils.data.Dataset):
             # randomized result, have to make sure the amap number of
             # prod is int the range of 1 -> num atoms
             mol = Chem.MolFromSmiles(prod)
-            temp_x = Chem.MolToSmiles(mol, doRandom=True)
+            temp_x = augment_product_smiles(prod, do_random=True)
             all_ams = find_all_amap(temp_x)
             remap = {v: idx + 1 for idx, v in enumerate(all_ams)}
 
