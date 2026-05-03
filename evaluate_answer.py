@@ -8,6 +8,10 @@ from tqdm import tqdm
 from utils.chemistry_parse import canonical_smiles, clear_map_number
 
 
+CANON_CACHE = {}
+REAL_ANSWER_CACHE = {}
+
+
 def load_answers(path, single_file):
     if single_file:
         with open(path) as fin:
@@ -31,11 +35,16 @@ def load_answers(path, single_file):
 def compute_topk_accuracy(answers, beam):
     topks = []
     for single in tqdm(answers):
-        reac, _ = single['query'].split('>>')
-        real_ans = clear_map_number(reac)
+        query = single['query']
+        if query not in REAL_ANSWER_CACHE:
+            reac, _ = query.split('>>')
+            REAL_ANSWER_CACHE[query] = clear_map_number(reac)
+        real_ans = REAL_ANSWER_CACHE[query]
         opt = np.zeros(beam)
         for idx, pred in enumerate(single['answer'][:beam]):
-            if canonical_smiles(pred) == real_ans:
+            if pred not in CANON_CACHE:
+                CANON_CACHE[pred] = canonical_smiles(pred)
+            if CANON_CACHE[pred] == real_ans:
                 opt[idx:] = 1
                 break
         topks.append(opt)
