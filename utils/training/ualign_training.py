@@ -35,9 +35,27 @@ def calc_trans_loss(trans_pred, trans_lb, ignore_index, lbsm=0.0):
     return loss
 
 
+def raise_for_unknown_tokens(batch, tokenizer, encoded, unk_token, context):
+    unk_idx = tokenizer.token2idx[unk_token]
+    unk_mask = encoded == unk_idx
+    if not torch.any(unk_mask):
+        return
+
+    batch_idx = int(torch.nonzero(unk_mask, as_tuple=False)[0, 0].item())
+    unknown = sorted(
+        set(tok for tok in batch[batch_idx] if tok not in tokenizer.token2idx)
+    )
+    raise ValueError(
+        f'Unknown tokens found during {context} at batch index '
+        f'{batch_idx}: ' +
+        ', '.join(repr(tok) for tok in unknown[:20])
+    )
+
+
 def pretrain(
     loader, model, optimizer, device, tokenizer,
-    pad_token, warmup, accu=1, label_smoothing=0, verbose=True
+    pad_token, warmup, accu=1, label_smoothing=0, verbose=True,
+    unk_token='<UNK>',
 ):
     model, losses = model.train(), []
     ignore_idx = tokenizer.token2idx[pad_token]
@@ -50,7 +68,11 @@ def pretrain(
         graph = graph.to(device)
 
         tops = tokenizer.encode2d(tran, pad_token=pad_token)
-        tops = torch.LongTensor(tops).to(device)
+        tops = torch.LongTensor(tops)
+        raise_for_unknown_tokens(
+            tran, tokenizer, tops, unk_token, 'training'
+        )
+        tops = tops.to(device)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 
@@ -85,7 +107,8 @@ def pretrain(
 
 
 def preeval(
-    model, loader, device, tokenizer, pad_token, end_token, verbose=True
+    model, loader, device, tokenizer, pad_token, end_token, verbose=True,
+    unk_token='<UNK>',
 ):
     model, trans_accs = model.eval(), []
     end_idx = tokenizer.token2idx[end_token]
@@ -95,7 +118,11 @@ def preeval(
     for graph, tran in iterx:
         graph = graph.to(device)
         tops = tokenizer.encode2d(tran, pad_token=pad_token)
-        tops = torch.LongTensor(tops).to(device)
+        tops = torch.LongTensor(tops)
+        raise_for_unknown_tokens(
+            tran, tokenizer, tops, unk_token, 'evaluation'
+        )
+        tops = tops.to(device)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
 

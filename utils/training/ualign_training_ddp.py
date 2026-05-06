@@ -9,7 +9,10 @@ from utils.data_utils import (
 )
 
 from utils.data_utils import eval_trans as data_eval_trans
-from utils.training.ualign_training import calc_trans_loss
+from utils.training.ualign_training import (
+    calc_trans_loss,
+    raise_for_unknown_tokens,
+)
 import torch.distributed as torch_dist
 from enum import Enum
 
@@ -101,7 +104,8 @@ def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor):
 
 def ddp_pretrain(
     loader, model, optimizer, device, tokenizer, pad_token,
-    warmup, accu=1, verbose=False, label_smoothing=0
+    warmup, accu=1, verbose=False, label_smoothing=0,
+    unk_token='<UNK>',
 ):
     model = model.train()
     losses = MetricCollector('loss', type_fmt=':.3f')
@@ -116,6 +120,9 @@ def ddp_pretrain(
     for graph, tran in iterx:
         graph = graph.to(device, non_blocking=True)
         tops = torch.LongTensor(tokenizer.encode2d(tran))
+        raise_for_unknown_tokens(
+            tran, tokenizer, tops, unk_token, 'distributed training'
+        )
         tops = tops.to(device, non_blocking=True)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]
@@ -159,7 +166,7 @@ def ddp_pretrain(
 
 def ddp_preeval(
     model, loader, device, tokenizer, pad_token, end_token,
-    verbose=False
+    verbose=False, unk_token='<UNK>',
 ):
     model = model.eval()
 
@@ -174,6 +181,9 @@ def ddp_preeval(
     for graph, tran in iterx:
         graph = graph.to(device, non_blocking=True)
         tops = torch.LongTensor(tokenizer.encode2d(tran))
+        raise_for_unknown_tokens(
+            tran, tokenizer, tops, unk_token, 'distributed evaluation'
+        )
         tops = tops.to(device, non_blocking=True)
         trans_dec_ip = tops[:, :-1]
         trans_dec_op = tops[:, 1:]

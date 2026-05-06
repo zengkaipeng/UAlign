@@ -27,13 +27,33 @@ class TransDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.smiles) + len(self.reacts)
 
+    def _randomize_single_smiles(self, smi):
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            raise ValueError(f'Invalid SMILES for randomization: {smi}')
+        return Chem.MolToSmiles(mol, doRandom=True)
+
+    def _try_concat_smiles(
+        self, smi, max_self_atoms=200, max_pair_atoms=100, max_trials=10
+    ):
+        smi_mol = Chem.MolFromSmiles(smi)
+        if smi_mol is None or smi_mol.GetNumAtoms() >= max_self_atoms:
+            return None
+
+        for _ in range(max_trials):
+            cand = random.choice(self.smiles)
+            cand_mol = Chem.MolFromSmiles(cand)
+            if cand_mol is not None and \
+                    cand_mol.GetNumAtoms() <= max_pair_atoms:
+                return f'{smi}.{cand}'
+        return None
+
     def randomize_smiles(self, smi):
         if random.randint(0, 1) == 1:
-            k = random.choice(self.smiles)
-            return f'{smi}.{k}'
-        else:
-            mol = Chem.MolFromSmiles(smi)
-            return Chem.MolToSmiles(mol, doRandom=True)
+            concat_smi = self._try_concat_smiles(smi)
+            if concat_smi is not None:
+                return concat_smi
+        return self._randomize_single_smiles(smi)
 
     def random_react(self, smi):
         y = []
