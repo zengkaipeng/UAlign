@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 
 import numpy as np
 from tqdm import tqdm
@@ -10,6 +11,25 @@ from utils.chemistry_parse import canonical_smiles, clear_map_number
 
 CANON_CACHE = {}
 REAL_ANSWER_CACHE = {}
+RESULT_FILE_RE = re.compile(r'^\d+-\d+\.json$')
+ARG_KEYS_TO_MATCH = (
+    'model_arch_path',
+    'data_path',
+    'checkpoint',
+    'token_ckpt',
+    'use_class',
+    'max_len',
+    'beams',
+    'batch_size',
+    'aug_time',
+    'disable_kv_cache',
+    'rank_compute',
+    'score_alpha',
+)
+
+
+def normalize_args(args):
+    return {key: args.get(key) for key in ARG_KEYS_TO_MATCH}
 
 
 def load_answers(path, single_file):
@@ -21,14 +41,24 @@ def load_answers(path, single_file):
     answers = []
     saved_args = None
     for file_name in sorted(os.listdir(path)):
-        if not file_name.endswith('.json'):
+        if not RESULT_FILE_RE.match(file_name):
             continue
         with open(os.path.join(path, file_name)) as fin:
             info = json.load(fin)
-        saved_args = info['args']
+        if 'answer' not in info or not isinstance(info['answer'], list):
+            continue
+        current_args = normalize_args(info.get('args', {}))
+        if saved_args is None:
+            saved_args = current_args
+        elif current_args != saved_args:
+            raise ValueError(
+                f'inconsistent inference args detected in {file_name}'
+            )
         answers.extend(info['answer'])
     if saved_args is None:
-        raise FileNotFoundError(f'No json result file found under {path}')
+        raise FileNotFoundError(
+            f'No shard result json found under {path}'
+        )
     return answers, saved_args
 
 

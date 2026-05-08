@@ -46,12 +46,12 @@ run_stage1() {
     --seed 2023 \
     --bs "${BS_PER_GPU}" \
     --epoch 200 \
-    --early_stop 8 \
-    --lr 0.000125 \
+    --early_stop 10 \
+    --lr 0.000075 \
     --base_log "${STAGE1_LOG_DIR}" \
     --log_name "${STAGE1_RUN_NAME}" \
     --token_path "${TOKEN_JSON}" \
-    --lrgamma 0.993 \
+    --lrgamma 0.991 \
     --warmup 4 \
     --accu "${ACCU}" \
     --num_workers 6 \
@@ -87,9 +87,9 @@ run_stage2() {
     --seed 2023 \
     --bs "${BS_PER_GPU}" \
     --epoch 300 \
-    --early_stop 8 \
+    --early_stop 10 \
     --num_gpus "${NUM_GPUS}" \
-    --lr 0.00015 \
+    --lr 0.000075 \
     --base_log "${STAGE2_LOG_DIR}" \
     --log_name "${STAGE2_RUN_NAME}" \
     --accu "${ACCU}" \
@@ -97,7 +97,7 @@ run_stage2() {
     --checkpoint "${RESOLVED_STAGE1_CHECKPOINT}" \
     --token_ckpt "${RESOLVED_STAGE1_TOKEN_CKPT}" \
     --warmup 4 \
-    --gamma 0.985 \
+    --gamma 0.993 \
     --label_smoothing 0.0 \
     --num_workers 8 \
     --port "${STAGE2_PORT}" \

@@ -112,15 +112,31 @@ UAlign/
 
 ## Data Preprocess
 
-We provide the data preprocess scripts in folder `data_proprocess`. Each dataset is processed through a separate processing script. The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The scripts for USPTO-50K and USPTO-FULL process one CSV file at a time, and the output file is stored in the same folder as the input file.
+We provide the data preprocess scripts in folder `data_proprocess`. The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. USPTO-50K and USPTO-FULL share the same CSV canonicalization implementation, but they must use different class modes.
+
+**Important class-mode setting:**
+
+- USPTO-50K uses `preserve`: keep the reaction class from the raw CSV.
+- USPTO-FULL uses `minus_one`: write `class = -1` for every reaction.
+- USPTO-MIT uses its own text-file preprocessing script and also writes `class = -1`.
+
+Using the wrong class mode will produce processed data with incorrect class labels.
 
 ```shell
-# USPTO-50K
+# USPTO-50K, multiprocessing enabled by default with --num_procs 4
 python data_proprocess/canonicalize_data_50K.py --filename $path_of_raw_csv
+python data_proprocess/canonicalize_data_50K.py --filename $path_of_raw_csv --num_procs 8
 
 # USPTO-FULL, multiprocessing enabled by default with --num_procs 4
 python data_proprocess/canonicalize_data_full.py --filename $path_of_raw_csv
 python data_proprocess/canonicalize_data_full.py --filename $path_of_raw_csv --num_procs 8
+```
+
+The compatibility wrappers above set the correct class mode automatically and do not expose `--class_mode`. If you call the shared CSV implementation directly, specify the class mode explicitly:
+
+```shell
+python data_proprocess/canonicalize_data_csv.py --filename $path_of_50k_raw_csv --class_mode preserve
+python data_proprocess/canonicalize_data_csv.py --filename $path_of_full_raw_csv --class_mode minus_one
 ```
 
 The script for USPTO-MIT processes all the files together, which can be used by
