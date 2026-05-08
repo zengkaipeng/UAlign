@@ -4,13 +4,22 @@ Official implementation for paper:
 
 [UAlign: Pushing the Limit of Template-free Retrosynthesis Prediction with Unsupervised SMILES Alignment](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-024-00877-2)
 
+## Updates
+
+- Refactored the repository layout: reusable model code is under `models/`, training/data utilities are under `utils/`, and decoder cache helpers are under `models/decoder/`.
+- Added model architecture presets under `model_arch/` and standardized bundled token JSON files under `smiles_tokens/`.
+- Merged batched inference and evaluation CLIs, with support for SMILES augmentation, reranking, directory evaluation, and cached decoding.
+- Added KV-cache support for PyTorch 1.x inference.
+- Unified Stage I / Stage II training helpers, added deterministic `--log_name` outputs, and added `--scilence` for non-interactive launcher runs.
+- Added training-time unknown-token checks and Stage I augmentation guards for invalid or very large randomized molecule pairs.
+
 ## Environment
 
 two anaconda environments are provided, corresponding to CUDA 10.2 and CUDA 11.3 respectively. Use the following commands to create the environment for running our code.
 
 ```shell
 conda env create -f env_config/env_cu102.yml # for CUDA 10.2
-conda env create -f env_config/enc_cu113.yml # for CUDA 11.3
+conda env create -f env_config/env_cu113.yml # for CUDA 11.3
 ```
 
 ## Data and Checkpoints
@@ -103,34 +112,40 @@ UAlign/
 
 ## Data Preprocess
 
-We provide the data preprocess scripts in folder `data_proprocess`. Each dataset is processed through a separate processing script. The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The script for USPTO-50K and USPTO-FULL is used to process a single file. The scripts can be used as follows and the output file will be stored in the same folder as the input file.
+We provide the data preprocess scripts in folder `data_proprocess`. Each dataset is processed through a separate processing script. The atom-mapping numbers of each reaction are reassigned according to the canonical ranks of atoms of the product to avoid information leakage. The scripts for USPTO-50K and USPTO-FULL process one CSV file at a time, and the output file is stored in the same folder as the input file.
 
 ```shell
-python data_proprocess/canonicalize_data_50k.py --filename $dir_of_raw_file
-python data_proprocess/canonicalize_data_full.py --filename $dir_of_raw_file
+# USPTO-50K
+python data_proprocess/canonicalize_data_50K.py --filename $path_of_raw_csv
+
+# USPTO-FULL, multiprocessing enabled by default with --num_procs 4
+python data_proprocess/canonicalize_data_full.py --filename $path_of_raw_csv
+python data_proprocess/canonicalize_data_full.py --filename $path_of_raw_csv --num_procs 8
 ```
 
 The script for USPTO-MIT processes all the files together, which can be used by
 
 ```shell
-python data_proprocess/canonicalize_data_full.py --dir $folder_of_raw_data --output_dir $output_dir
+python data_proprocess/canonicalize_data_mit.py --dir $folder_of_raw_data --output_dir $output_dir
 ```
 
-The `$folder_of_raw_data` should contain the following files:  `train.txt`, `valid.txt` and `test.txt`. 
+The `$folder_of_raw_data` should contain the following files: `train.txt`, `valid.txt`, and `test.txt`. The USPTO-MIT script writes `canonicalized_raw_train.csv`, `canonicalized_raw_val.csv`, and `canonicalized_raw_test.csv` to `$output_dir`.
 
 **For the detail about data preprocess, please refer to the article.**
 
 ## Generating Tokens
 
-To build the tokenizer, we need a list of of all the shown tokens. You can use the follow command to generate the token list and store it in files.
+To build the tokenizer, we need a list of all shown tokens. You can use the following command to generate the token list and store it in a JSON file.
 
-```
-python generate_tokens $file_1 $file_2 ... $file_n $token_list.json
+```shell
+python generate_tokens.py $file_1 $file_2 ... $file_n $token_list.json
 ```
 
 The script can accept multiple files as input and the last position should be the path of file to store the token list. The files should have the same format as the processed dataset.
 
 ## Stage I training
+
+For reproducing the release-style experiments, prefer the scripts under `launchers/`. The command templates below are mainly for custom training runs.
 
 Use the following command for training the first stage:
 
@@ -211,7 +226,6 @@ python ddp_train_trans.py --model_arch_path model_arch/uspto_50k.json \
                       --bs $batch_size \
                       --epoch $epoch_for_training \
                       --early_stop $epoch_num_for_checking_early_stop \
-                      --device $device_id \
                       --lr $learning_rate \
                       --base_log $folder_for_logging \
                       --token_path $path_of_token_list \
@@ -284,3 +298,49 @@ python inference_one.py --model_arch_path model_arch/uspto_50k.json \
 ```
 
 If `--use_class` is added, `input_class` is required. Also make sure that the product SMILES contains a single molecule.
+
+## Reproduction Launchers
+
+We recently received several reproducibility issues. Because our servers were upgraded after the article was published, the launchers below do not exactly match the original hyperparameters used to train the released checkpoints. They provide practical parameter settings that can produce similar performance on the current server setup. These settings have not been exhaustively tuned and may still have room for optimization.
+
+Hardware requirement:
+
+- CUDA 11-compatible GPUs.
+- USPTO-50K: GPUs with 48GB memory per card are required for the recommended launcher parameters.
+- USPTO-MIT: GPUs with 48GB memory per card are required for the recommended launcher parameters.
+- USPTO-FULL: GPUs with 80GB memory per card are required for the recommended launcher parameters.
+
+**TODO before running: set `DATA_DIR` to your processed dataset folder.**
+
+Replace `/path/to/USPTO-*` with the dataset folder itself, not its parent folder. The folder passed as `DATA_DIR` must directly contain:
+
+```text
+canonicalized_raw_train.csv
+canonicalized_raw_val.csv
+canonicalized_raw_test.csv
+```
+
+Usage:
+
+```shell
+# USPTO-50K
+DATA_DIR=/path/to/USPTO-50K bash launchers/uspto-50k-train.sh all
+
+# USPTO-MIT
+DATA_DIR=/path/to/USPTO-MIT bash launchers/uspto-mit-train.sh all
+
+# USPTO-FULL
+DATA_DIR=/path/to/USPTO-FULL bash launchers/uspto-full-train.sh all
+```
+
+Available modes:
+
+- USPTO-50K: `stage1`, `stage2_unknown`, `stage2_known`, `stage2`, `all`.
+- USPTO-MIT: `stage1`, `stage2`, `all`.
+- USPTO-FULL: `stage1`, `stage2`, `all`.
+
+If no mode is provided, the launchers use `all` by default.
+
+Optional flag: the current CLI name is `--scilence`. Add it only for non-interactive runs where progress bars should be disabled. We recommend not using it for normal training so that the progress bars remain visible.
+
+The scripts do not embed any server-specific dataset path. If needed, override log folders, run names, checkpoints, token JSONs, or model architecture paths with the corresponding environment variables in the launcher.

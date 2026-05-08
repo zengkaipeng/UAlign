@@ -7,6 +7,7 @@ used to renumber the reactant atoms.
 import rdkit
 import os
 import argparse
+from multiprocessing import Pool
 import pandas as pd
 from rdkit import Chem
 from tqdm import tqdm
@@ -113,11 +114,34 @@ def check_valid(rxn_smi):
     return True, "correct"
 
 
+def process_reaction(row):
+    uspto_id, rxn_smi = row
+    is_valid, message = check_valid(rxn_smi)
+    if not is_valid:
+        return None, rxn_smi, message
+
+    rxn_new = add_all_amap(rxn_smi)
+    rxn_new = remap_amap(rxn_new)
+    return {
+        'id': uspto_id,
+        'class': -1,
+        'reactants>reagents>production': rxn_new,
+    }, None, None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--filename", required=True,
         help="File with reactions to canonicalize"
+    )
+    parser.add_argument(
+        "--num_procs", type=int, default=4,
+        help="number of processes for canonicalization"
+    )
+    parser.add_argument(
+        "--chunksize", type=int, default=128,
+        help="number of reactions assigned to each worker task"
     )
     args = parser.parse_args()
 
@@ -128,25 +152,42 @@ def main():
     df = pd.read_csv(args.filename)
     print(f"Processing file of size: {len(df)}")
 
-    new_dict = {'id': [], 'class': [], 'reactants>reagents>production': []}
-    for idx in tqdm(range(len(df))):
-        element = df.loc[idx]
-        uspto_id, class_id = element['id'], -1
-        rxn_smi = element['reactants>reagents>production']
+    rows = list(
+        df[['id', 'reactants>reagents>production']].itertuples(
+            index=False, name=None
+        )
+    )
+    num_procs = max(1, args.num_procs)
+    if num_procs == 1:
+        result_iter = map(process_reaction, rows)
+        progress_iter = tqdm(result_iter, total=len(rows))
+        records = []
+        for record, rxn_smi, message in progress_iter:
+            if record is None:
+                print('[reaction]', rxn_smi)
+                print('[message]', message)
+                continue
+            records.append(record)
+    else:
+        with Pool(processes=num_procs) as pool:
+            progress_iter = tqdm(
+                pool.imap(
+                    process_reaction, rows, chunksize=max(1, args.chunksize)
+                ),
+                total=len(rows)
+            )
+            records = []
+            for record, rxn_smi, message in progress_iter:
+                if record is None:
+                    print('[reaction]', rxn_smi)
+                    print('[message]', message)
+                    continue
+                records.append(record)
 
-        is_valid, message = check_valid(rxn_smi)
-        if not is_valid:
-            print('[reaction]', rxn_smi)
-            print('[message]', message)
-            continue
-
-        rxn_new = add_all_amap(rxn_smi)
-        rxn_new = remap_amap(rxn_new)
-        new_dict['id'].append(uspto_id)
-        new_dict['class'].append(class_id)
-        new_dict['reactants>reagents>production'].append(rxn_new)
-
-    new_df = pd.DataFrame.from_dict(new_dict)
+    new_df = pd.DataFrame.from_records(
+        records,
+        columns=['id', 'class', 'reactants>reagents>production']
+    )
     new_df.to_csv(f"{file_dir}/{new_file}", index=False)
 
     print('[INFO] file size after process:', len(new_df))
